@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+
+import type { LanguageCode, ProviderId } from '../lyrics/transcription';
 import { persist } from 'zustand/middleware';
 
 import { persistStorage } from './storage';
@@ -15,6 +17,8 @@ export type Settings = {
   resumeOnLaunch: boolean;
   songSort: SongSort;
   haptics: boolean;
+  aiProvider: ProviderId;
+  aiLanguage: LanguageCode;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -25,6 +29,8 @@ export const DEFAULT_SETTINGS: Settings = {
   resumeOnLaunch: true,
   songSort: 'title',
   haptics: true,
+  aiProvider: 'groq',
+  aiLanguage: 'auto',
 };
 
 type SettingsState = Settings & {

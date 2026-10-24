@@ -27,6 +27,18 @@ La dernière session (file, position, aléatoire, répétition) est restaurée a
 artiste de l'album, album, genre, numéro de piste/disque, année, dossier ; pochettes extraites vers le cache
 (vignette système, puis image intégrée au fichier) et couleurs dominantes calculées avec AndroidX Palette.
 
+### Paroles par IA (Internet)
+
+Dans le lecteur › Paroles, **Transcrire avec l'IA** envoie le fichier audio à un service de transcription
+Whisper (Groq ou OpenAI, au choix dans Paramètres › Paroles par IA) et enregistre des paroles `.lrc`
+synchronisées, marquées « transcription automatique — à vérifier ».
+
+- Clé API personnelle saisie dans les Paramètres, chiffrée sur le téléphone (expo-secure-store) ; aucune clé
+  n'est intégrée à l'application (dépôt et APK publics).
+- Limite : 25 Mo par fichier (offre de base des deux services). Coût facturé sur le compte de l'utilisateur.
+- Qualité variable : bonne en français parlé clair, plus faible sur le chant avec instruments ; les langues peu
+  représentées (fon, goun…) sont mal reconnues.
+
 ### Limites connues
 
 - **Paroles** : fichier `.lrc` du même nom que le morceau, lu s'il est accessible (sur Android 13+, l'accès

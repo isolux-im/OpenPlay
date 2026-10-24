@@ -14,6 +14,8 @@ export type Track = {
   addedAt: number;
   folder: string;
   path: string | null;
+  sizeBytes: number;
+  mimeType: string;
 };
 
 export type Album = {

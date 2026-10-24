@@ -1,9 +1,11 @@
 import Constants from 'expo-constants';
-import type { ReactNode } from 'react';
-import { Alert, Pressable, StyleSheet, Switch, View } from 'react-native';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Alert, Linking, Pressable, StyleSheet, Switch, View } from 'react-native';
 
 import { ScrollScreen } from '../components/Screen';
 import { formatTotalDuration } from '../library/text';
+import { deleteApiKey, getApiKey, setApiKey } from '../lyrics/apiKeys';
+import { LANGUAGES, PROVIDERS, type ProviderId } from '../lyrics/transcription';
 import { useLibrary } from '../store/library';
 import { usePlayer } from '../store/player';
 import { useSettings, type AccentKey, type ThemeMode } from '../store/settings';
@@ -183,6 +185,8 @@ export function SettingsScreen() {
         <Row icon="moon" iconColor="#5856D6" label="Minuterie de sommeil" detail={sleep.atTrackEnd ? 'Fin du morceau' : sleep.endsAt ? `${Math.max(0, Math.round((sleep.endsAt - now) / 60000))} min` : 'Désactivée'} onPress={openSleep} last />
       </Group>
 
+      <AiLyricsGroup />
+
       <Group title="Historique">
         <Row
           icon="trash"
@@ -205,6 +209,72 @@ export function SettingsScreen() {
         <Row icon="code-slash" iconColor="#8E8E93" label="Technologies" detail="Expo · React Native" last />
       </Group>
     </ScrollScreen>
+  );
+}
+
+function AiLyricsGroup() {
+  const s = useSettings();
+  const openPrompt = useUi((x) => x.openPrompt);
+  const showToast = useUi((x) => x.showToast);
+  const provider = PROVIDERS[s.aiProvider];
+  const [hasKey, setHasKey] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    getApiKey(s.aiProvider).then((k) => alive && setHasKey(!!k));
+    return () => {
+      alive = false;
+    };
+  }, [s.aiProvider]);
+
+  const editKey = () =>
+    openPrompt({
+      title: `Clé API ${provider.label}`,
+      message: 'Elle est chiffrée sur ce téléphone et n’est envoyée qu’au fournisseur choisi.',
+      placeholder: 'Collez votre clé',
+      confirmLabel: 'Enregistrer',
+      secure: true,
+      onSubmit: async (value) => {
+        await setApiKey(s.aiProvider, value);
+        setHasKey(true);
+        showToast('Clé enregistrée');
+      },
+    });
+
+  return (
+    <Group
+      title="Paroles par IA"
+      footer={`Pour transcrire, le fichier audio du morceau est envoyé à ${provider.label} (Internet requis, ${Math.round(provider.maxBytes / 1048576)} Mo maximum). L’usage est facturé sur votre compte selon ses conditions. Le résultat est un premier jet à vérifier ; les langues peu représentées (fon, goun…) sont mal reconnues.`}>
+      <View style={styles.block}>
+        <Text variant="subhead" tone="secondary" style={{ marginBottom: 8 }}>
+          Service
+        </Text>
+        <Segmented<ProviderId>
+          options={(Object.keys(PROVIDERS) as ProviderId[]).map((id) => ({ value: id, label: PROVIDERS[id].label }))}
+          value={s.aiProvider}
+          onChange={(aiProvider) => s.update({ aiProvider })}
+        />
+        <Text variant="subhead" tone="secondary" style={{ marginTop: 16, marginBottom: 8 }}>
+          Langue des chansons
+        </Text>
+        <Segmented options={LANGUAGES.map((l) => ({ value: l.code, label: l.label }))} value={s.aiLanguage} onChange={(aiLanguage) => s.update({ aiLanguage })} />
+      </View>
+      <Row icon="key" iconColor="#FF9500" label="Clé API" detail={hasKey === null ? undefined : hasKey ? 'Enregistrée' : 'Aucune'} onPress={editKey} />
+      <Row icon="open-outline" iconColor="#0A84FF" label={`Obtenir une clé ${provider.label}`} onPress={() => Linking.openURL(provider.keyUrl)} last={!hasKey} />
+      {hasKey ? (
+        <Row
+          icon="trash"
+          iconColor="#FF3B30"
+          label="Supprimer la clé"
+          destructive
+          last
+          onPress={async () => {
+            await deleteApiKey(s.aiProvider);
+            setHasKey(false);
+          }}
+        />
+      ) : null}
+    </Group>
   );
 }
 

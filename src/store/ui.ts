@@ -8,6 +8,8 @@ export type PromptRequest = {
   placeholder?: string;
   initialValue?: string;
   confirmLabel: string;
+  /** Saisie masquée (clé API). */
+  secure?: boolean;
   onSubmit: (value: string) => void;
 };
 

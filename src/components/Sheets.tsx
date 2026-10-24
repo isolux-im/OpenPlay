@@ -256,6 +256,9 @@ function PromptForm({ prompt }: { prompt: ReturnType<typeof useUi.getState>['pro
             placeholderTextColor={colors.tertiaryText}
             style={[styles.input, { color: colors.text, backgroundColor: colors.fill }]}
             returnKeyType="done"
+            secureTextEntry={prompt?.secure}
+            autoCapitalize={prompt?.secure ? 'none' : 'sentences'}
+            autoCorrect={!prompt?.secure}
             accessibilityLabel={prompt?.placeholder ?? prompt?.title}
           />
           <View style={styles.dialogButtons}>
