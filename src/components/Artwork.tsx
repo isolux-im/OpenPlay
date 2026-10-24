@@ -28,8 +28,15 @@ export function Artwork({ track, size, rounded = R.md, circle = false, placehold
   return (
     <View style={[dim, { borderRadius: r }, shadow && styles.shadow, style]}>
       <View style={[StyleSheet.absoluteFill, { borderRadius: r, overflow: 'hidden' }]}>
-        {info?.uri ? (
+        {info?.uri && isSquareish(info.aspect) ? (
           <Image source={{ uri: info.uri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={180} recyclingKey={info.uri} />
+        ) : info?.uri ? (
+          <>
+            {/* Image non carrée (vignette vidéo) : affichée en entier sur un fond flouté d'elle-même. */}
+            <Image source={{ uri: info.uri }} style={StyleSheet.absoluteFill} contentFit="cover" blurRadius={24} recyclingKey={`${info.uri}#bg`} />
+            <View style={[StyleSheet.absoluteFill, styles.dim]} />
+            <Image source={{ uri: info.uri }} style={StyleSheet.absoluteFill} contentFit="contain" transition={180} recyclingKey={info.uri} />
+          </>
         ) : (
           <LinearGradient colors={[colors.vibrant, colors.dominant]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.center}>
             <Icon name={placeholderIcon} size={iconSize} color="rgba(255,255,255,0.82)" />
@@ -63,7 +70,13 @@ export function Mosaic({ tracks, size, rounded = R.md, style }: { tracks: Pick<T
   );
 }
 
+/** Tolérance de 8 % : au-delà, l'image est montrée entière plutôt que recadrée. */
+function isSquareish(aspect: number) {
+  return Math.abs(aspect - 1) <= 0.08;
+}
+
 const styles = StyleSheet.create({
+  dim: { backgroundColor: 'rgba(0,0,0,0.18)' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   hairline: { borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(128,128,128,0.25)' },
   shadow: {

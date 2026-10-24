@@ -6,6 +6,7 @@ import { Carousel, EmptyState, MediaCard, PlayShuffleButtons, SectionHeader } fr
 import { HeaderButton, ScrollScreen } from '../components/Screen';
 import { TrackRow } from '../components/TrackRow';
 import { formatTotalDuration, pluralize } from '../library/text';
+import { UNKNOWN_GENRE } from '../library/trackFromNative';
 import { useAppNavigation } from '../navigation/ref';
 import type { SharedStackParams } from '../navigation/types';
 import { useLibrary } from '../store/library';
@@ -26,7 +27,7 @@ export function AlbumScreen() {
   if (!album) return <ScrollScreen title="Album" back largeTitle={false}><EmptyState icon="albums-outline" title="Album introuvable" /></ScrollScreen>;
 
   const artistId = album.artist.toLowerCase();
-  const genre = tracks[0]?.genre;
+  const genre = tracks[0]?.genre === UNKNOWN_GENRE ? undefined : tracks[0]?.genre;
   const more = (index.artistsById[artistId]?.albumIds ?? []).filter((id) => id !== album.id).map((id) => index.albumsById[id]).filter(Boolean);
   const multiDisc = new Set(tracks.map((t) => t.discNumber)).size > 1;
 

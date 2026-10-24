@@ -166,7 +166,7 @@ class OpenPlayMediaModule : Module() {
     val bitmap: Bitmap = if (file.exists() && file.length() > 0) {
       BitmapFactory.decodeFile(file.absolutePath) ?: return null
     } else {
-      val loaded = loadArtworkBitmap(trackId.toLong(), albumId.toLongOrNull() ?: 0L, size) ?: return null
+      val loaded = loadArtworkBitmap(trackId.toLong(), albumId.toLongOrNull() ?: 0L, size)?.let { trimLetterbox(it) } ?: return null
       FileOutputStream(file).use { loaded.compress(Bitmap.CompressFormat.JPEG, 94, it) }
       loaded
     }
@@ -178,8 +178,54 @@ class OpenPlayMediaModule : Module() {
       "uri" to Uri.fromFile(file).toString(),
       "dominant" to toHex(dominant),
       "vibrant" to toHex(vibrant),
-      "darkMuted" to toHex(darkMuted)
+      "darkMuted" to toHex(darkMuted),
+      "width" to bitmap.width,
+      "height" to bitmap.height
     )
+  }
+
+  /**
+   * Retire les bandes noires des vignettes vidéo (image 16:9 dans un cadre 4:3, par exemple).
+   * Ne touche jamais une image carrée : une pochette d'album sombre ne doit pas être rognée.
+   */
+  private fun trimLetterbox(bitmap: Bitmap): Bitmap {
+    val w = bitmap.width
+    val h = bitmap.height
+    if (w < 32 || h < 32 || kotlin.math.abs(w - h) <= maxOf(w, h) / 20) return bitmap
+    val row = IntArray(w)
+    val col = IntArray(h)
+    fun isDark(c: Int) = maxOf((c shr 16) and 0xFF, (c shr 8) and 0xFF, c and 0xFF) < 28
+    fun mostlyDark(pixels: IntArray): Boolean {
+      var dark = 0
+      var count = 0
+      var i = 0
+      while (i < pixels.size) {
+        if (isDark(pixels[i])) dark++
+        count++
+        i += 4
+      }
+      return dark * 100 >= count * 97
+    }
+    fun rowIsBar(y: Int): Boolean {
+      bitmap.getPixels(row, 0, w, 0, y, w, 1)
+      return mostlyDark(row)
+    }
+    fun colIsBar(x: Int): Boolean {
+      bitmap.getPixels(col, 0, 1, x, 0, 1, h)
+      return mostlyDark(col)
+    }
+    var top = 0
+    while (top < h / 3 && rowIsBar(top)) top++
+    var bottom = h - 1
+    while (bottom > h * 2 / 3 && rowIsBar(bottom)) bottom--
+    var left = 0
+    while (left < w / 3 && colIsBar(left)) left++
+    var right = w - 1
+    while (right > w * 2 / 3 && colIsBar(right)) right--
+    val newW = right - left + 1
+    val newH = bottom - top + 1
+    if (newW >= w - 2 && newH >= h - 2) return bitmap
+    return Bitmap.createBitmap(bitmap, left, top, newW, newH)
   }
 
   /**

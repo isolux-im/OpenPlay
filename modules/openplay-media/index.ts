@@ -24,6 +24,8 @@ export type NativeArtwork = {
   dominant: string;
   vibrant: string;
   darkMuted: string;
+  width: number;
+  height: number;
 };
 
 type OpenPlayMediaModule = {
