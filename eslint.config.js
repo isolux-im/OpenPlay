@@ -7,4 +7,9 @@ module.exports = defineConfig([
   {
     ignores: ['android/*', 'ios/*', 'dist/*', 'coverage/*'],
   },
+  {
+    // Les simulations Jest se déclarent avec require() à l'intérieur de jest.mock.
+    files: ['jest.setup.ts', 'src/__tests__/**'],
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
+  },
 ]);

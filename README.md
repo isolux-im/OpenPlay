@@ -1,43 +1,52 @@
 # OpenPlay — Écouter, autrement.
 
-Lecteur audio Android local, développé avec **Expo (SDK 58), React Native et TypeScript**.
-L'ancienne version Kotlin/Compose est conservée sur la branche `archive/kotlin-native`.
+Lecteur musical Android **hors ligne**, inspiré de l'ergonomie d'Apple Music, développé avec
+**Expo (SDK 58), React Native et TypeScript**. L'ancienne version Kotlin/Compose est conservée sur la
+branche `archive/kotlin-native`.
 
-## Fonctions de cette version
+## Fonctions
 
-- Bibliothèque des fichiers audio du téléphone (permission `READ_MEDIA_AUDIO`).
-- Lecture, pause, piste suivante, piste précédente (retour au début après 3 s), enchaînement automatique.
-- Favoris enregistrés sur l'appareil.
-- Thème clair/sombre selon le système.
+**Navigation** : cinq onglets (Accueil, Bibliothèque, Playlists, Recherche, Paramètres), une pile d'écrans
+par onglet (la barre reste visible sur les fiches album/artiste), mini-lecteur flottant au-dessus de la barre,
+lecteur plein écran qui s'ouvre depuis le mini-lecteur et se ferme d'un glissement vers le bas.
 
-**Pas encore inclus** : lecture en arrière-plan, notification et commandes de l'écran de verrouillage
-(étape suivante, voir plus bas), listes de lecture, aléatoire/répétition, minuterie.
+| Écran | Contenu |
+|---|---|
+| Accueil | Reprendre la lecture, Mix pour vous (titres phares, genre favori, à redécouvrir, aléatoire), écoutés récemment, favoris, ajoutés récemment, playlists, albums |
+| Bibliothèque | Favoris, Titres (tri titre/artiste/album/date), Artistes, Albums, Genres, Dossiers, Historique ; fiches album et artiste |
+| Playlists | Création, renommage, suppression, ajout de morceaux, réordonnancement par glisser-déposer ; playlists automatiques (favoris, plus écoutés, ajoutés récemment, à redécouvrir) |
+| Recherche | Recherche instantanée sans accents ni casse (morceaux, artistes, albums, playlists), meilleur résultat, recherches récentes, genres |
+| Paramètres | Thème clair/sombre/système, couleur d'accent, lecteur coloré, analyse et durée minimale, reprise au lancement, haptique, minuterie, historique |
+| Lecteur | Pochette, fond aux couleurs de la pochette, barre de progression interactive, aléatoire, répétition (tout / un), favoris, paroles .lrc synchronisées, file d'attente modifiable, minuterie de sommeil |
 
-**Limite connue** : expo-media-library ne fournit pas les étiquettes ID3. Le titre et l'artiste sont
-déduits du nom de fichier (format `Artiste - Titre.mp3`) ; sinon le nom de fichier sert de titre.
+**Lecture** : file native ExoPlayer (expo-audio `AudioPlaylist`) qui continue en arrière-plan, avec
+notification, commandes de l'écran de verrouillage et boutons Bluetooth (lecture, pause, suivant, précédent).
+La dernière session (file, position, aléatoire, répétition) est restaurée au lancement.
+
+**Métadonnées** : module natif local `modules/openplay-media` (Kotlin) qui lit MediaStore : titre, artiste,
+artiste de l'album, album, genre, numéro de piste/disque, année, dossier ; pochettes extraites vers le cache
+(vignette système, puis image intégrée au fichier) et couleurs dominantes calculées avec AndroidX Palette.
+
+### Limites connues
+
+- **Paroles** : fichier `.lrc` du même nom que le morceau, lu s'il est accessible (sur Android 13+, l'accès
+  direct aux fichiers non audio est généralement refusé), ou importé depuis le lecteur. Les paroles intégrées
+  aux étiquettes ID3 ne sont pas lues.
+- **Volume** : pas de curseur de volume dans le lecteur (boutons physiques du téléphone).
+- Le bouton « précédent » de la notification recule toujours d'une piste (comportement d'expo-audio) ;
+  dans l'application, il revient au début du morceau après 3 s.
 
 ## Obtenir l'APK (GitHub Actions)
 
-Le workflow **Android APK** (`.github/workflows/android-apk.yml`) se lance à chaque push sur `main`,
-sur chaque pull request, ou manuellement (onglet **Actions** → **Android APK** → **Run workflow**,
-possible une fois le workflow présent sur `main`).
+Le workflow **Android APK** (`.github/workflows/android-apk.yml`) :
 
 1. Job `check` : TypeScript, ESLint, tests Jest.
-2. Job `apk` : `expo prebuild` génère le dossier `android/`, puis `./gradlew assembleRelease`.
-3. Télécharger l'APK :
-   - après un push sur `main` (ou un lancement manuel sur `main`) : lien direct vers la dernière version,
-     https://github.com/isolux-im/OpenPlay/releases/latest/download/OpenPlay.apk
-     (chaque build crée une Release `build-N` ; le dépôt étant public, ce lien est accessible à tous) ;
-   - sur une pull request : artefact **OpenPlay-apk** de l'exécution (ZIP contenant `app-release.apk`).
+2. Job `apk` : `expo prebuild` génère `android/`, puis `./gradlew assembleRelease` (arm64-v8a).
+3. Sur `main` : Release GitHub `build-N` avec `OpenPlay.apk` ; lien direct vers la dernière version :
+   https://github.com/isolux-im/OpenPlay/releases/latest/download/OpenPlay.apk
+   Sur une pull request : artefact **OpenPlay-apk**.
 
-L'APK est compilé en `release` (le code JavaScript y est intégré) et signé avec la **clé de débogage**
-d'Expo : installable pour des tests, mais pas publiable sur le Play Store. Il ne cible que les
-processeurs `arm64-v8a` (quasi tous les téléphones récents).
-
-## Installer sur le téléphone
-
-Copier l'APK, autoriser l'installation depuis la source utilisée, puis l'ouvrir et accepter l'accès
-à la musique. Si l'ancienne version Kotlin est installée, la désinstaller d'abord (signatures différentes).
+L'APK est signé avec la **clé de débogage** d'Expo : installable pour des tests, pas publiable sur le Play Store.
 
 ## Développer
 
@@ -47,32 +56,23 @@ Prérequis : Node 22.
 npm ci
 npm run check        # tsc + ESLint + Jest
 npm run prebuild     # génère android/ (non versionné)
+npx expo export --platform web   # aperçu web (bibliothèque de démonstration, moteur audio simulé)
 ```
 
-Le dossier `android/` est régénéré à chaque build : toute configuration native passe par `app.json`
-et les config plugins. Dans l'environnement cloud de Claude Code, le SDK Android et les services Expo
-(api.expo.dev) sont inaccessibles : utiliser `EXPO_OFFLINE=1 npx expo install <paquet>` et laisser la
-compilation de l'APK à GitHub Actions.
+Dans l'environnement cloud de Claude Code, le SDK Android et les services Expo sont inaccessibles :
+`EXPO_OFFLINE=1 npx expo install <paquet>`, compilation de l'APK par GitHub Actions, validation visuelle
+par l'export web et Playwright.
 
 ## Architecture
 
 ```
+modules/openplay-media/      module natif Kotlin (MediaStore, pochettes, couleurs, .lrc voisins)
 src/
-  App.tsx                  écrans (onglets Bibliothèque / Favoris) et barre de lecture
-  library/                 lecture de la bibliothèque (expo-media-library) et analyse des noms de fichier
-  player/queue.ts          logique de file pure (testée)
-  player/PlaybackEngine.ts interface du moteur audio + implémentation expo-audio
-  player/usePlayer.ts      état de lecture exposé à l'interface
-  favorites/               favoris (AsyncStorage)
-  ui/                      composants
+  App.tsx                    polices, thème, démarrage (bibliothèque, moteur, session)
+  navigation/                onglets, piles, barre d'onglets + mini-lecteur
+  screens/                   Accueil, Bibliothèque (+ sous-écrans), Playlists, Recherche, Paramètres, détails
+  player/                    moteur (expo-audio / simulé), file, paroles .lrc, lecteur plein écran
+  store/                     zustand : bibliothèque, lecteur, données utilisateur et réglages (persistés)
+  library/                   conversion MediaStore, index, recherche, sélecteurs, pochettes
+  components/ ui/            composants réutilisables, thème clair/sombre, typographie Inter, icônes
 ```
-
-## Étape suivante : arrière-plan et commandes multimédias
-
-Seule `ExpoAudioEngine` (`src/player/PlaybackEngine.ts`) et `app.json` seront modifiés :
-`enableBackgroundPlayback: true` dans le plugin expo-audio, `shouldPlayInBackground: true`,
-puis `setActiveForLockScreen(true, métadonnées)` pour la notification et l'écran de verrouillage
-(sans quoi Android coupe la lecture en arrière-plan après environ 3 minutes, d'après la documentation
-expo-audio). À valider sur appareil réel. Si les commandes « suivant/précédent » de la notification ne
-suffisent pas, l'option suivante est un module Expo natif reprenant le `PlaybackService` Media3 de la
-version Kotlin.

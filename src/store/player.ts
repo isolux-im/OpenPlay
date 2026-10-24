@@ -1,0 +1,363 @@
+import { create } from 'zustand';
+
+import { loadArtwork, peekArtwork } from '../library/artwork';
+import type { EngineItem, PlaybackEngine } from '../player/PlaybackEngine';
+import { indexAfterMove, moveItem, nextRepeat, shouldRestart, shuffleAround } from '../player/queue';
+import type { RepeatMode, Track } from '../types';
+import { useUser, type Session } from './user';
+
+export type SleepTimer = { endsAt: number | null; atTrackEnd: boolean };
+
+export type PlayerState = {
+  queue: string[];
+  /** Ordre d'origine, rétabli quand on désactive l'aléatoire. */
+  originalQueue: string[];
+  index: number;
+  isPlaying: boolean;
+  isBuffering: boolean;
+  positionSec: number;
+  durationSec: number;
+  shuffle: boolean;
+  repeat: RepeatMode;
+  sourceLabel: string | null;
+  sleep: SleepTimer;
+  expanded: boolean;
+  /** Le lecteur plein écran reste monté pendant son animation de fermeture. */
+  playerMounted: boolean;
+
+  playTracks: (ids: string[], startIndex?: number, options?: { shuffle?: boolean; label?: string | null }) => void;
+  toggle: () => void;
+  play: () => void;
+  pause: () => void;
+  next: () => void;
+  previous: () => void;
+  seek: (sec: number) => void;
+  jumpTo: (index: number) => void;
+  toggleShuffle: () => void;
+  cycleRepeat: () => void;
+  playNext: (ids: string[]) => void;
+  addToQueue: (ids: string[]) => void;
+  removeAt: (index: number) => void;
+  moveInQueue: (from: number, to: number) => void;
+  clearUpcoming: () => void;
+  setSleepTimer: (minutes: number | null, atTrackEnd?: boolean) => void;
+  setExpanded: (expanded: boolean) => void;
+  onPlayerClosed: () => void;
+  restoreSession: (session: Session, exists: (id: string) => boolean) => void;
+};
+
+/** Un morceau compte comme écouté après 30 s ou la moitié de sa durée. */
+export const PLAY_COUNT_THRESHOLD_SEC = 30;
+const SESSION_SAVE_INTERVAL_MS = 5000;
+
+let engine: PlaybackEngine | null = null;
+let resolveTrack: (id: string) => Track | undefined = () => undefined;
+let unsubscribers: (() => void)[] = [];
+let countedCurrent = false;
+let lastSessionSave = 0;
+let now: () => number = () => Date.now();
+
+function toItem(t: Track): EngineItem {
+  return { id: t.id, uri: t.uri, title: t.title, artist: t.artist, album: t.album };
+}
+
+function itemsFor(ids: string[]): EngineItem[] {
+  return ids.map((id) => resolveTrack(id)).filter((t): t is Track => !!t).map(toItem);
+}
+
+export const usePlayer = create<PlayerState>()((set, get) => {
+  function persistSession() {
+    const s = get();
+    lastSessionSave = now();
+    useUser.getState().saveSession(
+      s.queue.length
+        ? {
+            queue: s.queue,
+            originalQueue: s.originalQueue,
+            index: s.index,
+            positionSec: s.positionSec,
+            shuffle: s.shuffle,
+            repeat: s.repeat,
+            sourceLabel: s.sourceLabel,
+          }
+        : null,
+    );
+  }
+
+  function announceNowPlaying() {
+    const { queue, index } = get();
+    const track = resolveTrack(queue[index]);
+    if (!track || !engine) return;
+    const item = toItem(track);
+    engine.setNowPlaying(item, peekArtwork(track)?.uri ?? null);
+    if (!peekArtwork(track)) {
+      loadArtwork(track).then((info) => {
+        const s = get();
+        if (s.queue[s.index] === track.id && info.uri) engine?.setNowPlaying(item, info.uri);
+      });
+    }
+  }
+
+  /** Réordonne la file native autour de la piste courante, sans interrompre la lecture. */
+  function rebuildAround(newQueue: string[], newIndex: number) {
+    const { queue, index } = get();
+    if (!engine) return;
+    for (let i = queue.length - 1; i >= 0; i--) if (i !== index) engine.remove(i);
+    newQueue.forEach((id, j) => {
+      if (j === newIndex) return;
+      const t = resolveTrack(id);
+      if (t) engine?.insert(toItem(t), j);
+    });
+  }
+
+  return {
+    queue: [],
+    originalQueue: [],
+    index: -1,
+    isPlaying: false,
+    isBuffering: false,
+    positionSec: 0,
+    durationSec: 0,
+    shuffle: false,
+    repeat: 'off',
+    sourceLabel: null,
+    sleep: { endsAt: null, atTrackEnd: false },
+    expanded: false,
+    playerMounted: false,
+
+    playTracks: (ids, startIndex, options = {}) => {
+      const valid = ids.filter((id) => resolveTrack(id));
+      if (!valid.length || !engine) return;
+      const shuffle = options.shuffle ?? false;
+      const requested = startIndex === undefined ? -1 : valid.indexOf(ids[startIndex]);
+      // En aléatoire sans morceau choisi, la première piste est elle-même tirée au sort.
+      const pivot = requested >= 0 ? requested : shuffle ? Math.floor(Math.random() * valid.length) : 0;
+      const queue = shuffle ? shuffleAround(valid, pivot) : valid;
+      const index = shuffle ? 0 : pivot;
+      countedCurrent = false;
+      set({
+        queue,
+        originalQueue: valid,
+        index,
+        shuffle,
+        positionSec: 0,
+        durationSec: resolveTrack(queue[index])?.durationSec ?? 0,
+        sourceLabel: options.label ?? null,
+      });
+      engine.load(itemsFor(queue), index, 0, true);
+      announceNowPlaying();
+      persistSession();
+    },
+
+    toggle: () => (get().isPlaying ? get().pause() : get().play()),
+    play: () => {
+      if (!get().queue.length) return;
+      engine?.play();
+      set({ isPlaying: true });
+    },
+    pause: () => {
+      engine?.pause();
+      set({ isPlaying: false });
+      persistSession();
+    },
+    next: () => {
+      const { index, queue, repeat } = get();
+      if (index < queue.length - 1 || repeat === 'all') engine?.next();
+    },
+    previous: () => {
+      const { positionSec, index, repeat } = get();
+      if (shouldRestart(positionSec, index, repeat)) get().seek(0);
+      else engine?.previous();
+    },
+    seek: (sec) => {
+      const s = Math.max(0, Math.min(sec, get().durationSec || sec));
+      engine?.seekTo(s);
+      set({ positionSec: s });
+    },
+    jumpTo: (i) => {
+      if (i < 0 || i >= get().queue.length) return;
+      engine?.skipTo(i);
+      engine?.play();
+      set({ isPlaying: true });
+    },
+
+    toggleShuffle: () => {
+      const { shuffle, queue, index, originalQueue } = get();
+      if (!queue.length) {
+        set({ shuffle: !shuffle });
+        return;
+      }
+      const currentId = queue[index];
+      const newQueue = shuffle ? originalQueue : shuffleAround(queue, index);
+      const newIndex = Math.max(0, newQueue.indexOf(currentId));
+      rebuildAround(newQueue, newIndex);
+      set({ shuffle: !shuffle, queue: newQueue, index: newIndex });
+      persistSession();
+    },
+    cycleRepeat: () => {
+      const repeat = nextRepeat(get().repeat);
+      engine?.setRepeat(repeat);
+      set({ repeat });
+      persistSession();
+    },
+
+    playNext: (ids) => {
+      const { queue, index, originalQueue } = get();
+      if (!queue.length) return get().playTracks(ids);
+      const items = ids.filter((id) => resolveTrack(id));
+      items.forEach((id, k) => engine?.insert(toItem(resolveTrack(id)!), index + 1 + k));
+      const at = originalQueue.indexOf(queue[index]) + 1;
+      set({
+        queue: [...queue.slice(0, index + 1), ...items, ...queue.slice(index + 1)],
+        originalQueue: [...originalQueue.slice(0, at), ...items, ...originalQueue.slice(at)],
+      });
+      persistSession();
+    },
+    addToQueue: (ids) => {
+      const { queue, originalQueue } = get();
+      if (!queue.length) return get().playTracks(ids);
+      const items = ids.filter((id) => resolveTrack(id));
+      items.forEach((id, k) => engine?.insert(toItem(resolveTrack(id)!), queue.length + k));
+      set({ queue: [...queue, ...items], originalQueue: [...originalQueue, ...items] });
+      persistSession();
+    },
+    removeAt: (i) => {
+      const { queue, index, originalQueue } = get();
+      if (i === index || i < 0 || i >= queue.length) return;
+      engine?.remove(i);
+      const id = queue[i];
+      const o = originalQueue.indexOf(id);
+      set({
+        queue: queue.filter((_, k) => k !== i),
+        originalQueue: o >= 0 ? originalQueue.filter((_, k) => k !== o) : originalQueue,
+        index: i < index ? index - 1 : index,
+      });
+      persistSession();
+    },
+    moveInQueue: (from, to) => {
+      const { queue, index } = get();
+      if (from === index || to < 0 || to >= queue.length || from === to) return;
+      const t = resolveTrack(queue[from]);
+      if (!t) return;
+      engine?.remove(from);
+      engine?.insert(toItem(t), to);
+      set({ queue: moveItem(queue, from, to), index: indexAfterMove(index, from, to) });
+      persistSession();
+    },
+    clearUpcoming: () => {
+      const { queue, index, originalQueue } = get();
+      for (let i = queue.length - 1; i > index; i--) engine?.remove(i);
+      const kept = queue.slice(0, index + 1);
+      set({ queue: kept, originalQueue: originalQueue.filter((id) => kept.includes(id)) });
+      persistSession();
+    },
+
+    setSleepTimer: (minutes, atTrackEnd = false) =>
+      set({ sleep: { endsAt: minutes ? now() + minutes * 60_000 : null, atTrackEnd } }),
+    setExpanded: (expanded) => set(expanded ? { expanded, playerMounted: true } : { expanded }),
+    onPlayerClosed: () => set((s) => (s.expanded ? {} : { playerMounted: false })),
+
+    restoreSession: (session, exists) => {
+      if (!engine || get().queue.length) return;
+      const queue = session.queue.filter(exists);
+      if (!queue.length) return;
+      const currentId = session.queue[session.index];
+      const index = Math.max(0, queue.indexOf(currentId));
+      const positionSec = queue[index] === currentId ? session.positionSec : 0;
+      countedCurrent = true;
+      set({
+        queue,
+        originalQueue: session.originalQueue.filter(exists),
+        index,
+        positionSec,
+        durationSec: resolveTrack(queue[index])?.durationSec ?? 0,
+        shuffle: session.shuffle,
+        repeat: session.repeat,
+        sourceLabel: session.sourceLabel,
+        isPlaying: false,
+      });
+      engine.setRepeat(session.repeat);
+      engine.load(itemsFor(queue), index, positionSec, false);
+      announceNowPlaying();
+    },
+  };
+});
+
+/** Branche le moteur audio sur le store. À appeler une seule fois au démarrage. */
+export function connectPlayer(
+  e: PlaybackEngine,
+  resolver: (id: string) => Track | undefined,
+  options: { clock?: () => number } = {},
+) {
+  disconnectPlayer();
+  engine = e;
+  resolveTrack = resolver;
+  if (options.clock) now = options.clock;
+  const store = usePlayer;
+
+  unsubscribers.push(
+    e.onStatus((s) => {
+      const state = store.getState();
+      store.setState({
+        isPlaying: s.playing,
+        isBuffering: s.isBuffering,
+        positionSec: s.positionSec,
+        durationSec: s.durationSec > 0 ? s.durationSec : state.durationSec,
+      });
+      const currentId = state.queue[state.index];
+      const threshold = Math.min(PLAY_COUNT_THRESHOLD_SEC, (s.durationSec || Infinity) / 2);
+      if (currentId && !countedCurrent && s.positionSec >= threshold) {
+        countedCurrent = true;
+        useUser.getState().recordPlay(currentId, now());
+      }
+      const { endsAt } = state.sleep;
+      if (endsAt && now() >= endsAt) {
+        store.setState({ sleep: { endsAt: null, atTrackEnd: false } });
+        state.pause();
+      }
+      if (now() - lastSessionSave > SESSION_SAVE_INTERVAL_MS && state.queue.length) {
+        lastSessionSave = now();
+        const cur = store.getState();
+        useUser.getState().saveSession({
+          queue: cur.queue,
+          originalQueue: cur.originalQueue,
+          index: cur.index,
+          positionSec: cur.positionSec,
+          shuffle: cur.shuffle,
+          repeat: cur.repeat,
+          sourceLabel: cur.sourceLabel,
+        });
+      }
+    }),
+    e.onTrackChanged((i) => {
+      const state = store.getState();
+      if (i < 0 || i >= state.queue.length) return;
+      countedCurrent = false;
+      store.setState({ index: i, positionSec: 0, durationSec: resolveTrack(state.queue[i])?.durationSec ?? 0 });
+      if (state.sleep.atTrackEnd) {
+        store.setState({ sleep: { endsAt: null, atTrackEnd: false } });
+        state.pause();
+      }
+      const track = resolveTrack(state.queue[i]);
+      if (track) {
+        const item = toItem(track);
+        e.setNowPlaying(item, peekArtwork(track)?.uri ?? null);
+        if (!peekArtwork(track)) loadArtwork(track).then((info) => info.uri && store.getState().queue[store.getState().index] === track.id && e.setNowPlaying(item, info.uri));
+      }
+    }),
+  );
+}
+
+export function disconnectPlayer() {
+  unsubscribers.forEach((u) => u());
+  unsubscribers = [];
+  engine?.release();
+  engine = null;
+  countedCurrent = false;
+  lastSessionSave = 0;
+  now = () => Date.now();
+}
+
+export function currentTrackId(s: Pick<PlayerState, 'queue' | 'index'>): string | null {
+  return s.queue[s.index] ?? null;
+}

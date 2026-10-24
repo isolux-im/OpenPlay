@@ -1,0 +1,340 @@
+import { useState, type ReactNode } from 'react';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { formatDuration, pluralize } from '../library/text';
+import { navigateInCurrentTab } from '../navigation/ref';
+import { useLibrary } from '../store/library';
+import { usePlayer } from '../store/player';
+import { useUi } from '../store/ui';
+import { useUser } from '../store/user';
+import { tap } from '../ui/haptics';
+import { Icon, type IconName } from '../ui/Icon';
+import { Text } from '../ui/Text';
+import { GUTTER, radius, useTheme } from '../ui/theme';
+import { useNow } from '../ui/useNow';
+import { Artwork, Mosaic } from './Artwork';
+
+function BottomSheet({ visible, onClose, children }: { visible: boolean; onClose: () => void; children: ReactNode }) {
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
+      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Fermer" />
+      <View style={[styles.sheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + 12 }]}>
+        <View style={[styles.grabber, { backgroundColor: colors.tertiaryText }]} />
+        {children}
+      </View>
+    </Modal>
+  );
+}
+
+function SheetAction({ icon, label, onPress, destructive }: { icon: IconName; label: string; onPress: () => void; destructive?: boolean }) {
+  const { colors } = useTheme();
+  const color = destructive ? colors.danger : colors.text;
+  return (
+    <Pressable
+      onPress={() => {
+        tap('selection');
+        onPress();
+      }}
+      style={({ pressed }) => [styles.action, pressed && { backgroundColor: colors.fill }]}
+      accessibilityRole="button"
+      accessibilityLabel={label}>
+      <Text variant="body" color={color} style={{ flex: 1 }}>
+        {label}
+      </Text>
+      <Icon name={icon} size={22} color={destructive ? colors.danger : colors.text} />
+    </Pressable>
+  );
+}
+
+function TrackMenuSheet() {
+  const { colors } = useTheme();
+  const menu = useUi((s) => s.trackMenu);
+  const closeAll = useUi((s) => s.closeAll);
+  const openPicker = useUi((s) => s.openPlaylistPicker);
+  const showToast = useUi((s) => s.showToast);
+  const track = useLibrary((s) => (menu ? s.index.byId[menu.trackId] : undefined));
+  const favorite = useUser((s) => (menu ? s.favorites.includes(menu.trackId) : false));
+  const toggleFavorite = useUser((s) => s.toggleFavorite);
+  const removeFromPlaylist = useUser((s) => s.removeFromPlaylist);
+  const artistId = track ? track.albumArtist.toLowerCase() : '';
+
+  const run = (f: () => void) => () => {
+    closeAll();
+    f();
+  };
+
+  return (
+    <BottomSheet visible={!!menu && !!track} onClose={closeAll}>
+      {track && menu ? (
+        <>
+          <View style={styles.menuHeader}>
+            <Artwork track={track} size={52} rounded={8} />
+            <View style={{ flex: 1 }}>
+              <Text variant="headline" numberOfLines={1}>
+                {track.title}
+              </Text>
+              <Text variant="subhead" tone="secondary" numberOfLines={1}>
+                {track.artist} · {formatDuration(track.durationSec)}
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => {
+                tap('success');
+                toggleFavorite(track.id);
+              }}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel={favorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}>
+              <Icon name={favorite ? 'heart' : 'heart-outline'} size={26} color={colors.accent} />
+            </Pressable>
+          </View>
+          <View style={[styles.group, { backgroundColor: colors.elevated }]}>
+            <SheetAction icon="play-forward-outline" label="Lire ensuite" onPress={run(() => { usePlayer.getState().playNext([track.id]); showToast('Lu ensuite'); })} />
+            <SheetAction icon="list-outline" label="Ajouter à la file d'attente" onPress={run(() => { usePlayer.getState().addToQueue([track.id]); showToast("Ajouté à la file d'attente"); })} />
+            <SheetAction icon="add-circle-outline" label="Ajouter à une playlist…" onPress={() => openPicker([track.id])} />
+          </View>
+          <View style={[styles.group, { backgroundColor: colors.elevated }]}>
+            <SheetAction icon="albums-outline" label="Afficher l'album" onPress={run(() => navigateInCurrentTab('Album', { id: track.albumId }))} />
+            <SheetAction icon="person-outline" label="Afficher l'artiste" onPress={run(() => navigateInCurrentTab('Artist', { id: artistId }))} />
+            {menu.context.playlistId !== undefined && menu.context.playlistIndex !== undefined ? (
+              <SheetAction
+                icon="remove-circle-outline"
+                label="Retirer de la playlist"
+                destructive
+                onPress={run(() => removeFromPlaylist(menu.context.playlistId!, menu.context.playlistIndex!))}
+              />
+            ) : null}
+            {menu.context.queueIndex !== undefined ? (
+              <SheetAction icon="remove-circle-outline" label="Retirer de la file" destructive onPress={run(() => usePlayer.getState().removeAt(menu.context.queueIndex!))} />
+            ) : null}
+          </View>
+        </>
+      ) : null}
+    </BottomSheet>
+  );
+}
+
+function PlaylistPickerSheet() {
+  const { colors } = useTheme();
+  const trackIds = useUi((s) => s.playlistPicker);
+  const closeAll = useUi((s) => s.closeAll);
+  const openPrompt = useUi((s) => s.openPrompt);
+  const showToast = useUi((s) => s.showToast);
+  const playlists = useUser((s) => s.playlists);
+  const addToPlaylist = useUser((s) => s.addToPlaylist);
+  const createPlaylist = useUser((s) => s.createPlaylist);
+  const byId = useLibrary((s) => s.index.byId);
+
+  return (
+    <BottomSheet visible={!!trackIds} onClose={closeAll}>
+      <Text variant="headline" style={styles.sheetTitle}>
+        Ajouter à une playlist
+      </Text>
+      <ScrollView style={{ maxHeight: 420 }}>
+        <Pressable
+          style={styles.pickRow}
+          onPress={() =>
+            openPrompt({
+              title: 'Nouvelle playlist',
+              placeholder: 'Nom de la playlist',
+              confirmLabel: 'Créer',
+              onSubmit: (name) => {
+                createPlaylist(name, trackIds ?? []);
+                showToast('Playlist créée');
+              },
+            })
+          }
+          accessibilityRole="button">
+          <View style={[styles.newTile, { backgroundColor: colors.fill }]}>
+            <Icon name="add" size={30} color={colors.accent} />
+          </View>
+          <Text variant="body" tone="accent">
+            Nouvelle playlist…
+          </Text>
+        </Pressable>
+        {playlists.map((p) => (
+          <Pressable
+            key={p.id}
+            style={({ pressed }) => [styles.pickRow, pressed && { backgroundColor: colors.fill }]}
+            onPress={() => {
+              closeAll();
+              addToPlaylist(p.id, trackIds ?? []);
+              tap('success');
+              showToast(`Ajouté à « ${p.name} »`);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={`Ajouter à ${p.name}`}>
+            <Mosaic tracks={p.trackIds.map((id) => byId[id]).filter(Boolean)} size={52} rounded={8} />
+            <View style={{ flex: 1 }}>
+              <Text variant="body" numberOfLines={1}>
+                {p.name}
+              </Text>
+              <Text variant="subhead" tone="secondary">
+                {pluralize(p.trackIds.length, 'morceau', 'morceaux')}
+              </Text>
+            </View>
+          </Pressable>
+        ))}
+      </ScrollView>
+    </BottomSheet>
+  );
+}
+
+const SLEEP_OPTIONS = [5, 15, 30, 45, 60, 90];
+
+function SleepTimerSheet() {
+  const { colors } = useTheme();
+  const visible = useUi((s) => s.sleepSheet);
+  const closeAll = useUi((s) => s.closeAll);
+  const showToast = useUi((s) => s.showToast);
+  const sleep = usePlayer((s) => s.sleep);
+  const setSleepTimer = usePlayer((s) => s.setSleepTimer);
+  const now = useNow(15_000);
+  const remaining = sleep.endsAt ? Math.max(0, Math.round((sleep.endsAt - now) / 60000)) : null;
+  return (
+    <BottomSheet visible={visible} onClose={closeAll}>
+      <Text variant="headline" style={styles.sheetTitle}>
+        Minuterie de sommeil
+      </Text>
+      {sleep.endsAt || sleep.atTrackEnd ? (
+        <Text variant="subhead" tone="secondary" style={styles.sheetSubtitle}>
+          {sleep.atTrackEnd ? 'Arrêt à la fin du morceau en cours' : `Arrêt dans ${remaining} min`}
+        </Text>
+      ) : null}
+      <View style={[styles.group, { backgroundColor: colors.elevated }]}>
+        {SLEEP_OPTIONS.map((m) => (
+          <SheetAction key={m} icon="moon-outline" label={m < 60 ? `${m} minutes` : `${m / 60} h${m % 60 ? ' 30' : ''}`} onPress={() => { setSleepTimer(m); closeAll(); showToast(`Arrêt dans ${m} min`); }} />
+        ))}
+        <SheetAction icon="musical-note-outline" label="Fin du morceau en cours" onPress={() => { setSleepTimer(null, true); closeAll(); showToast('Arrêt à la fin du morceau'); }} />
+        {sleep.endsAt || sleep.atTrackEnd ? (
+          <SheetAction icon="close-circle-outline" label="Désactiver la minuterie" destructive onPress={() => { setSleepTimer(null); closeAll(); }} />
+        ) : null}
+      </View>
+    </BottomSheet>
+  );
+}
+
+function PromptDialog() {
+  const prompt = useUi((s) => s.prompt);
+  // La clé recrée le formulaire (et sa valeur initiale) à chaque nouvelle demande.
+  return <PromptForm key={prompt?.id ?? 0} prompt={prompt} />;
+}
+
+function PromptForm({ prompt }: { prompt: ReturnType<typeof useUi.getState>['prompt'] }) {
+  const { colors } = useTheme();
+  const closeAll = useUi((s) => s.closeAll);
+  const [value, setValue] = useState(prompt?.initialValue ?? '');
+  const submit = () => {
+    const v = value.trim();
+    if (!v || !prompt) return;
+    closeAll();
+    prompt.onSubmit(v);
+  };
+  return (
+    <Modal visible={!!prompt} transparent animationType="fade" onRequestClose={closeAll} statusBarTranslucent>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.dialogWrap}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={closeAll} />
+        <View style={[styles.dialog, { backgroundColor: colors.card }]}>
+          <Text variant="headline" style={{ textAlign: 'center' }}>
+            {prompt?.title}
+          </Text>
+          {prompt?.message ? (
+            <Text variant="footnote" tone="secondary" style={{ textAlign: 'center', marginTop: 4 }}>
+              {prompt.message}
+            </Text>
+          ) : null}
+          <TextInput
+            autoFocus
+            value={value}
+            onChangeText={setValue}
+            onSubmitEditing={submit}
+            placeholder={prompt?.placeholder}
+            placeholderTextColor={colors.tertiaryText}
+            style={[styles.input, { color: colors.text, backgroundColor: colors.fill }]}
+            returnKeyType="done"
+            accessibilityLabel={prompt?.placeholder ?? prompt?.title}
+          />
+          <View style={styles.dialogButtons}>
+            <Pressable onPress={closeAll} style={styles.dialogButton} accessibilityRole="button">
+              <Text variant="body" tone="accent">
+                Annuler
+              </Text>
+            </Pressable>
+            <Pressable onPress={submit} style={styles.dialogButton} accessibilityRole="button" disabled={!value.trim()}>
+              <Text variant="headline" tone="accent" style={{ opacity: value.trim() ? 1 : 0.4 }}>
+                {prompt?.confirmLabel}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+function Toast() {
+  const { colors, dark } = useTheme();
+  const insets = useSafeAreaInsets();
+  const toast = useUi((s) => s.toast);
+  if (!toast) return null;
+  return (
+    <Animated.View
+      entering={FadeInDown.springify().damping(16)}
+      exiting={FadeOutDown}
+      pointerEvents="none"
+      style={[styles.toast, { top: insets.top + 8, backgroundColor: dark ? '#2C2C2E' : '#FFFFFF', shadowColor: colors.shadow }]}>
+      <Icon name="checkmark-circle" size={20} color={colors.accent} />
+      <Text variant="subhead" weight="medium">
+        {toast}
+      </Text>
+    </Animated.View>
+  );
+}
+
+export function SheetHost() {
+  return (
+    <>
+      <TrackMenuSheet />
+      <PlaylistPickerSheet />
+      <SleepTimerSheet />
+      <PromptDialog />
+      <Toast />
+    </>
+  );
+}
+
+const styles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.38)' },
+  sheet: { borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingTop: 8 },
+  grabber: { alignSelf: 'center', width: 36, height: 5, borderRadius: 3, marginBottom: 8, opacity: 0.6 },
+  menuHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: GUTTER, paddingVertical: 10 },
+  group: { marginHorizontal: 12, marginTop: 10, borderRadius: radius.lg, overflow: 'hidden' },
+  action: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, height: 50 },
+  sheetTitle: { textAlign: 'center', paddingVertical: 8 },
+  sheetSubtitle: { textAlign: 'center', marginBottom: 4 },
+  pickRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: GUTTER, paddingVertical: 8 },
+  newTile: { width: 52, height: 52, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  dialogWrap: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center', padding: 32 },
+  dialog: { width: '100%', maxWidth: 340, borderRadius: radius.xl, paddingTop: 20 },
+  input: { marginHorizontal: 16, marginTop: 14, borderRadius: 10, paddingHorizontal: 12, height: 44, fontSize: 16 },
+  dialogButtons: { flexDirection: 'row', marginTop: 16, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: 'rgba(128,128,128,0.3)' },
+  dialogButton: { flex: 1, alignItems: 'center', paddingVertical: 14 },
+  toast: {
+    position: 'absolute',
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: radius.pill,
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
+  },
+});
