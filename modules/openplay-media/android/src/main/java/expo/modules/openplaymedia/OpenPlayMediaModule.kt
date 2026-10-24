@@ -154,15 +154,20 @@ class OpenPlayMediaModule : Module() {
     return out
   }
 
+  private fun artworkDir(): File {
+    // v2 : les pochettes de la v1 venaient souvent de la vignette système, en basse résolution.
+    File(context.cacheDir, "openplay-artwork").takeIf { it.exists() }?.deleteRecursively()
+    return File(context.cacheDir, "openplay-artwork-v2").apply { mkdirs() }
+  }
+
   private fun getArtwork(trackId: String, albumId: String, size: Int): Map<String, Any?>? {
-    val dir = File(context.cacheDir, "openplay-artwork").apply { mkdirs() }
     val key = if (albumId.isNotEmpty() && albumId != "0") "album-$albumId" else "track-$trackId"
-    val file = File(dir, "$key-$size.jpg")
+    val file = File(artworkDir(), "$key-$size.jpg")
     val bitmap: Bitmap = if (file.exists() && file.length() > 0) {
       BitmapFactory.decodeFile(file.absolutePath) ?: return null
     } else {
       val loaded = loadArtworkBitmap(trackId.toLong(), albumId.toLongOrNull() ?: 0L, size) ?: return null
-      FileOutputStream(file).use { loaded.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+      FileOutputStream(file).use { loaded.compress(Bitmap.CompressFormat.JPEG, 94, it) }
       loaded
     }
     val palette = Palette.from(bitmap).maximumColorCount(16).generate()
@@ -177,15 +182,14 @@ class OpenPlayMediaModule : Module() {
     )
   }
 
+  /**
+   * Ordre de préférence : image intégrée au fichier (pleine résolution), pochette d'album
+   * indexée (avant Android 10), puis vignette système (souvent réduite) en dernier recours.
+   */
   private fun loadArtworkBitmap(trackId: Long, albumId: Long, size: Int): Bitmap? {
     val trackUri = ContentUris.withAppendedId(audioCollection(), trackId)
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-      try {
-        return context.contentResolver.loadThumbnail(trackUri, Size(size, size), null)
-      } catch (e: Exception) {
-        // Pas de vignette système : on tente la pochette intégrée au fichier.
-      }
-    } else if (albumId > 0) {
+    embeddedArtwork(trackUri, size)?.let { return it }
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && albumId > 0) {
       try {
         val artUri = ContentUris.withAppendedId(Uri.parse("content://media/external/audio/albumart"), albumId)
         context.contentResolver.openInputStream(artUri)?.use { stream ->
@@ -195,12 +199,21 @@ class OpenPlayMediaModule : Module() {
         // Pas de pochette d'album indexée.
       }
     }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      try {
+        return context.contentResolver.loadThumbnail(trackUri, Size(size, size), null)
+      } catch (e: Exception) {
+        // Aucune vignette système.
+      }
+    }
+    return null
+  }
+
+  private fun embeddedArtwork(trackUri: Uri, size: Int): Bitmap? {
     val retriever = MediaMetadataRetriever()
     return try {
       retriever.setDataSource(context, trackUri)
-      retriever.embeddedPicture?.let { bytes ->
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.let { scale(it, size) }
-      }
+      retriever.embeddedPicture?.let { decodeSampled(it, size) }
     } catch (e: Exception) {
       null
     } finally {
@@ -210,6 +223,17 @@ class OpenPlayMediaModule : Module() {
         // Libération best effort.
       }
     }
+  }
+
+  /** Décode sans charger en mémoire une image bien plus grande que nécessaire, puis ajuste à `size`. */
+  private fun decodeSampled(bytes: ByteArray, size: Int): Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    var sample = 1
+    while (minOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= size) sample *= 2
+    val options = BitmapFactory.Options().apply { inSampleSize = sample }
+    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.let { scale(it, size) }
   }
 
   private fun scale(bitmap: Bitmap, size: Int): Bitmap {

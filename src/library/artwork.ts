@@ -6,7 +6,8 @@ import type { Track } from '../types';
 export type ArtworkColors = { dominant: string; vibrant: string; darkMuted: string };
 export type ArtworkInfo = { uri: string | null; colors: ArtworkColors };
 
-export const ARTWORK_SIZE = 800;
+/** Côté le plus long en pixels : couvre la pochette du lecteur plein écran sur les écrans courants. */
+export const ARTWORK_SIZE = 1200;
 
 const cache = new Map<string, ArtworkInfo>();
 const pending = new Map<string, Promise<ArtworkInfo>>();
