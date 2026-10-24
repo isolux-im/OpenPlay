@@ -24,6 +24,8 @@ jobs:
     needs: check
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: write   # création de la Release GitHub (étape réservée à main)
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -40,3 +42,15 @@ jobs:
           name: OpenPlay-apk
           path: android/app/build/outputs/apk/release/*.apk
           retention-days: 30
+      - name: Publier l'APK en Release GitHub
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk OpenPlay.apk
+          gh release create "build-${{ github.run_number }}" OpenPlay.apk \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "OpenPlay – build ${{ github.run_number }}" \
+            --notes "APK de test : signé avec la clé de débogage Expo, processeurs arm64-v8a. Commit ${{ github.sha }}." \
+            --latest

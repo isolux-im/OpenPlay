@@ -24,7 +24,11 @@ possible une fois le workflow présent sur `main`).
 
 1. Job `check` : TypeScript, ESLint, tests Jest.
 2. Job `apk` : `expo prebuild` génère le dossier `android/`, puis `./gradlew assembleRelease`.
-3. Télécharger l'artefact **OpenPlay-apk** (ZIP contenant `app-release.apk`).
+3. Télécharger l'APK :
+   - après un push sur `main` (ou un lancement manuel sur `main`) : lien direct vers la dernière version,
+     https://github.com/isolux-im/OpenPlay/releases/latest/download/OpenPlay.apk
+     (chaque build crée une Release `build-N` ; le dépôt étant public, ce lien est accessible à tous) ;
+   - sur une pull request : artefact **OpenPlay-apk** de l'exécution (ZIP contenant `app-release.apk`).
 
 L'APK est compilé en `release` (le code JavaScript y est intégré) et signé avec la **clé de débogage**
 d'Expo : installable pour des tests, mais pas publiable sur le Play Store. Il ne cible que les
