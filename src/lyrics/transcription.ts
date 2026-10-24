@@ -36,7 +36,7 @@ export const LANGUAGES = [
   { code: 'auto', label: 'Auto' },
   { code: 'fr', label: 'Français' },
   { code: 'en', label: 'Anglais' },
-  { code: 'yo', label: 'Yoruba' },
+  { code: 'es', label: 'Espagnol' },
 ] as const;
 
 export type LanguageCode = (typeof LANGUAGES)[number]['code'];
