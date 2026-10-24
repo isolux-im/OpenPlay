@@ -25,12 +25,14 @@ Run lint and typecheck before declaring any task done.
 
 ## OpenPlay project rules
 
-- Android-only local audio player. UI text is in French.
-- Navigation is a simple tab state in `src/App.tsx` (no Expo Router yet). Introduce Expo Router only when screens need deep links or a stack.
-- Audio playback goes through the `PlaybackEngine` interface (`src/player/PlaybackEngine.ts`); screens never import `expo-audio` directly.
-- Keep queue and parsing logic pure and covered by Jest (`src/__tests__/`). React Native Testing Library 14: `render`, `renderHook`, `act` and `fireEvent` are async — always `await` them.
+- Android-only offline music player; UI text is in French. Design reference: Apple Music (large titles, rounded artwork, floating mini-player, full-screen player with artwork colours) — original identity, no Apple assets.
+- Navigation: React Navigation 7 — bottom tabs (custom `TabBar` with the mini-player) and one native stack per tab registering the shared detail screens (`src/navigation/RootNavigator.tsx`). Screens use `ScrollScreen` / `ListScreen` (large collapsing title) from `src/components/Screen.tsx`.
+- Playback goes through `PlaybackEngine` (`src/player/PlaybackEngine.ts`): `ExpoPlaylistEngine` (expo-audio `AudioPlaylist`, background + lock screen + Bluetooth) on Android, `SimulatedEngine` on web/tests. The native queue order must always equal `usePlayer().queue` (covered by `playerStore.test.ts`).
+- Metadata/artwork come from the local module `modules/openplay-media` (Kotlin, compiled only in CI). Without it (web, Jest) the demo library is used.
+- State: zustand stores in `src/store/` (settings and user data persisted with AsyncStorage). Reanimated shared values use `.get()` / `.set()` (React Compiler lint rules). Avoid `Date.now()` during render (`useNow`).
+- Tests: Jest + React Native Testing Library 14 (`render`, `renderHook`, `act`, `fireEvent` are async — always `await`). Reanimated is replaced by a minimal double in `jest.setup.ts`.
 - The APK is built by GitHub Actions (`.github/workflows/android-apk.yml`), not EAS.
-- In the Claude Code cloud environment, docs.expo.dev, api.expo.dev and the Android SDK are blocked: read API shapes from `node_modules/<pkg>/build/*.d.ts`, and use `EXPO_OFFLINE=1 npx expo install <package>`.
+- In the Claude Code cloud environment, docs.expo.dev, api.expo.dev and the Android SDK are blocked: read API shapes from `node_modules/<pkg>/build/*.d.ts`, use `EXPO_OFFLINE=1 npx expo install <package>`, and validate visually with `npx expo export --platform web` + Playwright.
 
 ## Rules
 

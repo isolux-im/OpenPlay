@@ -1,98 +1,65 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 import App from '../App';
-import { IDLE_STATUS } from '../player/usePlayer';
-
-const mockGetPermissions = jest.fn();
-const mockRequestPermissions = jest.fn();
-const mockGetAssets = jest.fn();
-
-jest.mock('expo-media-library/legacy', () => ({
-  MediaType: { audio: 'audio' },
-  getPermissionsAsync: (...args: unknown[]) => mockGetPermissions(...args),
-  requestPermissionsAsync: (...args: unknown[]) => mockRequestPermissions(...args),
-  getAssetsAsync: (...args: unknown[]) => mockGetAssets(...args),
-}));
-
-const mockPlayer = {
-  replace: jest.fn(),
-  play: jest.fn(),
-  pause: jest.fn(),
-  seekTo: jest.fn(() => Promise.resolve()),
-  remove: jest.fn(),
-  addListener: jest.fn(() => ({ remove: jest.fn() })),
-};
-
-jest.mock('expo-audio', () => ({
-  createAudioPlayer: () => mockPlayer,
-  setAudioModeAsync: () => Promise.resolve(),
-}));
+import { SimulatedEngine } from '../player/PlaybackEngine';
+import { useLibrary } from '../store/library';
+import { usePlayer } from '../store/player';
 
 jest.mock('react-native-safe-area-context', () => {
   const { View } = jest.requireActual('react-native');
+  const insets = { top: 0, right: 0, bottom: 0, left: 0 };
   return {
     SafeAreaProvider: ({ children }: { children: React.ReactNode }) => children,
     SafeAreaView: View,
+    useSafeAreaInsets: () => insets,
+    useSafeAreaFrame: () => ({ x: 0, y: 0, width: 390, height: 844 }),
+    SafeAreaInsetsContext: { Consumer: ({ children }: { children: (i: typeof insets) => React.ReactNode }) => children(insets) },
+    initialWindowMetrics: { insets, frame: { x: 0, y: 0, width: 390, height: 844 } },
   };
 });
 
-const asset = (id: string, filename: string) => ({
-  id,
-  uri: `file:///music/${filename}`,
-  filename,
-  duration: 200,
-  creationTime: 0,
-});
+const engine = () => new SimulatedEngine(() => 200, 0);
 
 beforeEach(() => {
-  jest.clearAllMocks();
-  mockGetAssets.mockResolvedValue({
-    assets: [asset('1', 'Artiste B - Second.mp3'), asset('2', 'Artiste A - Premier.mp3')],
-    hasNextPage: false,
-    endCursor: '2',
-    totalCount: 2,
-  });
+  usePlayer.setState({ queue: [], originalQueue: [], index: -1, isPlaying: false, expanded: false });
 });
 
-describe('App', () => {
-  it('demande l’accès à la musique si la permission manque', async () => {
-    mockGetPermissions.mockResolvedValue({ status: 'undetermined' });
-    mockRequestPermissions.mockResolvedValue({ status: 'granted' });
-    await render(<App />);
-    await fireEvent.press(await screen.findByText("Autoriser l'accès"));
-    expect(mockRequestPermissions).toHaveBeenCalledWith(false, ['audio']);
-    expect(await screen.findByText('Premier')).toBeTruthy();
+async function renderApp() {
+  await render(<App engineFactory={engine} />);
+  await act(async () => {
+    await useLibrary.getState().scan(30);
+  });
+}
+
+describe('application', () => {
+  it('affiche les cinq onglets et l’accueil avec la bibliothèque', async () => {
+    await renderApp();
+    for (const label of ['Accueil', 'Bibliothèque', 'Playlists', 'Recherche', 'Paramètres']) {
+      expect(screen.getByRole('tab', { name: label })).toBeTruthy();
+    }
+    expect(await screen.findByText('Mix pour vous')).toBeTruthy();
+    expect(screen.getAllByText('Lumières du Sud').length).toBeGreaterThan(0);
   });
 
-  it('affiche la bibliothèque triée, lit un morceau et gère les favoris', async () => {
-    mockGetPermissions.mockResolvedValue({ status: 'granted' });
-    await render(<App />);
-
-    expect(await screen.findByText('Premier')).toBeTruthy();
-    expect(screen.getByText('Bibliothèque (2)')).toBeTruthy();
-
-    await fireEvent.press(screen.getByLabelText('Lire Second'));
-    expect(mockPlayer.replace).toHaveBeenCalledWith({ uri: 'file:///music/Artiste B - Second.mp3' });
-    expect(mockPlayer.play).toHaveBeenCalled();
-    expect(screen.getByLabelText('Lecture')).toBeTruthy();
-
-    await fireEvent.press(screen.getByLabelText('Ajouter Premier aux favoris'));
-    await waitFor(() => expect(screen.getByText('Favoris (1)')).toBeTruthy());
-
-    await fireEvent.press(screen.getByText('Favoris (1)'));
-    // « Second » reste visible dans la barre de lecture, mais plus dans la liste.
-    expect(screen.queryByLabelText('Lire Second')).toBeNull();
-    expect(screen.getByLabelText('Lire Premier')).toBeTruthy();
+  it('navigue vers un album, lance un morceau et ouvre le lecteur plein écran', async () => {
+    await renderApp();
+    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Albums' }));
+    await fireEvent.press((await screen.findAllByRole('button', { name: /^Racines/ }))[0]);
+    await fireEvent.press(await screen.findByRole('button', { name: /^Lire Lagune/ }));
+    expect(usePlayer.getState().queue[usePlayer.getState().index]).toBe(useLibrary.getState().index.tracks.find((t) => t.title === 'Lagune')!.id);
+    await fireEvent.press(await screen.findByRole('button', { name: /^Ouvrir le lecteur/ }));
+    expect(usePlayer.getState().expanded).toBe(true);
+    expect(await screen.findByRole('button', { name: 'Réduire le lecteur' })).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: "File d'attente" }));
+    expect(await screen.findByText('À suivre')).toBeTruthy();
   });
 
-  it('signale une bibliothèque vide', async () => {
-    mockGetPermissions.mockResolvedValue({ status: 'granted' });
-    mockGetAssets.mockResolvedValue({ assets: [], hasNextPage: false, endCursor: '', totalCount: 0 });
-    await render(<App />);
-    expect(await screen.findByText('Aucun fichier audio trouvé sur cet appareil.')).toBeTruthy();
-  });
-
-  it('utilise le statut initial au repos', () => {
-    expect(IDLE_STATUS.playing).toBe(false);
+  it('recherche instantanément dans la bibliothèque', async () => {
+    await renderApp();
+    await fireEvent.press(screen.getByRole('tab', { name: 'Recherche' }));
+    await fireEvent.changeText(await screen.findByLabelText('Rechercher dans la bibliothèque'), 'neon');
+    expect(await screen.findByText('Meilleur résultat')).toBeTruthy();
+    expect(screen.getAllByText('Neon Drift').length).toBeGreaterThan(0);
   });
 });
