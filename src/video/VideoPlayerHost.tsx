@@ -74,6 +74,40 @@ function IconButton({ icon, label, onPress, size = 26, disabled = false }: { ico
   );
 }
 
+/**
+ * Indicateur du glissement vertical, à la manière de VLC : barre verticale du côté opposé au doigt
+ * (volume à gauche, luminosité à droite), pourcentage au-dessus, icône dessous, libellé à côté.
+ */
+function LevelIndicator({ kind, value }: { kind: 'brightness' | 'volume'; value: number }) {
+  const percent = Math.round(value * 100);
+  const volume = kind === 'volume';
+  const icon: IconName = !volume ? 'sunny' : value === 0 ? 'volume-mute' : value < 0.4 ? 'volume-low' : value < 0.75 ? 'volume-medium' : 'volume-high';
+  const label = volume ? 'Volume' : 'Luminosité';
+  return (
+    <View pointerEvents="none" style={[styles.levelSide, volume ? { left: '12%' } : { right: '12%' }]} accessibilityLiveRegion="polite" accessibilityLabel={`${label} ${percent} %`}>
+      {!volume ? (
+        <Text variant="headline" color="#FFFFFF" style={styles.levelLabel}>
+          {label}
+        </Text>
+      ) : null}
+      <View style={styles.levelColumn}>
+        <Text variant="headline" color="#FFFFFF" style={styles.levelShadow}>
+          {percent} %
+        </Text>
+        <View style={styles.levelBar}>
+          <View style={[styles.levelBarFill, { height: `${percent}%` }]} />
+        </View>
+        <Icon name={icon} size={30} color="#FFFFFF" />
+      </View>
+      {volume ? (
+        <Text variant="headline" color="#FFFFFF" style={styles.levelLabel}>
+          {label}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 /** PiP natif disponible ? La fonction d'expo-video n'existe pas sur toutes les plateformes (web). */
 function pipAvailable(): boolean {
   if (Platform.OS !== 'android') return false;
@@ -482,17 +516,7 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
         </GestureDetector>
       ) : null}
 
-      {level ? (
-        <View pointerEvents="none" style={[styles.level, { top: insets.top + 24 }]} accessibilityLiveRegion="polite">
-          <Icon name={level.kind === 'brightness' ? 'sunny' : level.value === 0 ? 'volume-mute' : level.value < 0.4 ? 'volume-low' : level.value < 0.75 ? 'volume-medium' : 'volume-high'} size={20} color="#FFFFFF" />
-          <View style={styles.levelTrack}>
-            <View style={[styles.levelFill, { width: `${Math.round(level.value * 100)}%` }]} />
-          </View>
-          <Text variant="footnote" weight="semibold" color="#FFFFFF" style={styles.levelText} accessibilityLabel={`${level.kind === 'brightness' ? 'Luminosité' : 'Volume'} ${Math.round(level.value * 100)} %`}>
-            {Math.round(level.value * 100)} %
-          </Text>
-        </View>
-      ) : null}
+      {level ? <LevelIndicator kind={level.kind} value={level.value} /> : null}
 
       {flash && !level ? (
         <View pointerEvents="none" style={styles.flash}>
@@ -639,20 +663,19 @@ const styles = StyleSheet.create({
     elevation: 50,
   },
   stage: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center' },
-  level: {
-    position: 'absolute',
-    alignSelf: 'center',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 999,
-    backgroundColor: 'rgba(0,0,0,0.65)',
+  levelSide: { position: 'absolute', top: 0, bottom: 0, flexDirection: 'row', alignItems: 'center', gap: 16 },
+  levelColumn: { alignItems: 'center', gap: 12 },
+  levelBar: {
+    width: 10,
+    height: 180,
+    borderRadius: 5,
+    backgroundColor: 'rgba(255,255,255,0.35)',
+    overflow: 'hidden',
+    justifyContent: 'flex-end',
   },
-  levelTrack: { width: 140, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.3)', overflow: 'hidden' },
-  levelFill: { height: 4, backgroundColor: '#FFFFFF' },
-  levelText: { minWidth: 44, textAlign: 'right', fontVariant: ['tabular-nums'] },
+  levelBarFill: { width: '100%', backgroundColor: '#FFFFFF' },
+  levelShadow: { fontVariant: ['tabular-nums'], textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
+  levelLabel: { textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
   flash: {
     position: 'absolute',
     top: '40%',
