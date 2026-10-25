@@ -13,8 +13,9 @@ export function videoFromNative(n: NativeVideo): Video {
     durationSec: Math.max(0, n.durationMs / 1000),
     sizeBytes: n.size || 0,
     addedAt: (n.dateAdded || 0) * 1000,
-    width: n.width || 0,
-    height: n.height || 0,
+    // Vidéo filmée en portrait : MediaStore donne la taille avant rotation.
+    width: (n.rotation === 90 || n.rotation === 270 ? n.height : n.width) || 0,
+    height: (n.rotation === 90 || n.rotation === 270 ? n.width : n.height) || 0,
     mimeType: n.mimeType || 'video/mp4',
     folder: n.folder?.trim() || 'Autres',
   };

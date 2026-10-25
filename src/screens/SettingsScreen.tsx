@@ -206,7 +206,8 @@ export function SettingsScreen() {
         title="Vidéos"
         footer="Fenêtre flottante : en quittant OpenPlay pendant une vidéo, elle continue dans une petite fenêtre au-dessus des autres applications (Android 8 et plus ; entrée automatique sur Android 12 et plus).">
         <Row icon="albums" iconColor="#8E8E93" label="Mini-lecteur flottant (PiP)" right={<Switch value={s.videoPip} onValueChange={(v) => s.update({ videoPip: v })} {...switchColors} />} />
-        <Row icon="hand-left" iconColor="#8E8E93" label="Double appui : ±10 secondes" right={<Switch value={s.videoDoubleTap} onValueChange={(v) => s.update({ videoDoubleTap: v })} {...switchColors} />} last />
+        <Row icon="hand-left" iconColor="#8E8E93" label="Double appui : ±10 secondes" right={<Switch value={s.videoDoubleTap} onValueChange={(v) => s.update({ videoDoubleTap: v })} {...switchColors} />} />
+        <Row icon="swap-vertical" iconColor="#8E8E93" label="Glisser : luminosité (gauche), volume (droite)" right={<Switch value={s.videoSwipe} onValueChange={(v) => s.update({ videoSwipe: v })} {...switchColors} />} last />
       </Group>
 
       <Group

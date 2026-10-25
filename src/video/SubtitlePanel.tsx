@@ -185,7 +185,7 @@ export function SubtitlePanel({ choice, onChoose, embedded, link, external, onIm
             </>
           ) : null}
           <Text variant="caption" color="rgba(255,255,255,0.6)" style={styles.note}>
-            Taille, contraste et décalage s’appliquent aux fichiers importés. Les pistes intégrées sont affichées par le lecteur du système. Les fichiers importés ne s’affichent pas en plein écran paysage ni dans la fenêtre flottante.
+            Taille, contraste et décalage s’appliquent aux fichiers importés. Les pistes intégrées sont affichées par le lecteur du système. Les fichiers importés ne s’affichent pas dans la fenêtre flottante.
           </Text>
         </ScrollView>
       </View>

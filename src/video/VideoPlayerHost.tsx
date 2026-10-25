@@ -1,10 +1,12 @@
 import { useEventListener } from 'expo';
 import { StatusBar } from 'expo-status-bar';
-import { VideoView, isPictureInPictureSupported, useVideoPlayer as useNativeVideoPlayer, type SubtitleTrack, type VideoContentFit, type VideoPlayer } from 'expo-video';
+import { VideoView, isPictureInPictureSupported, useVideoPlayer as useNativeVideoPlayer, type SubtitleTrack, type VideoPlayer } from 'expo-video';
 import { useEffect, useRef, useState } from 'react';
-import { BackHandler, Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { BackHandler, PixelRatio, Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { OpenPlayMedia } from '../../modules/openplay-media';
 import { recordDiagnostic } from '../diagnostics/crashReports';
 import { formatDuration } from '../library/text';
 import { registerVideoPauser } from '../player/mediaFocus';
@@ -19,6 +21,7 @@ import { useVideos } from '../store/videos';
 import { tap } from '../ui/haptics';
 import { Icon, type IconName } from '../ui/Icon';
 import { Text } from '../ui/Text';
+import { fitLabel, nextFitMode, preferredOrientation, swipeLevel, videoFrame, volumeStep } from './display';
 import { resumePosition } from './library';
 import { importSubtitles, unlinkSubtitles, useExternalSubtitles } from './subtitleFiles';
 import { SubtitleOverlay, SubtitlePanel, trackKey, type SubtitleChoice } from './SubtitlePanel';
@@ -26,16 +29,13 @@ import { cueTextAt } from './subtitles';
 import type { Video } from './types';
 
 export const VIDEO_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2] as const;
-const FITS: { fit: VideoContentFit; label: string }[] = [
-  { fit: 'contain', label: 'Ajuster' },
-  { fit: 'cover', label: 'Remplir' },
-  { fit: 'fill', label: 'Étirer' },
-];
 const HIDE_CONTROLS_MS = 3500;
 const DOUBLE_TAP_MS = 280;
 const SEEK_STEP = 10;
 const SAVE_EVERY_MS = 5000;
 const RESUME_HINT_MS = 6000;
+/** Marges où un glissement appartient au système (barre d'état, navigation, retour). */
+const EDGE = 40;
 
 /** Lecteur vidéo plein écran, au-dessus de l'application ; une nouvelle ouverture recrée le lecteur. */
 export function VideoPlayerHost() {
@@ -52,6 +52,10 @@ function setTime(player: VideoPlayer, sec: number) {
 
 function setPlaybackRate(player: VideoPlayer, rate: number) {
   player.playbackRate = rate;
+}
+
+function setVolume(player: VideoPlayer, volume: number) {
+  player.volume = volume;
 }
 
 function setSubtitleTrack(player: VideoPlayer, track: SubtitleTrack | null) {
@@ -86,7 +90,9 @@ function formatRate(rate: number) {
 
 function PlayerSurface({ video, list, restart }: { video: Video; list: string[]; restart: boolean }) {
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
+  const swipeEnabled = useSettings((s) => s.videoSwipe);
+  const fitMode = useSettings((s) => s.videoFit);
   const pipEnabled = useSettings((s) => s.videoPip);
   const doubleTapEnabled = useSettings((s) => s.videoDoubleTap);
   const { close, step } = useVideoPlayer.getState();
@@ -101,7 +107,12 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   const [controls, setControls] = useState(true);
   const [locked, setLocked] = useState(false);
   const [rate, setRate] = useState(1);
-  const [fitIndex, setFitIndex] = useState(0);
+  const [orientation, setOrientation] = useState<'landscape' | 'portrait' | null>(null);
+  const [flash, setFlash] = useState<{ text: string; at: number } | null>(null);
+  const [level, setLevel] = useState<{ kind: 'brightness' | 'volume'; value: number; at: number } | null>(null);
+  /** Variante sans module natif (web) : voile sombre en guise de luminosité. */
+  const [dim, setDim] = useState(0);
+  const [trackSize, setTrackSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
   const [seekHint, setSeekHint] = useState<{
     side: 'left' | 'right';
     at: number;
@@ -117,6 +128,8 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   const failed = useRef(false);
   /** Dernière position connue : un lecteur libéré (fermeture de la fenêtre flottante) peut renvoyer 0. */
   const lastPosition = useRef(0);
+  const controlsState = useRef({ volume: 1, volumeSteps: 15, brightness: 1 });
+  const swipe = useRef<{ kind: 'brightness' | 'volume'; start: number; sent: number } | null>(null);
   const lastSave = useRef(0);
   const lastTap = useRef<{ at: number; side: 'left' | 'right' } | null>(null);
   const singleTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -139,6 +152,25 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
     if (d > 0) useVideoHistory.getState().savePosition(video.id, pos, d, Date.now());
   };
 
+  // Plein écran immersif pendant la lecture ; orientation, luminosité et barres système rétablies à la fermeture.
+  useEffect(() => {
+    void OpenPlayMedia?.setImmersiveAsync?.(true).catch(() => {});
+    void OpenPlayMedia?.getVideoControlsStateAsync?.()
+      .then((state) => {
+        controlsState.current = state;
+      })
+      .catch(() => {});
+    return () => {
+      void OpenPlayMedia?.setImmersiveAsync?.(false).catch(() => {});
+      void OpenPlayMedia?.setScreenOrientationAsync?.('default').catch(() => {});
+      void OpenPlayMedia?.setWindowBrightnessAsync?.(-1).catch(() => {});
+    };
+  }, []);
+
+  useEffect(() => {
+    if (orientation) void OpenPlayMedia?.setScreenOrientationAsync?.(orientation).catch(() => {});
+  }, [orientation]);
+
   // Une seule lecture à la fois : la musique met la vidéo en pause, et inversement.
   useEffect(() => {
     registerVideoPauser(() => player.pause());
@@ -157,6 +189,9 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
         setResumedAt(resumeAt);
       }
       setEmbeddedTracks(player.availableSubtitleTracks ?? []);
+      if (player.videoTrack?.size) setTrackSize(player.videoTrack.size);
+      // Orientation automatique selon la vidéo (taille MediaStore corrigée de la rotation, à défaut celle de la piste).
+      setOrientation((o) => o ?? preferredOrientation(video.width && video.height ? video : (player.videoTrack?.size ?? video)));
       // Fichier importé choisi : pas de piste intégrée affichée en même temps.
       if (subtitleChoice.kind !== 'embedded') setSubtitleTrack(player, null);
       if (usePlayer.getState().isPlaying) usePlayer.getState().pause();
@@ -177,6 +212,10 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
       setEnded(false);
       if (usePlayer.getState().isPlaying) usePlayer.getState().pause();
     } else save(currentPosition());
+  });
+
+  useEventListener(player, 'videoTrackChange', ({ videoTrack }) => {
+    if (videoTrack?.size) setTrackSize(videoTrack.size);
   });
 
   useEventListener(player, 'availableSubtitleTracksChange', ({ availableSubtitleTracks }) => setEmbeddedTracks(availableSubtitleTracks));
@@ -228,6 +267,18 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
     const t = setTimeout(() => setControls(false), HIDE_CONTROLS_MS);
     return () => clearTimeout(t);
   }, [controls, playing, locked, interaction, subtitlesOpen]);
+
+  useEffect(() => {
+    if (!flash) return;
+    const t = setTimeout(() => setFlash(null), 1200);
+    return () => clearTimeout(t);
+  }, [flash]);
+
+  useEffect(() => {
+    if (!level) return;
+    const t = setTimeout(() => setLevel((l) => (swipe.current ? l : null)), 900);
+    return () => clearTimeout(t);
+  }, [level]);
 
   useEffect(() => {
     if (resumedAt === null) return;
@@ -321,15 +372,84 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
     touch();
   };
 
-  const fullscreen = () => {
-    void view.current?.enterFullscreen();
+  const cycleFit = () => {
+    const next = nextFitMode(fitMode);
+    useSettings.getState().update({ videoFit: next });
+    setFlash({ text: fitLabel(next), at: Date.now() });
+    touch();
   };
+
+  const rotate = () => {
+    const next = orientation === 'landscape' ? 'portrait' : 'landscape';
+    setOrientation(next);
+    setFlash({ text: next === 'landscape' ? 'Paysage' : 'Portrait', at: Date.now() });
+    touch();
+  };
+
+  // Glissement vertical (comme VLC) : moitié gauche = luminosité de la fenêtre, moitié droite = volume média.
+  const beginSwipe = (x: number, y: number) => {
+    if (y < insets.top + EDGE || y > height - insets.bottom - EDGE || x < EDGE / 2 || x > width - EDGE / 2) {
+      swipe.current = null;
+      return;
+    }
+    const kind = x < width / 2 ? 'brightness' : 'volume';
+    const native = !!OpenPlayMedia?.getVideoControlsStateAsync;
+    const start = kind === 'brightness' ? (native ? controlsState.current.brightness : 1 - dim / 0.85) : native ? controlsState.current.volume : player.volume;
+    swipe.current = { kind, start, sent: start };
+    setControls(false);
+  };
+
+  const moveSwipe = (translationY: number) => {
+    const s = swipe.current;
+    if (!s) return;
+    const native = !!OpenPlayMedia?.getVideoControlsStateAsync;
+    let value = swipeLevel(s.start, translationY, height);
+    if (s.kind === 'volume') {
+      if (native) value = volumeStep(value, controlsState.current.volumeSteps);
+      if (value !== s.sent) {
+        s.sent = value;
+        if (native) {
+          controlsState.current.volume = value;
+          void OpenPlayMedia?.setMediaVolumeAsync?.(value).catch(() => {});
+        } else setVolume(player, value);
+      }
+    } else if (Math.abs(value - s.sent) >= 0.01 || value === 0 || value === 1) {
+      s.sent = value;
+      if (native) {
+        controlsState.current.brightness = value;
+        void OpenPlayMedia?.setWindowBrightnessAsync?.(value).catch(() => {});
+      } else setDim((1 - value) * 0.85);
+    }
+    setLevel({ kind: s.kind, value: s.kind === 'volume' ? value : s.sent, at: Date.now() });
+  };
+
+  const endSwipe = () => {
+    swipe.current = null;
+    setLevel((l) => (l ? { ...l, at: Date.now() } : l));
+  };
+
+  const surfaceGesture = Gesture.Race(
+    Gesture.Pan()
+      .runOnJS(true)
+      .enabled(swipeEnabled && !locked && !inPip)
+      .activeOffsetY([-14, 14])
+      .failOffsetX([-24, 24])
+      .onStart((e) => beginSwipe(e.x, e.y))
+      .onUpdate((e) => moveSwipe(e.translationY))
+      .onFinalize(endSwipe),
+    Gesture.Tap()
+      .runOnJS(true)
+      .maxDuration(300)
+      .onEnd((e, success) => {
+        if (success) onSurfacePress(e.x);
+      }),
+  );
 
   const startPip = () => {
     view.current?.startPictureInPicture().catch(() => showToast('Fenêtre flottante indisponible sur cet appareil'));
   };
 
-  const fit = FITS[fitIndex];
+  const frame = videoFrame(fitMode, { width, height }, video.width && video.height ? video : trackSize, PixelRatio.get());
   const pipSupported = pipEnabled && pipAvailable();
   const showControls = controls && !inPip;
   const cueText = subtitleChoice.kind === 'external' && subtitleLink && external.status === 'ready' && !inPip && !error ? cueTextAt(external.cues, position, subtitleLink.offsetSec) : null;
@@ -337,22 +457,49 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   return (
     <View style={styles.root} accessibilityViewIsModal>
       <StatusBar hidden={!inPip} style="light" />
-      <VideoView
-        ref={view}
-        player={player}
-        style={StyleSheet.absoluteFill}
-        contentFit={fit.fit}
-        nativeControls={false}
-        allowsPictureInPicture={pipSupported}
-        // Pas de fenêtre flottante pour une vidéo terminée, en erreur ou en pause.
-        startsPictureInPictureAutomatically={pipSupported && playing && !ended && !error}
-        fullscreenOptions={{ enable: true, orientation: 'landscape' }}
-        onPictureInPictureStart={() => setInPip(true)}
-        onPictureInPictureStop={() => setInPip(false)}
-      />
+      <View style={styles.stage} pointerEvents="none">
+        {/* Même surface en portrait comme en paysage : la vidéo n'est jamais reconstruite ni réduite en changeant d'orientation. */}
+        <VideoView
+          ref={view}
+          player={player}
+          style={inPip ? StyleSheet.absoluteFill : { width: frame.width, height: frame.height }}
+          contentFit={inPip ? 'contain' : frame.fit}
+          surfaceType="surfaceView"
+          nativeControls={false}
+          allowsPictureInPicture={pipSupported}
+          // Pas de fenêtre flottante pour une vidéo terminée, en erreur ou en pause.
+          startsPictureInPictureAutomatically={pipSupported && playing && !ended && !error}
+          onPictureInPictureStart={() => setInPip(true)}
+          onPictureInPictureStop={() => setInPip(false)}
+        />
+      </View>
+
+      {dim > 0 && !inPip ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: `rgba(0,0,0,${dim})` }]} /> : null}
 
       {!inPip ? (
-        <Pressable style={StyleSheet.absoluteFill} onPress={(e) => onSurfacePress(e.nativeEvent.locationX)} accessibilityLabel={showControls ? 'Masquer les commandes' : 'Afficher les commandes'} />
+        <GestureDetector gesture={surfaceGesture}>
+          <View style={StyleSheet.absoluteFill} accessible accessibilityRole="button" accessibilityLabel={showControls ? 'Masquer les commandes' : 'Afficher les commandes'} onAccessibilityTap={() => setControls((c) => !c)} />
+        </GestureDetector>
+      ) : null}
+
+      {level ? (
+        <View pointerEvents="none" style={[styles.level, { top: insets.top + 24 }]} accessibilityLiveRegion="polite">
+          <Icon name={level.kind === 'brightness' ? 'sunny' : level.value === 0 ? 'volume-mute' : level.value < 0.4 ? 'volume-low' : level.value < 0.75 ? 'volume-medium' : 'volume-high'} size={20} color="#FFFFFF" />
+          <View style={styles.levelTrack}>
+            <View style={[styles.levelFill, { width: `${Math.round(level.value * 100)}%` }]} />
+          </View>
+          <Text variant="footnote" weight="semibold" color="#FFFFFF" style={styles.levelText} accessibilityLabel={`${level.kind === 'brightness' ? 'Luminosité' : 'Volume'} ${Math.round(level.value * 100)} %`}>
+            {Math.round(level.value * 100)} %
+          </Text>
+        </View>
+      ) : null}
+
+      {flash && !level ? (
+        <View pointerEvents="none" style={styles.flash}>
+          <Text variant="headline" color="#FFFFFF">
+            {flash.text}
+          </Text>
+        </View>
       ) : null}
 
       <SubtitleOverlay text={cueText} bottom={insets.bottom + (showControls && !locked ? 124 : 28)} />
@@ -447,22 +594,17 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
                   {formatRate(rate)}
                 </Text>
               </Pressable>
-              <Pressable
-                onPress={() => {
-                  setFitIndex((i) => (i + 1) % FITS.length);
-                  touch();
-                }}
-                style={styles.chip}
-                accessibilityRole="button"
-                accessibilityLabel={`Format d’image : ${fit.label}`}>
+              <Pressable onPress={cycleFit} style={styles.chip} accessibilityRole="button" accessibilityLabel={`Format d’image : ${fitLabel(fitMode)}`}>
                 <Text variant="footnote" weight="semibold" color="#FFFFFF">
-                  {fit.label}
+                  {fitLabel(fitMode)}
                 </Text>
               </Pressable>
               <View style={{ flex: 1 }} />
               <IconButton icon={subtitleChoice.kind === 'off' ? 'chatbox-outline' : 'chatbox-ellipses'} label="Sous-titres" onPress={() => setSubtitlesOpen(true)} size={22} />
               <IconButton icon="lock-open-outline" label="Verrouiller les commandes" onPress={() => setLocked(true)} size={22} />
-              <IconButton icon="expand-outline" label="Plein écran paysage" onPress={fullscreen} size={22} />
+              {OpenPlayMedia?.setScreenOrientationAsync ? (
+                <IconButton icon={orientation === 'landscape' ? 'phone-portrait-outline' : 'phone-landscape-outline'} label={orientation === 'landscape' ? 'Passer en portrait' : 'Passer en paysage'} onPress={rotate} size={22} />
+              ) : null}
             </View>
           </View>
         </View>
@@ -495,6 +637,30 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
     zIndex: 300,
     elevation: 50,
+  },
+  stage: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center' },
+  level: {
+    position: 'absolute',
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+  },
+  levelTrack: { width: 140, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.3)', overflow: 'hidden' },
+  levelFill: { height: 4, backgroundColor: '#FFFFFF' },
+  levelText: { minWidth: 44, textAlign: 'right', fontVariant: ['tabular-nums'] },
+  flash: {
+    position: 'absolute',
+    top: '40%',
+    alignSelf: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: 'rgba(0,0,0,0.6)',
   },
   scrim: { backgroundColor: 'rgba(0,0,0,0.45)', paddingHorizontal: 12 },
   top: {

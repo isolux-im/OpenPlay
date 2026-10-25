@@ -2,8 +2,8 @@ import { useEffect, useSyncExternalStore } from 'react';
 
 import { OpenPlayMedia } from '../../modules/openplay-media';
 
-/** Largeur des miniatures (16:9) : assez pour une grille à deux colonnes. */
-export const THUMB_SIZE = 480;
+/** Plus grand côté des miniatures, en pixels : net sur une grille à deux colonnes jusqu'à une densité d'écran de 3,5. */
+export const THUMB_SIZE = 640;
 /** Au plus quelques centaines d'URI gardées en mémoire ; les fichiers restent en cache disque. */
 const MEMORY_LIMIT = 400;
 

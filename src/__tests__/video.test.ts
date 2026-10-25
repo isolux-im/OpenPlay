@@ -5,6 +5,7 @@ import { buildIndex } from '../library/indexLibrary';
 import { connectPlayer, disconnectPlayer, usePlayer } from '../store/player';
 import { VIDEO_HISTORY_LIMIT, useVideoHistory } from '../store/videoHistory';
 import { useVideoPlayer } from '../store/videoPlayer';
+import { FIT_MODES, nextFitMode, preferredOrientation, swipeLevel, videoFrame, volumeStep } from '../video/display';
 import { continueWatching, demoVideos, formatResolution, isFinished, recentlyWatched, resumePosition, searchVideos, sortVideos, videoFolders, videoFromNative } from '../video/library';
 
 const videos = demoVideos();
@@ -87,5 +88,41 @@ describe('historique et lecteur vidéo', () => {
     expect(pause).toHaveBeenCalledTimes(2);
     registerVideoPauser(null);
     disconnectPlayer();
+  });
+});
+
+describe('affichage vidéo (formats, orientation, glissement)', () => {
+  const portraitScreen = { width: 400, height: 800 };
+  const landscapeScreen = { width: 800, height: 400 };
+  const fullHd = { width: 1920, height: 1080 };
+
+  it('cadre la vidéo selon le format choisi, sans toucher à sa définition', () => {
+    expect(videoFrame('best', portraitScreen, fullHd, 3)).toEqual({ width: 400, height: 800, fit: 'contain' });
+    expect(videoFrame('fill', landscapeScreen, fullHd, 3).fit).toBe('cover');
+    expect(videoFrame('stretch', landscapeScreen, fullHd, 3).fit).toBe('fill');
+    expect(videoFrame('16:9', portraitScreen, fullHd, 3)).toEqual({ width: 400, height: 225, fit: 'fill' });
+    expect(videoFrame('4:3', landscapeScreen, fullHd, 3)).toEqual({ width: 533, height: 400, fit: 'fill' });
+    // Taille d'origine : 1 pixel vidéo = 1 pixel écran, réduite seulement si elle dépasse.
+    expect(videoFrame('original', landscapeScreen, { width: 640, height: 360 }, 2)).toEqual({ width: 320, height: 180, fit: 'contain' });
+    expect(videoFrame('original', landscapeScreen, fullHd, 2)).toEqual({ width: 711, height: 400, fit: 'contain' });
+    expect(videoFrame('original', landscapeScreen, { width: 0, height: 0 }, 2).fit).toBe('contain');
+    expect(FIT_MODES.map((m) => m.key).reduce((mode) => nextFitMode(mode), 'best' as const)).toBe('best');
+  });
+
+  it('choisit l’orientation d’après la vidéo, rotation comprise', () => {
+    expect(preferredOrientation(fullHd)).toBe('landscape');
+    expect(preferredOrientation({ width: 1080, height: 1920 })).toBe('portrait');
+    expect(preferredOrientation({ width: 1000, height: 1000 })).toBeNull();
+    expect(preferredOrientation({ width: 0, height: 0 })).toBeNull();
+    const rotated = videoFromNative({ id: '9', uri: '', title: 'Selfie', filename: 'a.mp4', durationMs: 1000, size: 1, dateAdded: 0, dateModified: 0, width: 1920, height: 1080, mimeType: 'video/mp4', folder: 'DCIM/Camera', path: null, rotation: 90 });
+    expect(rotated).toMatchObject({ width: 1080, height: 1920 });
+  });
+
+  it('convertit le glissement vertical en niveau, par crans pour le volume', () => {
+    expect(swipeLevel(0.5, -280, 800)).toBe(1);
+    expect(swipeLevel(0.5, 280, 800)).toBe(0);
+    expect(swipeLevel(0.5, -56, 800)).toBeCloseTo(0.6);
+    expect(volumeStep(0.52, 15)).toBeCloseTo(8 / 15);
+    expect(volumeStep(0.52, 0)).toBe(0.52);
   });
 });

@@ -33,6 +33,8 @@ export type NativeVideo = {
   mimeType: string | null;
   folder: string | null;
   path: string | null;
+  /** Rotation enregistrée dans le fichier (0, 90, 180, 270) ; Android 10+. */
+  rotation?: number;
 };
 
 export type NativeArtwork = {
@@ -66,6 +68,14 @@ type OpenPlayMediaModule = {
   openVideoWithAsync?(videoId: string, mimeType: string, title: string): Promise<void>;
   /** URI file:// d'une miniature en cache, ou null. */
   getVideoThumbnailAsync?(videoId: string, size: number): Promise<string | null>;
+  /** Volume média (0 à 1, `volumeSteps` crans) et luminosité de la fenêtre (0 à 1). */
+  getVideoControlsStateAsync?(): Promise<{ volume: number; volumeSteps: number; brightness: number }>;
+  setMediaVolumeAsync?(fraction: number): Promise<void>;
+  /** Luminosité de la fenêtre d'OpenPlay seulement ; valeur négative : retour au réglage système. */
+  setWindowBrightnessAsync?(value: number): Promise<void>;
+  setScreenOrientationAsync?(mode: 'landscape' | 'portrait' | 'sensor' | 'default'): Promise<void>;
+  /** Plein écran immersif : barres système masquées, rappelées d'un glissement depuis le bord. */
+  setImmersiveAsync?(enabled: boolean): Promise<void>;
   /** Sélecteur de fichiers Android (sous-titres) ; null si l'utilisateur annule. `persistent` : accès conservé après redémarrage. */
   pickSubtitleAsync?(): Promise<PickedFile | null>;
   /** Texte du fichier (encodage détecté) ; erreur ERR_SUBTITLE_UNREADABLE ou ERR_SUBTITLE_TOO_LARGE. */

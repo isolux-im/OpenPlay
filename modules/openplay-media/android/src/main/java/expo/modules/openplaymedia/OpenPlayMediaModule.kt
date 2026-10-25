@@ -6,9 +6,11 @@ import android.app.ApplicationExitInfo
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.database.Cursor
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.AudioManager
 import android.media.MediaMetadataRetriever
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -16,8 +18,13 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.provider.Settings
 import android.util.Log
 import android.util.Size
+import android.view.View
+import android.view.WindowInsets
+import android.view.WindowInsetsController
+import android.view.WindowManager
 import androidx.palette.graphics.Palette
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.exception.CodedException
@@ -67,6 +74,9 @@ class OpenPlayMediaModule : Module() {
 
   /** Sélection de fichier de sous-titres en attente du retour du sélecteur Android. */
   private var pendingSubtitlePick: Promise? = null
+
+  /** Orientation de l'activité avant l'ouverture du lecteur vidéo (rétablie à la fermeture). */
+  private var savedOrientation: Int? = null
 
   override fun definition() = ModuleDefinition {
     Name("OpenPlayMedia")
@@ -158,6 +168,70 @@ class OpenPlayMediaModule : Module() {
       startChooser(view, title)
     }.runOnQueue(Queues.MAIN)
 
+    // Lecteur vidéo : luminosité de la fenêtre et volume média (glissement vertical), orientation, plein écran immersif.
+    AsyncFunction("getVideoControlsStateAsync") { ->
+      val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+      val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+      mapOf(
+        "volume" to audio.getStreamVolume(AudioManager.STREAM_MUSIC).toDouble() / max,
+        "volumeSteps" to max,
+        "brightness" to currentBrightness().toDouble()
+      )
+    }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("setMediaVolumeAsync") { fraction: Double ->
+      val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+      val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+      // Sans drapeau : pas de panneau de volume système, OpenPlay affiche son propre indicateur.
+      audio.setStreamVolume(AudioManager.STREAM_MUSIC, Math.round(fraction.coerceIn(0.0, 1.0) * max).toInt(), 0)
+    }
+
+    AsyncFunction("setWindowBrightnessAsync") { value: Double ->
+      val window = appContext.currentActivity?.window ?: return@AsyncFunction
+      val attributes = window.attributes
+      // Valeur négative : la luminosité du système reprend la main.
+      attributes.screenBrightness = if (value < 0) WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE else value.toFloat().coerceIn(0.01f, 1f)
+      window.attributes = attributes
+    }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("setScreenOrientationAsync") { mode: String ->
+      val activity = appContext.currentActivity ?: return@AsyncFunction
+      if (mode == "default") {
+        savedOrientation?.let { activity.requestedOrientation = it }
+        savedOrientation = null
+        return@AsyncFunction
+      }
+      if (savedOrientation == null) savedOrientation = activity.requestedOrientation
+      activity.requestedOrientation = when (mode) {
+        "landscape" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        "portrait" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+        else -> ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+      }
+    }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("setImmersiveAsync") { enabled: Boolean ->
+      val window = appContext.currentActivity?.window ?: return@AsyncFunction
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        val controller = window.insetsController ?: return@AsyncFunction
+        if (enabled) {
+          // Barres système rappelées d'un glissement depuis le bord, puis masquées de nouveau.
+          controller.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+          controller.hide(WindowInsets.Type.systemBars())
+        } else {
+          controller.show(WindowInsets.Type.systemBars())
+        }
+      } else {
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility =
+          if (enabled) {
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_FULLSCREEN or
+              View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+          } else {
+            View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+          }
+      }
+    }.runOnQueue(Queues.MAIN)
+
     // Sous-titres : fichier choisi par l'utilisateur dans le sélecteur Android (aucun dossier n'est parcouru).
     AsyncFunction("pickSubtitleAsync") { promise: Promise ->
       val activity = appContext.currentActivity ?: throw Exceptions.MissingActivity()
@@ -203,6 +277,17 @@ class OpenPlayMediaModule : Module() {
       } catch (e: Exception) {
         promise.reject("ERR_SUBTITLE_PICK", e.message, e)
       }
+    }
+  }
+
+  /** Luminosité de la fenêtre si OpenPlay l'a réglée, sinon valeur approchée du réglage système (0 à 1). */
+  private fun currentBrightness(): Float {
+    val own = appContext.currentActivity?.window?.attributes?.screenBrightness ?: -1f
+    if (own >= 0f) return own
+    return try {
+      (Settings.System.getInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS) / 255f).coerceIn(0.05f, 1f)
+    } catch (e: Exception) {
+      0.5f
     }
   }
 
@@ -424,7 +509,10 @@ class OpenPlayMediaModule : Module() {
       MediaStore.Video.Media.DATA
     )
     val hasRelative = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
-    if (hasRelative) projection.add(MediaStore.Video.Media.RELATIVE_PATH)
+    if (hasRelative) {
+      projection.add(MediaStore.Video.Media.RELATIVE_PATH)
+      projection.add(MediaStore.Video.Media.ORIENTATION)
+    }
     val result = ArrayList<Map<String, Any?>>()
     context.contentResolver.query(videoCollection(), projection.toTypedArray(), null, null, "${MediaStore.Video.Media.DATE_ADDED} DESC")?.use { c ->
       fun idx(name: String) = c.getColumnIndex(name)
@@ -441,6 +529,7 @@ class OpenPlayMediaModule : Module() {
       val iBucket = idx(MediaStore.Video.Media.BUCKET_DISPLAY_NAME)
       val iData = idx(MediaStore.Video.Media.DATA)
       val iRelative = if (hasRelative) idx(MediaStore.Video.Media.RELATIVE_PATH) else -1
+      val iOrientation = if (hasRelative) idx(MediaStore.Video.Media.ORIENTATION) else -1
       while (c.moveToNext()) {
         val id = c.getLong(iId)
         result.add(
@@ -455,6 +544,7 @@ class OpenPlayMediaModule : Module() {
             "dateModified" to if (iModified >= 0) c.getLong(iModified).toDouble() else 0.0,
             "width" to if (iWidth >= 0 && !c.isNull(iWidth)) c.getInt(iWidth) else 0,
             "height" to if (iHeight >= 0 && !c.isNull(iHeight)) c.getInt(iHeight) else 0,
+            "rotation" to if (iOrientation >= 0 && !c.isNull(iOrientation)) c.getInt(iOrientation) else 0,
             "mimeType" to c.getStringOrNull(iMime),
             "folder" to (c.getStringOrNull(iRelative)?.trimEnd('/') ?: c.getStringOrNull(iBucket)),
             "path" to c.getStringOrNull(iData)
@@ -474,7 +564,8 @@ class OpenPlayMediaModule : Module() {
     val uri = ContentUris.withAppendedId(videoCollection(), id)
     val system: Bitmap? = try {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-        context.contentResolver.loadThumbnail(uri, Size(size, size * 9 / 16), null)
+        // Cadre carré : une vidéo verticale garde sa pleine définition.
+        context.contentResolver.loadThumbnail(uri, Size(size, size), null)
       } else {
         null
       }
@@ -483,7 +574,7 @@ class OpenPlayMediaModule : Module() {
     }
     val bitmap: Bitmap = system ?: frameAt(uri, size) ?: return null
     val tmp = File(dir, "${file.name}.${Thread.currentThread().id}.tmp")
-    FileOutputStream(tmp).use { bitmap.compress(Bitmap.CompressFormat.JPEG, 88, it) }
+    FileOutputStream(tmp).use { bitmap.compress(Bitmap.CompressFormat.JPEG, 92, it) }
     if (!tmp.renameTo(file)) tmp.delete()
     return Uri.fromFile(file).toString()
   }
@@ -492,7 +583,16 @@ class OpenPlayMediaModule : Module() {
     val retriever = MediaMetadataRetriever()
     return try {
       retriever.setDataSource(context, uri)
-      retriever.getFrameAtTime(1_000_000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)?.let { scale(it, size) }
+      // Image représentative plutôt que la première seconde (souvent noire ou en fondu) : 10 % de la durée, entre 1 s et 60 s.
+      val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+      val atUs = (durationMs / 10).coerceIn(1_000L, 60_000L) * 1000
+      val frame =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+          retriever.getScaledFrameAtTime(atUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, size, size)
+        } else {
+          retriever.getFrameAtTime(atUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+        }
+      frame?.let { scale(it, size) }
     } catch (e: Exception) {
       null
     } finally {

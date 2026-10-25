@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 import type { LanguageCode, ProviderId } from '../lyrics/transcription';
+import type { VideoFitMode } from '../video/display';
 import type { SubtitleContrast, SubtitleSize } from '../video/subtitles';
 import type { VideoSort } from '../video/types';
 import { persist } from 'zustand/middleware';
@@ -35,6 +36,10 @@ export type Settings = {
   videoPip: boolean;
   /** Vidéo : double appui à gauche / à droite pour reculer / avancer de 10 s. */
   videoDoubleTap: boolean;
+  /** Vidéo : glissement vertical à gauche pour la luminosité, à droite pour le volume. */
+  videoSwipe: boolean;
+  /** Vidéo : format d'affichage (conservé d'une vidéo à l'autre, comme dans VLC). */
+  videoFit: VideoFitMode;
   videoSort: VideoSort;
   videoLayout: 'grid' | 'list';
   /** Sous-titres importés (SRT / WebVTT) : taille et contraste d'affichage. */
@@ -59,6 +64,8 @@ export const DEFAULT_SETTINGS: Settings = {
   resumeLongTracks: true,
   videoPip: true,
   videoDoubleTap: true,
+  videoSwipe: true,
+  videoFit: 'best',
   videoSort: 'date',
   videoLayout: 'grid',
   subtitleSize: 'medium',

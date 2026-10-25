@@ -12,9 +12,16 @@ import type { Video } from './types';
 export function VideoThumb({ video, width, progress = 0, style }: { video: Video; width?: number; progress?: number; style?: StyleProp<ViewStyle> }) {
   const { colors, dark } = useTheme();
   const uri = useVideoThumbnail(video.id);
+  const portrait = video.height > video.width * 1.1;
   return (
     <View style={[styles.box, width ? { width } : { width: '100%' }, { backgroundColor: dark ? '#26262A' : '#E4E4E8' }, style]}>
-      {uri ? (
+      {uri && portrait ? (
+        <>
+          {/* Vidéo verticale : image entière sur un fond flouté, plutôt qu'un recadrage serré. */}
+          <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" blurRadius={18} recyclingKey={`${uri}-bg`} />
+          <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="contain" transition={150} recyclingKey={uri} />
+        </>
+      ) : uri ? (
         <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={150} recyclingKey={uri} />
       ) : (
         <View style={styles.center}>
