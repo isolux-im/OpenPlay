@@ -38,6 +38,8 @@ export type Settings = {
   videoDoubleTap: boolean;
   /** Vidéo : glissement vertical à gauche pour la luminosité, à droite pour le volume. */
   videoSwipe: boolean;
+  /** Vidéo : glissement horizontal pour avancer / reculer dans la vidéo (comme VLC). */
+  videoSeekSwipe: boolean;
   /** Vidéo : épisode suivant d'une série lancé après un compte à rebours. */
   videoAutoNext: boolean;
   /** Vidéo : repérage du générique de début des séries (analyse du son sur l'appareil). */
@@ -78,6 +80,7 @@ export const DEFAULT_SETTINGS: Settings = {
   videoSwipe: true,
   videoFit: 'best',
   videoOrientation: 'sensor',
+  videoSeekSwipe: true,
   videoAutoNext: true,
   videoIntroDetect: true,
   videoIntroAutoSkip: false,

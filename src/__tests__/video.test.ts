@@ -5,7 +5,7 @@ import { buildIndex } from '../library/indexLibrary';
 import { connectPlayer, disconnectPlayer, usePlayer } from '../store/player';
 import { VIDEO_HISTORY_LIMIT, useVideoHistory } from '../store/videoHistory';
 import { useVideoPlayer } from '../store/videoPlayer';
-import { FIT_MODES, nextFitMode, preferredOrientation, swipeLevel, videoFrame, volumeStep } from '../video/display';
+import { FIT_MODES, nextFitMode, preferredOrientation, seekSwipeDelta, swipeLevel, videoFrame, volumeStep } from '../video/display';
 import { continueWatching, demoVideos, formatResolution, isFinished, recentlyWatched, resumePosition, searchVideos, sortVideos, videoFolders, videoFromNative } from '../video/library';
 
 const videos = demoVideos();
@@ -124,5 +124,19 @@ describe('affichage vidéo (formats, orientation, glissement)', () => {
     expect(swipeLevel(0.5, -56, 800)).toBeCloseTo(0.6);
     expect(volumeStep(0.52, 15)).toBeCloseTo(8 / 15);
     expect(volumeStep(0.52, 0)).toBe(0.52);
+  });
+
+  it('convertit le glissement horizontal en déplacement progressif', () => {
+    // Épisode de 45 min, écran de 400 points.
+    expect(seekSwipeDelta(0, 400, 2700)).toBe(0);
+    expect(seekSwipeDelta(40, 400, 2700)).toBe(16);
+    expect(seekSwipeDelta(-40, 400, 2700)).toBe(-16);
+    expect(seekSwipeDelta(200, 400, 2700)).toBe(214);
+    expect(seekSwipeDelta(400, 400, 2700)).toBe(765);
+    // Au-delà de la largeur : plafonné ; film de 3 h : un quart plafonné à 15 min.
+    expect(seekSwipeDelta(900, 400, 2700)).toBe(765);
+    expect(seekSwipeDelta(400, 400, 10_800)).toBe(990);
+    // Clip de 3 min : déplacement limité, la position reste bornée par le lecteur.
+    expect(seekSwipeDelta(400, 400, 180)).toBe(135);
   });
 });

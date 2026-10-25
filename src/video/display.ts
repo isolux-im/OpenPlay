@@ -67,6 +67,17 @@ export function swipeLevel(start: number, translationY: number, screenHeight: nu
   return Math.min(1, Math.max(0, start - translationY / travel));
 }
 
+/**
+ * Glissement horizontal (comme VLC) : déplacement en secondes, progressif. Un glissement court
+ * règle finement (10 à 20 s pour 10 % de la largeur) ; un glissement long parcourt la vidéo
+ * (au plus 90 s + un quart de la durée, plafonné à 15 min, pour toute la largeur).
+ */
+export function seekSwipeDelta(translationX: number, screenWidth: number, durationSec: number): number {
+  const f = Math.max(-1, Math.min(1, translationX / Math.max(1, screenWidth)));
+  const span = Math.min(Math.max(durationSec, 0) * 0.25, 900);
+  return Math.round(Math.sign(f) * (Math.abs(f) * 90 + f * f * span));
+}
+
 /** Volume ramené au cran le plus proche du volume système. */
 export function volumeStep(level: number, steps: number): number {
   return steps > 0 ? Math.round(level * steps) / steps : level;

@@ -23,7 +23,7 @@ import { useVideos } from '../store/videos';
 import { tap } from '../ui/haptics';
 import { Icon, type IconName } from '../ui/Icon';
 import { Text } from '../ui/Text';
-import { fitLabel, nextFitMode, preferredOrientation, swipeLevel, videoFrame, volumeStep } from './display';
+import { fitLabel, nextFitMode, preferredOrientation, seekSwipeDelta, swipeLevel, videoFrame, volumeStep } from './display';
 import { detectIntro, inIntro } from './intro';
 import { isFinished, resumePosition } from './library';
 import { episodeLabel, nextEpisode } from './series';
@@ -140,6 +140,7 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const swipeEnabled = useSettings((s) => s.videoSwipe);
+  const seekSwipeEnabled = useSettings((s) => s.videoSeekSwipe);
   const fitMode = useSettings((s) => s.videoFit);
   const orientationMode = useSettings((s) => s.videoOrientation);
   const autoNext = useSettings((s) => s.videoAutoNext);
@@ -169,6 +170,8 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   const [level, setLevel] = useState<{ kind: 'brightness' | 'volume'; value: number; at: number } | null>(null);
   /** Variante sans module natif (web) : voile sombre en guise de luminosité. */
   const [dim, setDim] = useState(0);
+  /** Glissement horizontal en cours : position visée et écart. */
+  const [seekPreview, setSeekPreview] = useState<{ target: number; delta: number } | null>(null);
   const [trackSize, setTrackSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
   const [seekHint, setSeekHint] = useState<{
     side: 'left' | 'right';
@@ -190,6 +193,7 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   const introSkipped = useRef(false);
   const controlsState = useRef({ volume: 1, volumeSteps: 15, brightness: 1 });
   const swipe = useRef<{ kind: 'brightness' | 'volume'; start: number; sent: number } | null>(null);
+  const seekSwipe = useRef<{ start: number; target: number } | null>(null);
   const lastSave = useRef(0);
   const lastTap = useRef<{ at: number; side: 'left' | 'right' } | null>(null);
   const singleTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -555,7 +559,46 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
     setLevel((l) => (l ? { ...l, at: Date.now() } : l));
   };
 
+  // Glissement horizontal (comme VLC) : aperçu de la position pendant le geste, saut au relâchement.
+  const beginSeekSwipe = (x: number, y: number) => {
+    if (y < insets.top + EDGE || y > height - insets.bottom - EDGE || x < EDGE || x > width - EDGE || error) {
+      seekSwipe.current = null;
+      return;
+    }
+    const start = player.currentTime;
+    seekSwipe.current = { start, target: start };
+    setControls(false);
+  };
+
+  const moveSeekSwipe = (translationX: number) => {
+    const s = seekSwipe.current;
+    if (!s) return;
+    const d = duration || player.duration || video.durationSec;
+    const target = Math.max(0, Math.min(d > 0 ? d - 0.5 : Infinity, s.start + seekSwipeDelta(translationX, width, d)));
+    s.target = target;
+    setSeekPreview({ target, delta: Math.round(target - s.start) });
+  };
+
+  const endSeekSwipe = () => {
+    const s = seekSwipe.current;
+    seekSwipe.current = null;
+    setSeekPreview(null);
+    if (!s || Math.abs(s.target - s.start) < 1) return;
+    setTime(player, s.target);
+    setPosition(s.target);
+    lastPosition.current = s.target;
+    setEnded(false);
+  };
+
   const surfaceGesture = Gesture.Race(
+    Gesture.Pan()
+      .runOnJS(true)
+      .enabled(seekSwipeEnabled && !locked && !inPip)
+      .activeOffsetX([-16, 16])
+      .failOffsetY([-24, 24])
+      .onStart((e) => beginSeekSwipe(e.x, e.y))
+      .onUpdate((e) => moveSeekSwipe(e.translationX))
+      .onFinalize(endSeekSwipe),
     Gesture.Pan()
       .runOnJS(true)
       .enabled(swipeEnabled && !locked && !inPip)
@@ -611,6 +654,18 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
       ) : null}
 
       {level ? <LevelIndicator kind={level.kind} value={level.value} /> : null}
+
+      {seekPreview ? (
+        <View pointerEvents="none" style={styles.seekPreview} accessibilityLiveRegion="polite">
+          <Text variant="title1" weight="bold" color="#FFFFFF" style={styles.levelShadow}>
+            {seekPreview.delta >= 0 ? '+' : '−'}
+            {formatDuration(Math.abs(seekPreview.delta))}
+          </Text>
+          <Text variant="headline" color="#FFFFFF" style={styles.levelShadow}>
+            {formatDuration(seekPreview.target)} / {formatDuration(duration || video.durationSec)}
+          </Text>
+        </View>
+      ) : null}
 
       {flash && !level ? (
         <View pointerEvents="none" style={styles.flash}>
@@ -829,6 +884,7 @@ const styles = StyleSheet.create({
   upNextPlay: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 999, backgroundColor: '#FFFFFF' },
   upNextCancel: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.18)' },
   stage: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center' },
+  seekPreview: { position: 'absolute', top: '38%', alignSelf: 'center', alignItems: 'center', gap: 4 },
   levelSide: { position: 'absolute', top: 0, bottom: 0, flexDirection: 'row', alignItems: 'center', gap: 16 },
   levelColumn: { alignItems: 'center', gap: 12 },
   levelBar: {
