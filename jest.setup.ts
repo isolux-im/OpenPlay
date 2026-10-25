@@ -71,6 +71,9 @@ jest.mock('react-native-reanimated', () => {
     FadeIn: chain,
     FadeInDown: chain,
     FadeOutDown: chain,
+    FadeOut: chain,
+    ZoomIn: chain,
+    ZoomOut: chain,
   };
 });
 require('react-native-gesture-handler/jestSetup');

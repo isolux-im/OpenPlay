@@ -1,3 +1,4 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import Constants from 'expo-constants';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Alert, Linking, Pressable, StyleSheet, Switch, View } from 'react-native';
@@ -37,12 +38,13 @@ function Group({ title, footer, children }: { title?: string; footer?: string; c
   );
 }
 
-function Row({ icon, iconColor, label, detail, right, onPress, last, destructive }: { icon: IconName; iconColor: string; label: string; detail?: string; right?: ReactNode; onPress?: () => void; last?: boolean; destructive?: boolean }) {
+/** iconColor est conservé pour l'appel mais la palette neutre affiche toutes les pastilles en gris. */
+function Row({ icon, label, detail, right, onPress, last, destructive }: { icon: IconName; iconColor?: string; label: string; detail?: string; right?: ReactNode; onPress?: () => void; last?: boolean; destructive?: boolean }) {
   const { colors } = useTheme();
   const content = (
     <View style={styles.row}>
-      <View style={[styles.rowIcon, { backgroundColor: iconColor }]}>
-        <Icon name={icon} size={17} color="#FFFFFF" />
+      <View style={[styles.rowIcon, { backgroundColor: colors.fill }]}>
+        <Icon name={outline(icon)} size={17} color={destructive ? colors.danger : colors.text} />
       </View>
       <View style={[styles.rowText, { borderBottomColor: last ? 'transparent' : colors.separator }]}>
         <Text variant="body" tone={destructive ? 'danger' : 'primary'} style={{ flex: 1 }}>
@@ -64,6 +66,12 @@ function Row({ icon, iconColor, label, detail, right, onPress, last, destructive
   ) : (
     content
   );
+}
+
+/** Variante filaire de l'icône quand elle existe (« moon » → « moon-outline »). */
+function outline(icon: IconName): IconName {
+  const o = `${icon}-outline`;
+  return o in Ionicons.glyphMap ? (o as IconName) : icon;
 }
 
 function Segmented<T extends string | number>({ options, value, onChange }: { options: { value: T; label: string }[]; value: T; onChange: (v: T) => void }) {
@@ -93,7 +101,7 @@ function Segmented<T extends string | number>({ options, value, onChange }: { op
 }
 
 export function SettingsScreen() {
-  const { colors } = useTheme();
+  const { colors, dark } = useTheme();
   const s = useSettings();
   const index = useLibrary((x) => x.index);
   const status = useLibrary((x) => x.status);
@@ -107,6 +115,8 @@ export function SettingsScreen() {
   const showToast = useUi((x) => x.showToast);
   const totalDuration = index.tracks.reduce((a, t) => a + t.durationSec, 0);
   const now = useNow(15_000);
+  // Le graphite clair du mode sombre masquerait le curseur blanc : piste grise dans ce cas.
+  const switchColors = { trackColor: { false: colors.fill, true: dark && s.accent === 'graphite' ? '#7C7C82' : colors.accent }, thumbColor: '#FFFFFF' };
 
   const themeOptions: { value: ThemeMode; label: string }[] = [
     { value: 'system', label: 'Système' },
@@ -145,7 +155,7 @@ export function SettingsScreen() {
             })}
           </View>
         </View>
-        <Row icon="color-palette" iconColor="#AF52DE" label="Lecteur aux couleurs de la pochette" right={<Switch value={s.coloredPlayer} onValueChange={(v) => s.update({ coloredPlayer: v })} trackColor={{ true: colors.accent }} thumbColor="#FFFFFF" />} last />
+        <Row icon="color-palette" iconColor="#AF52DE" label="Lecteur aux couleurs de la pochette" right={<Switch value={s.coloredPlayer} onValueChange={(v) => s.update({ coloredPlayer: v })} {...switchColors} />} last />
       </Group>
 
       <Group title="Bibliothèque" footer={isDemo ? 'Aperçu : bibliothèque de démonstration (le module Android est absent sur cette plateforme).' : `Les fichiers de moins de ${s.minDurationSec} s (sonneries, notifications) sont ignorés.`}>
@@ -181,8 +191,8 @@ export function SettingsScreen() {
       </Group>
 
       <Group title="Lecture">
-        <Row icon="play-circle" iconColor="#0A84FF" label="Reprendre au lancement" right={<Switch value={s.resumeOnLaunch} onValueChange={(v) => s.update({ resumeOnLaunch: v })} trackColor={{ true: colors.accent }} thumbColor="#FFFFFF" />} />
-        <Row icon="phone-portrait" iconColor="#8E8E93" label="Retour haptique" right={<Switch value={s.haptics} onValueChange={(v) => s.update({ haptics: v })} trackColor={{ true: colors.accent }} thumbColor="#FFFFFF" />} />
+        <Row icon="play-circle" iconColor="#0A84FF" label="Reprendre au lancement" right={<Switch value={s.resumeOnLaunch} onValueChange={(v) => s.update({ resumeOnLaunch: v })} {...switchColors} />} />
+        <Row icon="phone-portrait" iconColor="#8E8E93" label="Retour haptique" right={<Switch value={s.haptics} onValueChange={(v) => s.update({ haptics: v })} {...switchColors} />} />
         <Row icon="moon" iconColor="#5856D6" label="Minuterie de sommeil" detail={sleep.atTrackEnd ? 'Fin du morceau' : sleep.endsAt ? `${Math.max(0, Math.round((sleep.endsAt - now) / 60000))} min` : 'Désactivée'} onPress={openSleep} last />
       </Group>
 

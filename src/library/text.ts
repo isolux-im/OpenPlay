@@ -44,3 +44,29 @@ export function formatTotalDuration(totalSec: number): string {
 export function pluralize(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count > 1 ? plural : singular}`;
 }
+
+const FORMATS: Record<string, string> = {
+  'audio/mpeg': 'MP3',
+  'audio/mp3': 'MP3',
+  'audio/mp4': 'AAC (M4A)',
+  'audio/x-m4a': 'AAC (M4A)',
+  'audio/aac': 'AAC',
+  'audio/flac': 'FLAC',
+  'audio/x-flac': 'FLAC',
+  'audio/ogg': 'Ogg',
+  'audio/opus': 'Opus',
+  'audio/wav': 'WAV',
+  'audio/x-wav': 'WAV',
+  'audio/amr': 'AMR',
+};
+
+/**
+ * Format, taille et débit moyen d'un fichier. Le débit est une estimation (taille × 8 / durée) :
+ * il inclut les métadonnées et la pochette intégrée, et n'est pas lu dans l'en-tête du flux.
+ */
+export function audioQuality(mimeType: string, sizeBytes: number, durationSec: number) {
+  const format = FORMATS[mimeType.toLowerCase()] ?? (mimeType.replace(/^audio\//, '').toUpperCase() || 'Inconnu');
+  const size = sizeBytes > 0 ? `${(sizeBytes / 1_000_000).toLocaleString('fr-FR', { maximumFractionDigits: 1, minimumFractionDigits: 1 })} Mo` : 'Inconnue';
+  const kbps = sizeBytes > 0 && durationSec > 0 ? Math.round((sizeBytes * 8) / durationSec / 1000) : null;
+  return { format, size, bitrate: kbps ? `≈ ${kbps} kbit/s` : 'Inconnu' };
+}

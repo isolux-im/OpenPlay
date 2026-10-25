@@ -11,6 +11,7 @@ import { pluralize } from '../library/text';
 import { useAppNavigation } from '../navigation/ref';
 import { useLibrary } from '../store/library';
 import { usePlayer } from '../store/player';
+import { useUi } from '../store/ui';
 import { useUser } from '../store/user';
 import { Icon } from '../ui/Icon';
 import { Text } from '../ui/Text';
@@ -26,6 +27,7 @@ export function SearchScreen() {
   const recentSearches = useUser((s) => s.recentSearches);
   const { addRecentSearch, clearRecentSearches } = useUser.getState();
   const playTracks = usePlayer((s) => s.playTracks);
+  const { openAlbumMenu, openPlaylistMenu } = useUi.getState();
   const [query, setQuery] = useState('');
   const deferred = useDeferredValue(query);
   const results = useMemo(() => searchLibrary(index, playlists, deferred), [index, playlists, deferred]);
@@ -34,8 +36,8 @@ export function SearchScreen() {
 
   return (
     <ScrollScreen title="Recherche" keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
-      <View style={[styles.field, { backgroundColor: colors.fill }]}>
-        <Icon name="search" size={19} color={colors.secondaryText} />
+      <View style={[styles.field, { backgroundColor: colors.card, borderColor: colors.separator }]}>
+        <Icon name="search-outline" size={19} color={colors.secondaryText} />
         <TextInput
           value={query}
           onChangeText={setQuery}
@@ -62,7 +64,7 @@ export function SearchScreen() {
                 <View style={styles.recentHeader}>
                   <Text variant="title3">Recherches récentes</Text>
                   <Pressable onPress={clearRecentSearches} hitSlop={8} accessibilityRole="button">
-                    <Text variant="subhead" tone="accent">
+                    <Text variant="subhead" tone="secondary">
                       Effacer
                     </Text>
                   </Pressable>
@@ -70,7 +72,7 @@ export function SearchScreen() {
                 {recentSearches.map((q) => (
                   <Pressable key={q} onPress={() => setQuery(q)} style={[styles.recent, { borderBottomColor: colors.separator }]} accessibilityRole="button">
                     <Icon name="time-outline" size={18} color={colors.secondaryText} />
-                    <Text variant="body" tone="accent">
+                    <Text variant="body">
                       {q}
                     </Text>
                   </Pressable>
@@ -97,13 +99,13 @@ export function SearchScreen() {
                     else if (top.kind === 'album') navigation.push('Album', { id: top.item.id });
                     else navigation.push('Artist', { id: top.item.id });
                   }}
-                  style={[styles.top, { backgroundColor: colors.elevated }]}
+                  style={[styles.top, { backgroundColor: colors.card }]}
                   accessibilityRole="button">
                   <Artwork
                     track={results.top.kind === 'track' ? results.top.item : index.byId[results.top.item.trackIds[0]]}
                     size={88}
                     circle={results.top.kind === 'artist'}
-                    rounded={8}
+                    rounded={14}
                     placeholderIcon={results.top.kind === 'artist' ? 'person' : 'musical-notes'}
                   />
                   <View style={{ flex: 1 }}>
@@ -144,7 +146,7 @@ export function SearchScreen() {
             {results.albums.length ? (
               <>
                 <SectionHeader title="Albums" />
-                <Carousel data={results.albums} keyOf={(a) => a.id} render={(a) => <MediaCard title={a.title} subtitle={a.artist} track={index.byId[a.trackIds[0]]} width={140} onPress={() => { remember(); navigation.push('Album', { id: a.id }); }} />} />
+                <Carousel data={results.albums} keyOf={(a) => a.id} render={(a) => <MediaCard title={a.title} subtitle={a.artist} track={index.byId[a.trackIds[0]]} width={140} onPress={() => { remember(); navigation.push('Album', { id: a.id }); }} onLongPress={(anchor) => openAlbumMenu(a.id, anchor)} />} />
               </>
             ) : null}
 
@@ -154,7 +156,7 @@ export function SearchScreen() {
                 <Carousel
                   data={results.playlists}
                   keyOf={(p) => p.id}
-                  render={(p) => <MediaCard title={p.name} subtitle={pluralize(p.trackIds.length, 'morceau', 'morceaux')} mosaic={p.trackIds.map((id) => index.byId[id]).filter(Boolean)} width={140} onPress={() => navigation.push('Playlist', { id: p.id })} />}
+                  render={(p) => <MediaCard title={p.name} subtitle={pluralize(p.trackIds.length, 'morceau', 'morceaux')} mosaic={p.trackIds.map((id) => index.byId[id]).filter(Boolean)} width={140} onPress={() => navigation.push('Playlist', { id: p.id })} onLongPress={(anchor) => openPlaylistMenu(p.id, anchor)} />}
                 />
               </>
             ) : null}
@@ -168,10 +170,10 @@ export function SearchScreen() {
 }
 
 const styles = StyleSheet.create({
-  field: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: GUTTER, paddingHorizontal: 10, height: 40, borderRadius: 10, marginBottom: 4 },
+  field: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: GUTTER, paddingHorizontal: 14, height: 46, borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth, marginBottom: 4 },
   input: { flex: 1, fontSize: 17, paddingVertical: 0 },
   recentHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: GUTTER, marginTop: 24, marginBottom: 6 },
   recent: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: GUTTER, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
   tiles: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: GUTTER - 6 },
-  top: { flexDirection: 'row', alignItems: 'center', gap: 14, marginHorizontal: GUTTER, padding: 14, borderRadius: radius.lg },
+  top: { flexDirection: 'row', alignItems: 'center', gap: 14, marginHorizontal: GUTTER, padding: 12, borderRadius: radius.xl },
 });

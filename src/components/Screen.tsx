@@ -45,9 +45,9 @@ function TopBar({ y, title, back, backLabel, right, titleThreshold = 44 }: Heade
         <View style={styles.side}>
           {back ? (
             <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.back} accessibilityRole="button" accessibilityLabel="Retour">
-              <Icon name="chevron-back" size={28} color={colors.accent} />
+              <Icon name="chevron-back" size={26} color={colors.text} />
               {backLabel ? (
-                <Text variant="body" tone="accent" numberOfLines={1} style={styles.backLabel}>
+                <Text variant="body" numberOfLines={1} style={styles.backLabel}>
                   {backLabel}
                 </Text>
               ) : null}
@@ -73,12 +73,12 @@ export function LargeTitle({ title, subtitle, right }: { title: string; subtitle
           {title}
         </Text>
         {subtitle ? (
-          <Text variant="subhead" tone="secondary" style={{ marginTop: 2 }}>
+          <Text variant="subhead" tone="secondary" style={{ marginTop: 2 }} numberOfLines={1}>
             {subtitle}
           </Text>
         ) : null}
       </View>
-      {right}
+      {right ? <View style={styles.titleActions}>{right}</View> : null}
     </View>
   );
 }
@@ -152,11 +152,17 @@ export function ListScreen<T>({ title, back, backLabel, right, titleThreshold, l
   );
 }
 
+/** Bouton rond discret des en-têtes (recherche, ajout, profil). */
 export function HeaderButton({ icon, onPress, label }: { icon: Parameters<typeof Icon>[0]['name']; onPress: () => void; label: string }) {
   const { colors } = useTheme();
   return (
-    <Pressable onPress={onPress} hitSlop={10} accessibilityRole="button" accessibilityLabel={label} style={styles.headerButton}>
-      <Icon name={icon} size={24} color={colors.accent} />
+    <Pressable
+      onPress={onPress}
+      hitSlop={8}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={({ pressed }) => [styles.headerButton, { backgroundColor: colors.fill, opacity: pressed ? 0.6 : 1 }]}>
+      <Icon name={icon} size={19} color={colors.text} />
     </Pressable>
   );
 }
@@ -167,10 +173,11 @@ const styles = StyleSheet.create({
   hairline: { position: 'absolute', left: 0, right: 0, bottom: 0, height: StyleSheet.hairlineWidth },
   barRow: { flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8 },
   side: { flex: 1, flexDirection: 'row', alignItems: 'center' },
-  right: { justifyContent: 'flex-end', paddingRight: 8, gap: 14 },
+  right: { justifyContent: 'flex-end', paddingRight: 8, gap: 10 },
   center: { flex: 2, alignItems: 'center' },
   back: { flexDirection: 'row', alignItems: 'center', marginLeft: -4 },
   backLabel: { marginLeft: -2, maxWidth: 120 },
-  largeTitle: { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: GUTTER, paddingBottom: 12, paddingTop: 4 },
-  headerButton: { padding: 2 },
+  largeTitle: { flexDirection: 'row', alignItems: 'flex-end', gap: 10, paddingHorizontal: GUTTER, paddingBottom: 14, paddingTop: 4 },
+  titleActions: { flexDirection: 'row', gap: 10, marginBottom: 4 },
+  headerButton: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
 });

@@ -2,6 +2,7 @@ package expo.modules.openplaymedia
 
 import android.content.ContentUris
 import android.content.Context
+import android.content.Intent
 import android.database.Cursor
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -13,6 +14,7 @@ import android.util.Size
 import androidx.palette.graphics.Palette
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.functions.Coroutine
+import expo.modules.kotlin.functions.Queues
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import kotlinx.coroutines.Dispatchers
@@ -42,6 +44,28 @@ class OpenPlayMediaModule : Module() {
 
     AsyncFunction("readLyricsAsync") Coroutine { path: String ->
       withContext(Dispatchers.IO) { readSiblingLyrics(path) }
+    }
+
+    AsyncFunction("shareAudioAsync") { trackId: String, mimeType: String, title: String ->
+      shareAudio(trackId, mimeType, title)
+    }.runOnQueue(Queues.MAIN)
+  }
+
+  /** Feuille de partage système avec le fichier audio ; la lecture est accordée au destinataire. */
+  private fun shareAudio(trackId: String, mimeType: String, title: String) {
+    val uri = ContentUris.withAppendedId(audioCollection(), trackId.toLong())
+    val send = Intent(Intent.ACTION_SEND).apply {
+      type = mimeType.ifBlank { "audio/*" }
+      putExtra(Intent.EXTRA_STREAM, uri)
+      putExtra(Intent.EXTRA_TITLE, title)
+      addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    val chooser = Intent.createChooser(send, title)
+    val activity = appContext.currentActivity
+    if (activity != null) {
+      activity.startActivity(chooser)
+    } else {
+      context.startActivity(chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
   }
 

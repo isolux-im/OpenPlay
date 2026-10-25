@@ -3,19 +3,21 @@ import { useCallback, useMemo } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Artwork } from '../components/Artwork';
-import { EmptyState, Grid, MenuRow, SectionHeader } from '../components/Blocks';
-import { ListScreen, ScrollScreen } from '../components/Screen';
+import { Carousel, Chips, EmptyState, Grid, MediaCard, MenuRow, QuickTile, SectionHeader } from '../components/Blocks';
+import { PressableScale } from '../components/PressableScale';
+import { HeaderButton, ListScreen, ScrollScreen } from '../components/Screen';
 import { TrackRow } from '../components/TrackRow';
-import { fallbackColors } from '../library/artwork';
-import { groupHistory, mostPlayed, recentlyAddedAlbums, recentlyAddedTracks, rediscover, sortTracks } from '../library/selectors';
+import { groupHistory, mostPlayed, recentlyAddedAlbums, recentlyPlayedAlbums, recentlyAddedTracks, rediscover, sortTracks } from '../library/selectors';
 import { pluralize } from '../library/text';
-import { useAppNavigation } from '../navigation/ref';
+import { goToTab, useAppNavigation } from '../navigation/ref';
 import type { SharedStackParams, SmartPlaylistKind } from '../navigation/types';
 import { useLibrary } from '../store/library';
 import { usePlayer } from '../store/player';
 import { useSettings, type SongSort } from '../store/settings';
+import { useUi } from '../store/ui';
 import { useUser } from '../store/user';
 import type { Album, Artist, Folder, Genre } from '../types';
+import { tap } from '../ui/haptics';
 import { Icon } from '../ui/Icon';
 import { Text } from '../ui/Text';
 import { GUTTER, radius, useTheme } from '../ui/theme';
@@ -27,57 +29,120 @@ export function LibraryScreen() {
   const navigation = useAppNavigation();
   const index = useLibrary((s) => s.index);
   const favorites = useUser((s) => s.favorites.length);
-  const historyCount = useUser((s) => s.history.length);
-  const recent = useMemo(() => recentlyAddedAlbums(index, 12), [index]);
+  const history = useUser((s) => s.history);
+  const playlists = useUser((s) => s.playlists);
+  const openAlbumMenu = useUi((s) => s.openAlbumMenu);
+  const openPlaylistMenu = useUi((s) => s.openPlaylistMenu);
+  const played = useMemo(() => recentlyPlayedAlbums(history, index, 12), [history, index]);
+  const added = useMemo(() => recentlyAddedAlbums(index, 12), [index]);
+  const recentAlbums = played.length ? played : added;
+  const recentCount = useMemo(() => new Set(history.map((h) => h.trackId)).size, [history]);
+  const smart: SmartPlaylistKind[] = ['mostPlayed', 'recentlyAdded', 'rediscover'];
+  const { colors } = useTheme();
 
   return (
-    <ScrollScreen title="Bibliothèque">
+    <ScrollScreen
+      title="Bibliothèque"
+      titleRight={
+        <>
+          <HeaderButton icon="search-outline" label="Rechercher" onPress={() => goToTab('SearchTab')} />
+          <HeaderButton icon="person-outline" label="Paramètres" onPress={() => goToTab('SettingsTab')} />
+        </>
+      }>
       <LibraryGate>
-        <View style={{ marginTop: 4 }}>
-          <MenuRow icon="heart" label="Favoris" detail={favorites ? String(favorites) : undefined} onPress={() => navigation.navigate('Favorites')} />
-          <MenuRow icon="musical-note" label="Titres" detail={String(index.tracks.length)} onPress={() => navigation.navigate('Songs')} />
-          <MenuRow icon="mic" label="Artistes" detail={String(index.artists.length)} onPress={() => navigation.navigate('Artists')} />
-          <MenuRow icon="albums" label="Albums" detail={String(index.albums.length)} onPress={() => navigation.navigate('Albums')} />
-          <MenuRow icon="pricetags" label="Genres" detail={String(index.genres.length)} onPress={() => navigation.navigate('Genres')} />
-          <MenuRow icon="folder" label="Dossiers" detail={String(index.folders.length)} onPress={() => navigation.navigate('Folders')} />
-          <MenuRow icon="time" label="Historique" detail={historyCount ? String(historyCount) : undefined} onPress={() => navigation.navigate('History')} last />
+        <View style={styles.quickGrid}>
+          <View style={styles.quickRow}>
+            <QuickTile icon="time-outline" label="Récents" count={recentCount} onPress={() => navigation.navigate('History')} />
+            <QuickTile icon="heart-outline" label="Favoris" count={favorites} onPress={() => navigation.navigate('Favorites')} />
+          </View>
+          <View style={styles.quickRow}>
+            <QuickTile icon="list-outline" label="Playlists" count={playlists.length} onPress={() => goToTab('PlaylistsTab')} />
+            <QuickTile icon="musical-notes-outline" label="Titres" count={index.tracks.length} onPress={() => navigation.navigate('Songs')} />
+          </View>
         </View>
-        {recent.length ? (
+
+        {recentAlbums.length ? (
           <>
-            <SectionHeader title="Ajoutés récemment" />
-            <Grid
-              data={recent}
+            <SectionHeader title={played.length ? 'Écoutés récemment' : 'Ajoutés récemment'} onPress={() => navigation.navigate(played.length ? 'History' : 'Albums')} />
+            <Carousel
+              data={recentAlbums}
               keyOf={(a) => a.id}
-              render={(a) => <AlbumGridCard album={a} />}
+              render={(a) => (
+                <MediaCard
+                  title={a.title}
+                  subtitle={`Album · ${pluralize(a.trackIds.length, 'titre')}`}
+                  track={index.byId[a.trackIds[0]]}
+                  width={150}
+                  onPress={() => navigation.push('Album', { id: a.id })}
+                  onLongPress={(anchor) => openAlbumMenu(a.id, anchor)}
+                />
+              )}
             />
           </>
         ) : null}
+
+        <SectionHeader title="Playlists pour vous" onPress={() => goToTab('PlaylistsTab')} />
+        <Carousel
+          data={[...playlists.map((p) => ({ key: p.id, playlist: p })), ...smart.map((k) => ({ key: k, kind: k }))]}
+          keyOf={(x) => x.key}
+          render={(x) => ('playlist' in x && x.playlist ? (
+            <MediaCard
+              title={x.playlist.name}
+              subtitle={pluralize(x.playlist.trackIds.length, 'titre')}
+              mosaic={x.playlist.trackIds.map((id) => index.byId[id]).filter(Boolean)}
+              width={150}
+              onPress={() => navigation.push('Playlist', { id: x.playlist.id })}
+              onLongPress={(anchor) => openPlaylistMenu(x.playlist.id, anchor)}
+            />
+          ) : (
+            <SmartCard kind={(x as { kind: SmartPlaylistKind }).kind} />
+          ))}
+        />
+
+        <SectionHeader title="Parcourir" />
+        <View style={[styles.browse, { backgroundColor: colors.card }]}>
+          <MenuRow icon="musical-note-outline" label="Titres" detail={String(index.tracks.length)} onPress={() => navigation.navigate('Songs')} />
+          <MenuRow icon="mic-outline" label="Artistes" detail={String(index.artists.length)} onPress={() => navigation.navigate('Artists')} />
+          <MenuRow icon="albums-outline" label="Albums" detail={String(index.albums.length)} onPress={() => navigation.navigate('Albums')} />
+          <MenuRow icon="pricetags-outline" label="Genres" detail={String(index.genres.length)} onPress={() => navigation.navigate('Genres')} />
+          <MenuRow icon="folder-outline" label="Dossiers" detail={String(index.folders.length)} onPress={() => navigation.navigate('Folders')} last />
+        </View>
       </LibraryGate>
     </ScrollScreen>
   );
 }
 
+/** Carte de playlist automatique : pochettes de ses premiers morceaux. */
+export function SmartCard({ kind, width = 150 }: { kind: SmartPlaylistKind; width?: number }) {
+  const navigation = useAppNavigation();
+  const tracks = useSmartPlaylist(kind);
+  const meta = SMART_PLAYLISTS[kind];
+  return <MediaCard title={meta.title} subtitle={`Automatique · ${pluralize(tracks.length, 'titre')}`} mosaic={tracks} width={width} onPress={() => navigation.navigate('SmartPlaylist', { kind })} />;
+}
+
 export function AlbumGridCard({ album }: { album: Album }) {
   const navigation = useAppNavigation();
   const byId = useLibrary((s) => s.index.byId);
+  const openAlbumMenu = useUi((s) => s.openAlbumMenu);
   return (
-    <PressableCard onPress={() => navigation.push('Album', { id: album.id })} label={`${album.title}, ${album.artist}`}>
-      <Artwork track={byId[album.trackIds[0]]} rounded={radius.md} />
-      <Text variant="subhead" weight="medium" numberOfLines={1} style={{ marginTop: 8 }}>
+    <PressableScale
+      onPress={() => navigation.push('Album', { id: album.id })}
+      onLongPress={(e) => {
+        tap();
+        openAlbumMenu(album.id, { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY });
+      }}
+      delayLongPress={320}
+      scaleTo={0.97}
+      accessibilityRole="button"
+      accessibilityLabel={`${album.title}, ${album.artist}`}>
+      <Artwork track={byId[album.trackIds[0]]} rounded={radius.lg} />
+      <Text variant="subhead" weight="semibold" numberOfLines={1} style={{ marginTop: 8 }}>
         {album.title}
       </Text>
-      <Text variant="subhead" tone="secondary" numberOfLines={1}>
+      <Text variant="footnote" tone="secondary" numberOfLines={1}>
         {album.artist}
       </Text>
-    </PressableCard>
-  );
-}
-
-function PressableCard({ onPress, label, children }: { onPress: () => void; label: string; children: React.ReactNode }) {
-  return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}>
-      {children}
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -87,7 +152,6 @@ export function SongsScreen() {
   const tracks = useLibrary((s) => s.index.tracks);
   const sort = useSettings((s) => s.songSort);
   const update = useSettings((s) => s.update);
-  const { colors } = useTheme();
   const sorted = useMemo(() => sortTracks(tracks, sort), [tracks, sort]);
   const order: SongSort[] = ['title', 'artist', 'album', 'added'];
   return (
@@ -96,22 +160,7 @@ export function SongsScreen() {
       backLabel="Bibliothèque"
       tracks={sorted}
       label="Tous les titres"
-      headerExtra={
-        <View style={styles.sortRow}>
-          {order.map((o) => (
-            <Pressable
-              key={o}
-              onPress={() => update({ songSort: o })}
-              style={[styles.sortChip, { backgroundColor: sort === o ? colors.accent : colors.fill }]}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: sort === o }}>
-              <Text variant="footnote" weight="semibold" color={sort === o ? '#FFFFFF' : colors.text}>
-                {SORT_LABELS[o]}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      }
+      headerExtra={<Chips options={order.map((o) => ({ key: o, label: SORT_LABELS[o] }))} value={sort} onChange={(o) => update({ songSort: o })} />}
     />
   );
 }
@@ -167,13 +216,14 @@ export function GenresScreen() {
 }
 
 export function GenreTile({ genre, onPress }: { genre: Genre; onPress: () => void }) {
-  const c = fallbackColors(`genre:${genre.name}`);
+  const { colors } = useTheme();
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.tile, { backgroundColor: c.dominant, opacity: pressed ? 0.8 : 1 }]} accessibilityRole="button" accessibilityLabel={`Genre ${genre.name}`}>
-      <Text variant="headline" color="#FFFFFF" numberOfLines={2}>
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.tile, { backgroundColor: colors.card, opacity: pressed ? 0.7 : 1 }]} accessibilityRole="button" accessibilityLabel={`Genre ${genre.name}`}>
+      <Icon name="pricetag-outline" size={18} color={colors.secondaryText} />
+      <Text variant="headline" numberOfLines={2}>
         {genre.name}
       </Text>
-      <Text variant="footnote" color="rgba(255,255,255,0.8)">
+      <Text variant="footnote" tone="secondary">
         {pluralize(genre.trackIds.length, 'morceau', 'morceaux')}
       </Text>
     </Pressable>
@@ -194,8 +244,8 @@ export function FoldersScreen() {
   const { colors } = useTheme();
   const renderItem = ({ item }: { item: Folder }) => (
     <Pressable onPress={() => navigation.push('Folder', { id: item.id })} style={({ pressed }) => [styles.listRow, pressed && { backgroundColor: colors.fill }]} accessibilityRole="button" accessibilityLabel={item.path}>
-      <View style={[styles.folderIcon, { backgroundColor: colors.accentSoft }]}>
-        <Icon name="folder" size={24} color={colors.accent} />
+      <View style={[styles.folderIcon, { backgroundColor: colors.fill }]}>
+        <Icon name="folder-outline" size={22} color={colors.text} />
       </View>
       <View style={[styles.listText, { borderBottomColor: colors.separator }]}>
         <View style={{ flex: 1 }}>
@@ -317,11 +367,12 @@ export function SmartPlaylistScreen() {
 }
 
 const styles = StyleSheet.create({
-  sortRow: { flexDirection: 'row', gap: 8, paddingHorizontal: GUTTER, paddingTop: 4 },
-  sortChip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999 },
+  quickGrid: { paddingHorizontal: GUTTER, gap: 12, marginTop: 4 },
+  quickRow: { flexDirection: 'row', gap: 12 },
+  browse: { marginHorizontal: GUTTER, borderRadius: radius.lg, overflow: 'hidden' },
   listRow: { flexDirection: 'row', alignItems: 'center', paddingLeft: GUTTER, height: 68 },
   listText: { flex: 1, flexDirection: 'row', alignItems: 'center', marginLeft: 14, height: '100%', borderBottomWidth: StyleSheet.hairlineWidth, paddingRight: GUTTER },
-  folderIcon: { width: 52, height: 52, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  folderIcon: { width: 52, height: 52, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   tiles: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: GUTTER - 6 },
   tile: { width: '47%', margin: '1.5%', height: 104, borderRadius: radius.lg, padding: 14, justifyContent: 'space-between' },
   groupLabel: { paddingHorizontal: GUTTER, paddingTop: 20, paddingBottom: 6 },

@@ -3,8 +3,7 @@ import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleShee
 import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { formatDuration, pluralize } from '../library/text';
-import { navigateInCurrentTab } from '../navigation/ref';
+import { pluralize } from '../library/text';
 import { useLibrary } from '../store/library';
 import { usePlayer } from '../store/player';
 import { useUi } from '../store/ui';
@@ -14,7 +13,7 @@ import { Icon, type IconName } from '../ui/Icon';
 import { Text } from '../ui/Text';
 import { GUTTER, radius, useTheme } from '../ui/theme';
 import { useNow } from '../ui/useNow';
-import { Artwork, Mosaic } from './Artwork';
+import { Mosaic } from './Artwork';
 
 function BottomSheet({ visible, onClose, children }: { visible: boolean; onClose: () => void; children: ReactNode }) {
   const { colors } = useTheme();
@@ -47,74 +46,6 @@ function SheetAction({ icon, label, onPress, destructive }: { icon: IconName; la
       </Text>
       <Icon name={icon} size={22} color={destructive ? colors.danger : colors.text} />
     </Pressable>
-  );
-}
-
-function TrackMenuSheet() {
-  const { colors } = useTheme();
-  const menu = useUi((s) => s.trackMenu);
-  const closeAll = useUi((s) => s.closeAll);
-  const openPicker = useUi((s) => s.openPlaylistPicker);
-  const showToast = useUi((s) => s.showToast);
-  const track = useLibrary((s) => (menu ? s.index.byId[menu.trackId] : undefined));
-  const favorite = useUser((s) => (menu ? s.favorites.includes(menu.trackId) : false));
-  const toggleFavorite = useUser((s) => s.toggleFavorite);
-  const removeFromPlaylist = useUser((s) => s.removeFromPlaylist);
-  const artistId = track ? track.albumArtist.toLowerCase() : '';
-
-  const run = (f: () => void) => () => {
-    closeAll();
-    f();
-  };
-
-  return (
-    <BottomSheet visible={!!menu && !!track} onClose={closeAll}>
-      {track && menu ? (
-        <>
-          <View style={styles.menuHeader}>
-            <Artwork track={track} size={52} rounded={8} />
-            <View style={{ flex: 1 }}>
-              <Text variant="headline" numberOfLines={1}>
-                {track.title}
-              </Text>
-              <Text variant="subhead" tone="secondary" numberOfLines={1}>
-                {track.artist} · {formatDuration(track.durationSec)}
-              </Text>
-            </View>
-            <Pressable
-              onPress={() => {
-                tap('success');
-                toggleFavorite(track.id);
-              }}
-              hitSlop={10}
-              accessibilityRole="button"
-              accessibilityLabel={favorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}>
-              <Icon name={favorite ? 'heart' : 'heart-outline'} size={26} color={colors.accent} />
-            </Pressable>
-          </View>
-          <View style={[styles.group, { backgroundColor: colors.elevated }]}>
-            <SheetAction icon="play-forward-outline" label="Lire ensuite" onPress={run(() => { usePlayer.getState().playNext([track.id]); showToast('Lu ensuite'); })} />
-            <SheetAction icon="list-outline" label="Ajouter à la file d'attente" onPress={run(() => { usePlayer.getState().addToQueue([track.id]); showToast("Ajouté à la file d'attente"); })} />
-            <SheetAction icon="add-circle-outline" label="Ajouter à une playlist…" onPress={() => openPicker([track.id])} />
-          </View>
-          <View style={[styles.group, { backgroundColor: colors.elevated }]}>
-            <SheetAction icon="albums-outline" label="Afficher l'album" onPress={run(() => navigateInCurrentTab('Album', { id: track.albumId }))} />
-            <SheetAction icon="person-outline" label="Afficher l'artiste" onPress={run(() => navigateInCurrentTab('Artist', { id: artistId }))} />
-            {menu.context.playlistId !== undefined && menu.context.playlistIndex !== undefined ? (
-              <SheetAction
-                icon="remove-circle-outline"
-                label="Retirer de la playlist"
-                destructive
-                onPress={run(() => removeFromPlaylist(menu.context.playlistId!, menu.context.playlistIndex!))}
-              />
-            ) : null}
-            {menu.context.queueIndex !== undefined ? (
-              <SheetAction icon="remove-circle-outline" label="Retirer de la file" destructive onPress={run(() => usePlayer.getState().removeAt(menu.context.queueIndex!))} />
-            ) : null}
-          </View>
-        </>
-      ) : null}
-    </BottomSheet>
   );
 }
 
@@ -301,7 +232,6 @@ function Toast() {
 export function SheetHost() {
   return (
     <>
-      <TrackMenuSheet />
       <PlaylistPickerSheet />
       <SleepTimerSheet />
       <PromptDialog />
@@ -312,9 +242,8 @@ export function SheetHost() {
 
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.38)' },
-  sheet: { borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingTop: 8 },
+  sheet: { borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingTop: 8 },
   grabber: { alignSelf: 'center', width: 36, height: 5, borderRadius: 3, marginBottom: 8, opacity: 0.6 },
-  menuHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: GUTTER, paddingVertical: 10 },
   group: { marginHorizontal: 12, marginTop: 10, borderRadius: radius.lg, overflow: 'hidden' },
   action: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, height: 50 },
   sheetTitle: { textAlign: 'center', paddingVertical: 8 },

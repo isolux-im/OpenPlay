@@ -19,6 +19,8 @@ type LibraryState = {
   init: (minDurationSec: number) => Promise<void>;
   requestPermission: (minDurationSec: number) => Promise<void>;
   scan: (minDurationSec: number) => Promise<void>;
+  /** Retire des morceaux de l'index (après suppression du fichier), sans nouvelle analyse. */
+  removeTracks: (ids: string[]) => void;
 };
 
 /** Sans module natif (web, tests), la bibliothèque de démonstration remplace MediaStore. */
@@ -65,5 +67,10 @@ export const useLibrary = create<LibraryState>()((set, get) => ({
     } catch {
       set({ status: 'error', error: 'Impossible de lire la bibliothèque musicale.' });
     }
+  },
+
+  removeTracks: (ids) => {
+    const gone = new Set(ids);
+    set((s) => ({ index: buildIndex(s.index.tracks.filter((t) => !gone.has(t.id))) }));
   },
 }));
