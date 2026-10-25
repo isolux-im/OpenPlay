@@ -192,6 +192,7 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   const finishedRecorded = useRef(false);
   const introSkipped = useRef(false);
   const controlsState = useRef({ volume: 1, volumeSteps: 15, brightness: 1 });
+  const orientationBeforeLock = useRef<Orientation | null>(null);
   const swipe = useRef<{ kind: 'brightness' | 'volume'; start: number; sent: number } | null>(null);
   const seekSwipe = useRef<{ start: number; target: number } | null>(null);
   const lastSave = useRef(0);
@@ -501,6 +502,25 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
     touch();
   };
 
+  // Verrouiller fige aussi la rotation dans l'orientation affichée ; déverrouiller rétablit le mode précédent.
+  const lock = () => {
+    orientationBeforeLock.current = orientation;
+    if (OpenPlayMedia?.setScreenOrientationAsync) setOrientation(width > height ? 'landscape' : 'portrait');
+    setLocked(true);
+    setFlash({ text: 'Commandes et rotation verrouillées', at: Date.now() });
+  };
+
+  const unlock = () => {
+    const previous = orientationBeforeLock.current;
+    setLocked(false);
+    if (OpenPlayMedia?.setScreenOrientationAsync) {
+      setOrientation(previous);
+      if (!previous) void OpenPlayMedia.setScreenOrientationAsync('default').catch(() => {});
+    }
+    setFlash({ text: 'Déverrouillé', at: Date.now() });
+    touch();
+  };
+
   const cycleFit = () => {
     const next = nextFitMode(fitMode);
     useSettings.getState().update({ videoFit: next });
@@ -765,10 +785,7 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
           <IconButton
             icon="lock-closed"
             label="Déverrouiller les commandes"
-            onPress={() => {
-              setLocked(false);
-              touch();
-            }}
+            onPress={unlock}
           />
         </View>
       ) : null}
@@ -819,7 +836,7 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
               </Pressable>
               <View style={{ flex: 1 }} />
               <IconButton icon={subtitleChoice.kind === 'off' ? 'chatbox-outline' : 'chatbox-ellipses'} label="Sous-titres" onPress={() => setSubtitlesOpen(true)} size={22} />
-              <IconButton icon="lock-open-outline" label="Verrouiller les commandes" onPress={() => setLocked(true)} size={22} />
+              <IconButton icon="lock-open-outline" label="Verrouiller les commandes et la rotation" onPress={lock} size={22} />
               {OpenPlayMedia?.setScreenOrientationAsync ? (
                 <IconButton
                   icon={orientation === 'sensor' ? 'sync-outline' : orientation === 'landscape' ? 'phone-landscape-outline' : 'phone-portrait-outline'}

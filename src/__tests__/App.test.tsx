@@ -169,6 +169,11 @@ describe('application', () => {
     expect(screen.getByRole('button', { name: 'Vitesse 1×' })).toBeTruthy();
     await fireEvent.press(screen.getByRole('button', { name: 'Vitesse 1×' }));
     expect(screen.getByRole('button', { name: 'Vitesse 1,25×' })).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Verrouiller les commandes et la rotation' }));
+    expect(screen.getByText('Commandes et rotation verrouillées')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Fermer la vidéo' })).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'Déverrouiller les commandes' }));
+    expect(screen.getByRole('button', { name: 'Fermer la vidéo' })).toBeTruthy();
     await fireEvent.press(screen.getByRole('button', { name: 'Sous-titres' }));
     expect(screen.getByRole('radio', { name: 'Désactivés' }).props.accessibilityState).toEqual({ selected: true });
     await fireEvent.press(screen.getByRole('radio', { name: 'Grande' }));
