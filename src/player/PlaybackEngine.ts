@@ -40,6 +40,8 @@ export interface PlaybackEngine {
   insert(item: EngineItem, index: number): void;
   remove(index: number): void;
   setRepeat(mode: RepeatMode): void;
+  /** Vitesse de lecture (0,5 à 2), sans changement de hauteur du son. */
+  setRate(rate: number): void;
   setNowPlaying(item: EngineItem, artworkUri: string | null): void;
   onStatus(listener: (status: EngineStatus) => void): () => void;
   onTrackChanged(listener: (index: number) => void): () => void;
@@ -68,6 +70,7 @@ export class ExpoPlaylistEngine implements PlaybackEngine {
   private current = 0;
   private failed = false;
   private repeat: RepeatMode = 'off';
+  private rate = 1;
   private lockScreenActive = false;
   private nowPlaying: { item: EngineItem; artworkUri: string | null } | null = null;
   private notificationsAsked = false;
@@ -86,6 +89,12 @@ export class ExpoPlaylistEngine implements PlaybackEngine {
   /** Lecteur natif et relais de ses événements vers les écouteurs du moteur (conservés d'un lecteur à l'autre). */
   private create(): AudioPlaylist {
     const playlist = createAudioPlaylist({ updateInterval: 500, loop: LOOP[this.repeat] });
+    if (this.rate !== 1) {
+      const rate = this.rate;
+      this.guard('vitesse', () => {
+        playlist.playbackRate = rate;
+      });
+    }
     this.subscriptions = [
       playlist.addListener('playlistStatusUpdate', (s) => {
         if (s.currentIndex >= 0) this.current = s.currentIndex;
@@ -217,6 +226,13 @@ export class ExpoPlaylistEngine implements PlaybackEngine {
     this.repeat = mode;
     this.guard('répétition', () => {
       this.playlist.loop = LOOP[mode];
+    });
+  }
+
+  setRate(rate: number) {
+    this.rate = rate;
+    this.guard('vitesse', () => {
+      this.playlist.playbackRate = rate;
     });
   }
 
@@ -364,6 +380,10 @@ export class SimulatedEngine implements PlaybackEngine {
   }
   setRepeat(mode: RepeatMode) {
     this.repeat = mode;
+  }
+  rate = 1;
+  setRate(rate: number) {
+    this.rate = rate;
   }
   setNowPlaying(item: EngineItem, artworkUri: string | null) {
     this.nowPlaying = { item, artworkUri };

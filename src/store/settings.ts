@@ -23,6 +23,12 @@ export type Settings = {
   onlineLyrics: boolean;
   /** Délai (jours) au-delà duquel un morceau passe dans « À réécouter ». */
   discoverDays: 21 | 30;
+  /** Dossiers masqués de la bibliothèque (chemins relatifs, sous-dossiers compris). */
+  excludedFolders: string[];
+  /** Vitesse de lecture (1 = normale). */
+  playbackRate: number;
+  /** Reprise automatique des fichiers longs (livres audio, cours, podcasts). */
+  resumeLongTracks: boolean;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -37,6 +43,9 @@ export const DEFAULT_SETTINGS: Settings = {
   aiLanguage: 'auto',
   onlineLyrics: true,
   discoverDays: 30,
+  excludedFolders: [],
+  playbackRate: 1,
+  resumeLongTracks: true,
 };
 
 /**

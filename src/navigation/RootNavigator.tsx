@@ -7,6 +7,7 @@ import { AddSongsScreen } from '../screens/AddSongsScreen';
 import { AlbumScreen } from '../screens/AlbumScreen';
 import { ArtistScreen } from '../screens/ArtistScreen';
 import { DiscoverScreen } from '../screens/DiscoverScreen';
+import { ExcludedFoldersScreen } from '../screens/ExcludedFoldersScreen';
 import { HomeScreen } from '../screens/HomeScreen';
 import {
   AlbumsScreen,
@@ -25,6 +26,7 @@ import { PlaylistScreen } from '../screens/PlaylistScreen';
 import { PlaylistsScreen } from '../screens/PlaylistsScreen';
 import { SearchScreen } from '../screens/SearchScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
+import { StatsScreen } from '../screens/StatsScreen';
 import { useTheme } from '../ui/theme';
 import { navigationRef } from './ref';
 import { TabBar } from './TabBar';
@@ -48,6 +50,8 @@ const SHARED: { name: keyof AnyStackParams; component: ComponentType }[] = [
   { name: 'History', component: HistoryScreen },
   { name: 'AddSongs', component: AddSongsScreen },
   { name: 'Discover', component: DiscoverScreen },
+  { name: 'ExcludedFolders', component: ExcludedFoldersScreen },
+  { name: 'Stats', component: StatsScreen },
 ];
 
 /** Une pile par onglet, avec le même jeu d'écrans de détail : la barre d'onglets reste visible. */

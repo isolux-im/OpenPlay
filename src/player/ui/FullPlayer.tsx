@@ -21,6 +21,7 @@ import { Icon, type IconName } from '../../ui/Icon';
 import { Text } from '../../ui/Text';
 import { useTheme } from '../../ui/theme';
 import { LyricsPanel } from './LyricsPanel';
+import { formatRate } from './PlayerOptions';
 import { QueuePanel } from './QueuePanel';
 import { Scrubber } from './Scrubber';
 
@@ -126,6 +127,7 @@ function PlayerContent({ track, mode, setMode, onClose, width, topInset, bottomI
   const shuffle = usePlayer((s) => s.shuffle);
   const repeat = usePlayer((s) => s.repeat);
   const sourceLabel = usePlayer((s) => s.sourceLabel);
+  const rate = useSettings((s) => s.playbackRate);
   const { toggle, next, previous, seek, toggleShuffle, cycleRepeat } = usePlayer.getState();
   const favorite = useUser((s) => s.favorites.includes(track.id));
   const toggleFavorite = useUser((s) => s.toggleFavorite);
@@ -197,6 +199,7 @@ function PlayerContent({ track, mode, setMode, onClose, width, topInset, bottomI
             <View style={styles.topCenter}>
               <Text variant="caption" color={dim} numberOfLines={1}>
                 {sourceLabel ? 'LECTURE DEPUIS' : 'LECTURE EN COURS'}
+                {rate !== 1 ? ` · ${formatRate(rate)}` : ''}
               </Text>
               {sourceLabel ? (
                 <Text variant="footnote" weight="semibold" color={text} numberOfLines={1}>

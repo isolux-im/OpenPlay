@@ -9,9 +9,11 @@ import { ScrollScreen } from '../components/Screen';
 import { formatTotalDuration } from '../library/text';
 import { deleteApiKey, getApiKey, setApiKey } from '../lyrics/apiKeys';
 import { LANGUAGES, PROVIDERS, type ProviderId } from '../lyrics/transcription';
+import { useAppNavigation } from '../navigation/ref';
 import { useLibrary } from '../store/library';
 import { usePlayer } from '../store/player';
 import { useSettings, type AccentKey, type ThemeMode } from '../store/settings';
+import { useStats } from '../store/stats';
 import { useUi } from '../store/ui';
 import { useUser } from '../store/user';
 import { tap } from '../ui/haptics';
@@ -103,6 +105,7 @@ function Segmented<T extends string | number>({ options, value, onChange }: { op
 
 export function SettingsScreen() {
   const { colors, dark } = useTheme();
+  const navigation = useAppNavigation();
   const s = useSettings();
   const index = useLibrary((x) => x.index);
   const status = useLibrary((x) => x.status);
@@ -172,6 +175,7 @@ export function SettingsScreen() {
             showToast('Bibliothèque à jour');
           }}
         />
+        <Row icon="eye-off" iconColor="#8E8E93" label="Dossiers masqués" detail={s.excludedFolders.length ? String(s.excludedFolders.length) : 'Aucun'} onPress={() => navigation.navigate('ExcludedFolders')} />
         <View style={styles.block}>
           <Text variant="subhead" tone="secondary" style={{ marginBottom: 8 }}>
             Durée minimale d&apos;un morceau
@@ -191,8 +195,9 @@ export function SettingsScreen() {
         </View>
       </Group>
 
-      <Group title="Lecture">
+      <Group title="Lecture" footer="Les fichiers de plus de 20 minutes (livres audio, cours, podcasts) reprennent là où vous vous êtes arrêté. La vitesse de lecture se règle dans le lecteur, menu « … ».">
         <Row icon="play-circle" iconColor="#0A84FF" label="Reprendre au lancement" right={<Switch value={s.resumeOnLaunch} onValueChange={(v) => s.update({ resumeOnLaunch: v })} {...switchColors} />} />
+        <Row icon="bookmark" iconColor="#8E8E93" label="Reprendre les fichiers longs" right={<Switch value={s.resumeLongTracks} onValueChange={(v) => s.update({ resumeLongTracks: v })} {...switchColors} />} />
         <Row icon="phone-portrait" iconColor="#8E8E93" label="Retour haptique" right={<Switch value={s.haptics} onValueChange={(v) => s.update({ haptics: v })} {...switchColors} />} />
         <Row icon="moon" iconColor="#5856D6" label="Minuterie de sommeil" detail={sleep.atTrackEnd ? 'Fin du morceau' : sleep.endsAt ? `${Math.max(0, Math.round((sleep.endsAt - now) / 60000))} min` : 'Désactivée'} onPress={openSleep} last />
       </Group>
@@ -232,9 +237,16 @@ export function SettingsScreen() {
           destructive
           last
           onPress={() =>
-            Alert.alert("Effacer l'historique ?", 'Les écoutes récentes, les compteurs « Les plus écoutés » et les dates utilisées par « À découvrir » seront remis à zéro. Les playlists et favoris sont conservés.', [
+            Alert.alert("Effacer l'historique ?", 'Les écoutes récentes, les compteurs « Les plus écoutés », les dates utilisées par « À découvrir » et le bilan d’écoute seront remis à zéro. Les playlists et favoris sont conservés.', [
               { text: 'Annuler', style: 'cancel' },
-              { text: 'Effacer', style: 'destructive', onPress: clearHistory },
+              {
+                text: 'Effacer',
+                style: 'destructive',
+                onPress: () => {
+                  clearHistory();
+                  useStats.getState().clear();
+                },
+              },
             ])
           }
         />

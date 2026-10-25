@@ -19,6 +19,8 @@ export type SharedStackParams = {
   History: undefined;
   AddSongs: { playlistId: string };
   Discover: undefined;
+  ExcludedFolders: undefined;
+  Stats: undefined;
 };
 
 export type HomeStackParams = SharedStackParams & { Home: undefined };

@@ -41,6 +41,12 @@ function useBootstrap(engineFactory: () => PlaybackEngine) {
     else return useSettings.persist.onFinishHydration(start);
   }, []);
 
+  // Dossiers exclus modifiés dans les réglages : l'index est recalculé sans nouvelle analyse.
+  const excludedFolders = useSettings((s) => s.excludedFolders);
+  useEffect(() => {
+    useLibrary.getState().applyExclusions();
+  }, [excludedFolders]);
+
   const status = useLibrary((s) => s.status);
   useEffect(() => {
     if (status !== 'ready') return;

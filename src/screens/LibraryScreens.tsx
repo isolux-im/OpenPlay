@@ -1,6 +1,6 @@
 import { useRoute, type RouteProp } from '@react-navigation/native';
 import { useCallback, useMemo } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, View } from 'react-native';
 
 import { Artwork } from '../components/Artwork';
 import { Carousel, Chips, EmptyState, Grid, MediaCard, MenuRow, QuickTile, SectionHeader } from '../components/Blocks';
@@ -67,6 +67,7 @@ export function LibraryScreen() {
           </View>
           <View style={styles.quickRow}>
             <QuickTile icon="sparkles-outline" label="À découvrir" count={discoverCount} onPress={() => navigation.navigate('Discover')} />
+            <QuickTile icon="stats-chart-outline" label="Bilan" onPress={() => navigation.navigate('Stats')} />
           </View>
         </View>
 
@@ -274,10 +275,32 @@ export function FoldersScreen() {
 
 export function FolderScreen() {
   const { params } = useRoute<RouteProp<SharedStackParams, 'Folder'>>();
+  const navigation = useAppNavigation();
   const index = useLibrary((s) => s.index);
   const folder = index.foldersById[params.id];
   const tracks = folder ? folder.trackIds.map((id) => index.byId[id]).filter(Boolean) : [];
-  return <TrackCollectionScreen title={folder?.name ?? 'Dossier'} subtitle={folder?.path} tracks={tracks} backLabel="Dossiers" />;
+  const hide = () =>
+    folder &&
+    Alert.alert('Masquer ce dossier ?', `« ${folder.path} » et ses sous-dossiers n'apparaîtront plus dans la bibliothèque. Aucun fichier n'est supprimé ; vous pourrez le réafficher dans Paramètres › Dossiers masqués.`, [
+      { text: 'Annuler', style: 'cancel' },
+      {
+        text: 'Masquer',
+        onPress: () => {
+          const { excludedFolders, update } = useSettings.getState();
+          if (!excludedFolders.includes(folder.path)) update({ excludedFolders: [...excludedFolders, folder.path] });
+          navigation.goBack();
+        },
+      },
+    ]);
+  return (
+    <TrackCollectionScreen
+      title={folder?.name ?? 'Dossier'}
+      subtitle={folder?.path}
+      tracks={tracks}
+      backLabel="Dossiers"
+      right={folder ? <HeaderButton icon="eye-off-outline" label="Masquer ce dossier" onPress={hide} /> : undefined}
+    />
+  );
 }
 
 export function FavoritesScreen() {

@@ -26,6 +26,8 @@ type UserState = {
   playCounts: Record<string, number>;
   /** Date (ms) de la dernière écoute validée par morceau : non limitée, contrairement à `history`. */
   lastPlayed: Record<string, number>;
+  /** Position (s) où reprendre les fichiers longs (livres audio, cours, podcasts). */
+  resumePositions: Record<string, number>;
   recentSearches: string[];
   lyrics: Record<string, string>;
   session: Session | null;
@@ -49,7 +51,11 @@ type UserState = {
   clearRecentSearches: () => void;
   setLyrics: (trackId: string, text: string | null) => void;
   saveSession: (s: Session | null) => void;
+  setResumePosition: (trackId: string, sec: number | null) => void;
 };
+
+/** Nombre maximal de positions de reprise conservées (les plus anciennes sont oubliées). */
+export const RESUME_LIMIT = 200;
 
 /**
  * v2 : ajout de `lastPlayed`, reconstitué depuis l'historique existant (rien n'est supprimé).
@@ -85,6 +91,7 @@ export const useUser = create<UserState>()(
       history: [],
       playCounts: {},
       lastPlayed: {},
+      resumePositions: {},
       recentSearches: [],
       lyrics: {},
       session: null,
@@ -124,10 +131,12 @@ export const useUser = create<UserState>()(
           const gone = new Set(ids);
           const playCounts = { ...s.playCounts };
           const lastPlayed = { ...s.lastPlayed };
+          const resumePositions = { ...s.resumePositions };
           const lyrics = { ...s.lyrics };
           for (const id of ids) {
             delete playCounts[id];
             delete lastPlayed[id];
+            delete resumePositions[id];
             delete lyrics[id];
           }
           return {
@@ -136,6 +145,7 @@ export const useUser = create<UserState>()(
             history: s.history.filter((h) => !gone.has(h.trackId)),
             playCounts,
             lastPlayed,
+            resumePositions,
             lyrics,
           };
         }),
@@ -161,18 +171,27 @@ export const useUser = create<UserState>()(
           return { lyrics };
         }),
       saveSession: (session) => set({ session }),
+      setResumePosition: (trackId, sec) =>
+        set((s) => {
+          const { [trackId]: previous, ...rest } = s.resumePositions;
+          if (sec === null) return previous === undefined ? s : { resumePositions: rest };
+          // Réinsertion en fin : l'ordre des clés sert à oublier les plus anciennes.
+          const entries = Object.entries({ ...rest, [trackId]: Math.round(sec) });
+          return { resumePositions: Object.fromEntries(entries.slice(-RESUME_LIMIT)) };
+        }),
     }),
     {
       name: 'openplay.user.v1',
       storage: persistStorage,
       version: 2,
       migrate: (persisted, version) => migrateUser(persisted, version) as UserState,
-      partialize: ({ favorites, playlists, history, playCounts, lastPlayed, recentSearches, lyrics, session }) => ({
+      partialize: ({ favorites, playlists, history, playCounts, lastPlayed, resumePositions, recentSearches, lyrics, session }) => ({
         favorites,
         playlists,
         history,
         playCounts,
         lastPlayed,
+        resumePositions,
         recentSearches,
         lyrics,
         session,

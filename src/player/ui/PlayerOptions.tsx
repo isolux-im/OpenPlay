@@ -6,7 +6,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Glass } from '../../components/Glass';
 import { audioQuality } from '../../library/text';
 import { useLibrary } from '../../store/library';
-import { usePlayer } from '../../store/player';
+import { PLAYBACK_RATES, usePlayer } from '../../store/player';
+import { useSettings } from '../../store/settings';
 import { useUi } from '../../store/ui';
 import { tap } from '../../ui/haptics';
 import { Icon, type IconName } from '../../ui/Icon';
@@ -54,6 +55,8 @@ function OptionsPanel() {
   const sleep = usePlayer((s) => s.sleep);
   const now = useNow(15_000);
   const [showQuality, setShowQuality] = useState(false);
+  const rate = useSettings((s) => s.playbackRate);
+  const setRate = usePlayer((s) => s.setRate);
 
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -81,6 +84,30 @@ function OptionsPanel() {
           <Option first icon="chatbubble-ellipses-outline" label="Paroles" onPress={() => setPlayerMode('lyrics')} />
           <Option icon="add-circle-outline" label="Ajouter à une playlist" onPress={() => openPlaylistPicker([track.id])} />
           <Option icon="moon-outline" label="Minuterie de sommeil" detail={sleepDetail} onPress={openSleepSheet} />
+          <View style={[styles.rates, { borderTopColor: colors.glassSeparator }]}>
+            <Text variant="body">Vitesse de lecture</Text>
+            <View style={styles.rateRow} accessibilityRole="radiogroup">
+              {PLAYBACK_RATES.map((r) => {
+                const on = r === rate;
+                return (
+                  <Pressable
+                    key={r}
+                    onPress={() => {
+                      tap('selection');
+                      setRate(r);
+                    }}
+                    style={[styles.rate, { backgroundColor: on ? colors.accent : colors.fill }]}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: on }}
+                    accessibilityLabel={`Vitesse ${formatRate(r)}`}>
+                    <Text variant="footnote" weight="semibold" color={on ? colors.onAccent : colors.text}>
+                      {formatRate(r)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
           <Option icon="pulse-outline" label="Qualité audio" onPress={() => setShowQuality((v) => !v)} />
           {showQuality ? (
             <View style={[styles.quality, { borderTopColor: colors.glassSeparator }]}>
@@ -109,7 +136,15 @@ function OptionsPanel() {
   );
 }
 
+/** « 1,25× » */
+export function formatRate(rate: number): string {
+  return `${rate.toLocaleString('fr-FR', { maximumFractionDigits: 2 })}×`;
+}
+
 const styles = StyleSheet.create({
+  rates: { borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, paddingVertical: 12, gap: 10 },
+  rateRow: { flexDirection: 'row', gap: 6 },
+  rate: { flex: 1, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   panel: { position: 'absolute', right: 16, width: 280 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, height: 48 },
   quality: { borderTopWidth: 6, paddingHorizontal: 16, paddingVertical: 12, gap: 6 },
