@@ -202,4 +202,15 @@ describe('application', () => {
     await fireEvent.press(await screen.findByRole('button', { name: 'Bilan de visionnage' }));
     expect(await screen.findByText('Pas encore de bilan')).toBeTruthy();
   });
+
+  it('range les descriptions des Paramètres derrière l’icône « ! »', async () => {
+    await renderApp();
+    await fireEvent.press(screen.getByRole('tab', { name: 'Paramètres' }));
+    expect(screen.queryByText(/^Orientation : « Auto »/)).toBeNull();
+    await fireEvent.press(await screen.findByRole('button', { name: 'En savoir plus : Vidéos' }));
+    expect(await screen.findByText(/^Orientation : « Auto »/)).toBeTruthy();
+    await act(async () => useUi.getState().closeAll());
+    expect(screen.queryByText(/^Orientation : « Auto »/)).toBeNull();
+    for (const g of ['Lecture', 'À découvrir', 'Paroles en ligne', 'Informations']) expect(screen.getByRole('button', { name: `En savoir plus : ${g}` })).toBeTruthy();
+  });
 });

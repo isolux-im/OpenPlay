@@ -24,21 +24,33 @@ import { Text } from '../ui/Text';
 import { ACCENTS, radius, useTheme } from '../ui/theme';
 import { useNow } from '../ui/useNow';
 
+/** Groupe de réglages ; sa description reste accessible derrière l'icône « ! » du titre (menu vitré). */
 function Group({ title, footer, children }: { title?: string; footer?: string; children: ReactNode }) {
   const { colors } = useTheme();
+  const openInfo = useUi((s) => s.openInfo);
   return (
     <View style={styles.group}>
-      {title ? (
-        <Text variant="footnote" tone="secondary" style={styles.groupTitle}>
-          {title.toUpperCase()}
-        </Text>
+      {title || footer ? (
+        <View style={styles.groupHead}>
+          <Text variant="footnote" tone="secondary" style={{ flex: 1 }}>
+            {title?.toUpperCase()}
+          </Text>
+          {footer ? (
+            <Pressable
+              onPress={(e) => {
+                tap('selection');
+                openInfo(title ?? 'Information', footer, { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY });
+              }}
+              hitSlop={12}
+              style={styles.infoButton}
+              accessibilityRole="button"
+              accessibilityLabel={`En savoir plus : ${title ?? 'information'}`}>
+              <Icon name="alert-circle-outline" size={19} color={colors.secondaryText} />
+            </Pressable>
+          ) : null}
+        </View>
       ) : null}
       <View style={[styles.groupBody, { backgroundColor: colors.card }]}>{children}</View>
-      {footer ? (
-        <Text variant="footnote" tone="secondary" style={styles.groupFooter}>
-          {footer}
-        </Text>
-      ) : null}
     </View>
   );
 }
@@ -206,7 +218,7 @@ export function SettingsScreen() {
 
       <Group
         title="Vidéos"
-        footer="Orientation : « Auto » suit la position du téléphone pendant la lecture, comme VLC (vertical = portrait, horizontal = paysage), même si la rotation automatique d’Android est désactivée ; « Portrait » et « Paysage » bloquent l’écran ; « Selon vidéo » choisit d’après la vidéo. Le bouton du lecteur passe de l’automatique au paysage puis au portrait verrouillés. Fenêtre flottante : en quittant OpenPlay pendant une vidéo, elle continue dans une petite fenêtre au-dessus des autres applications (Android 8 et plus ; entrée automatique sur Android 12 et plus). Générique : OpenPlay compare le son du début de deux épisodes d’une même série, sur l’appareil ; rien n’est envoyé.">
+        footer={`Orientation : « Auto » suit la position du téléphone pendant la lecture, comme VLC (vertical = portrait, horizontal = paysage), même si la rotation automatique d’Android est désactivée ; « Portrait » et « Paysage » bloquent l’écran ; « Selon vidéo » choisit d’après la vidéo. Le bouton du lecteur passe de l’automatique au paysage puis au portrait verrouillés.\n\nFenêtre flottante : en quittant OpenPlay pendant une vidéo, elle continue dans une petite fenêtre au-dessus des autres applications (Android 8 et plus ; entrée automatique sur Android 12 et plus).\n\nGénérique : OpenPlay compare le son du début de deux épisodes d’une même série, sur l’appareil ; rien n’est envoyé.`}>
         <View style={styles.block}>
           <Text variant="subhead" tone="secondary" style={{ marginBottom: 8 }}>
             Orientation pendant la lecture
@@ -431,8 +443,8 @@ function AiLyricsGroup() {
 
 const styles = StyleSheet.create({
   group: { marginTop: 22, paddingHorizontal: 16 },
-  groupTitle: { paddingHorizontal: 16, marginBottom: 6 },
-  groupFooter: { paddingHorizontal: 16, marginTop: 6 },
+  groupHead: { flexDirection: 'row', alignItems: 'center', paddingLeft: 16, paddingRight: 8, marginBottom: 6, minHeight: 24 },
+  infoButton: { padding: 2 },
   groupBody: { borderRadius: radius.lg, overflow: 'hidden' },
   row: { flexDirection: 'row', alignItems: 'center', paddingLeft: 14, minHeight: 48 },
   rowIcon: { width: 30, height: 30, borderRadius: 7, alignItems: 'center', justifyContent: 'center' },

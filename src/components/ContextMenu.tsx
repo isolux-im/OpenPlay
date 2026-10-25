@@ -29,7 +29,7 @@ import { Artwork, Mosaic } from './Artwork';
 import { Glass } from './Glass';
 
 type Item = { icon: IconName; label: string; onPress: () => void; destructive?: boolean; keepOpen?: boolean };
-type Model = { header: ReactNode; groups: Item[][] };
+type Model = { header: ReactNode; groups: Item[][]; body?: ReactNode };
 
 const MENU_WIDTH = 288;
 
@@ -72,6 +72,7 @@ function favoriteItem(ids: string[], favorites: string[], toggle: (id: string) =
 }
 
 function useMenuModel(target: ContextTarget): Model | null {
+  const { colors } = useTheme();
   const index = useLibrary((s) => s.index);
   const favorites = useUser((s) => s.favorites);
   const playlists = useUser((s) => s.playlists);
@@ -82,6 +83,25 @@ function useMenuModel(target: ContextTarget): Model | null {
   const videoEntry = useVideoHistory((s) => (target.kind === 'video' ? s.entries[target.videoId] : undefined));
   const videoFavorite = useVideoHistory((s) => (target.kind === 'video' ? s.favorites.includes(target.videoId) : false));
   const videoSubtitles = useSubtitles((s) => (target.kind === 'video' ? s.byVideo[target.videoId] : undefined));
+
+  if (target.kind === 'info') {
+    return {
+      header: (
+        <View style={styles.header}>
+          <Icon name="alert-circle-outline" size={22} color={colors.text} />
+          <Text variant="headline" style={{ flex: 1 }}>
+            {target.title}
+          </Text>
+        </View>
+      ),
+      groups: [],
+      body: (
+        <Text variant="callout" tone="secondary" style={styles.info}>
+          {target.text}
+        </Text>
+      ),
+    };
+  }
 
   if (target.kind === 'video') {
     if (!video) return null;
@@ -280,6 +300,7 @@ function Panel({ target, anchor }: { target: ContextTarget; anchor: MenuAnchor |
       <Glass radius={22}>
         <ScrollView style={{ maxHeight }} bounces={false} showsVerticalScrollIndicator={false}>
           {model.header}
+          {model.body}
           {model.groups.map((group, g) => (
             <View key={g} style={{ borderTopWidth: 6, borderTopColor: colors.glassSeparator }}>
               {group.map((item, i) => (
@@ -323,4 +344,5 @@ const styles = StyleSheet.create({
   panel: { position: 'absolute' },
   header: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 12 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, height: 46 },
+  info: { paddingHorizontal: 16, paddingBottom: 16 },
 });
