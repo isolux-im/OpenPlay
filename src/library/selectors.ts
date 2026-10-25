@@ -110,6 +110,8 @@ export function groupHistory(history: HistoryEntry[], byId: Record<string, Track
       g = { label, entries: [] };
       groups.push(g);
     }
+    // Un morceau réécouté le même jour n'apparaît qu'une fois, à sa dernière écoute.
+    if (g.entries.some((e) => e.trackId === h.trackId)) continue;
     g.entries.push({ ...h, track });
   }
   return groups;
@@ -121,4 +123,68 @@ export function greeting(now: number): string {
   if (h < 12) return 'Bonjour';
   if (h < 18) return 'Bon après-midi';
   return 'Bonsoir';
+}
+
+export type DiscoverCategory = 'never' | 'forgotten' | 'rare';
+export type DiscoverItem = { track: Track; category: DiscoverCategory; plays: number; lastAt: number | null };
+export type DiscoverSections = Record<DiscoverCategory, DiscoverItem[]>;
+
+/** « Peu écoutés » : une ou deux écoutes validées, la dernière il y a au moins 21 jours. */
+export const RARE_MAX_PLAYS = 2;
+export const RARE_MIN_DAYS = 21;
+
+/**
+ * Rubrique « À découvrir », calculée hors ligne depuis l'historique local d'OpenPlay :
+ * jamais écoutés, à réécouter (dernière écoute ≥ `forgottenDays`), peu écoutés.
+ * Un morceau compté mais sans date connue (historique antérieur à la v2) n'est classé nulle part :
+ * on ne prétend pas connaître son ancienneté. Chaque catégorie est complète ; `uniqueDiscover`
+ * fusionne sans doublon pour la vue « Tout ».
+ */
+export function discoverSections(tracks: Track[], playCounts: Record<string, number>, lastPlayed: Record<string, number>, now: number, forgottenDays: number): DiscoverSections {
+  const out: DiscoverSections = { never: [], forgotten: [], rare: [] };
+  for (const track of tracks) {
+    const plays = playCounts[track.id] ?? 0;
+    const lastAt = lastPlayed[track.id] ?? null;
+    if (plays === 0 && lastAt === null) {
+      out.never.push({ track, category: 'never', plays, lastAt });
+      continue;
+    }
+    if (lastAt === null) continue;
+    const age = now - lastAt;
+    if (age >= forgottenDays * DAY) out.forgotten.push({ track, category: 'forgotten', plays, lastAt });
+    if (plays >= 1 && plays <= RARE_MAX_PLAYS && age >= RARE_MIN_DAYS * DAY) out.rare.push({ track, category: 'rare', plays, lastAt });
+  }
+  out.never.sort((a, b) => b.track.addedAt - a.track.addedAt);
+  out.forgotten.sort((a, b) => (a.lastAt ?? 0) - (b.lastAt ?? 0));
+  out.rare.sort((a, b) => a.plays - b.plays || (a.lastAt ?? 0) - (b.lastAt ?? 0));
+  return { never: diversify(out.never), forgotten: diversify(out.forgotten), rare: diversify(out.rare) };
+}
+
+/** Vue « Tout » : chaque morceau une seule fois, dans la première catégorie qui le contient. */
+export function uniqueDiscover(sections: DiscoverSections): DiscoverSections {
+  const seen = new Set<string>();
+  const keep = (items: DiscoverItem[]) =>
+    items.filter((i) => {
+      if (seen.has(i.track.id)) return false;
+      seen.add(i.track.id);
+      return true;
+    });
+  return { never: keep(sections.never), forgotten: keep(sections.forgotten), rare: keep(sections.rare) };
+}
+
+/** Alterne les artistes pour éviter une série du même disque, sans changer l’ordre propre à chaque artiste. */
+export function diversify(items: DiscoverItem[]): DiscoverItem[] {
+  const groups = new Map<string, DiscoverItem[]>();
+  for (const i of items) {
+    const key = i.track.albumArtist || i.track.artist;
+    const g = groups.get(key);
+    if (g) g.push(i);
+    else groups.set(key, [i]);
+  }
+  const queues = [...groups.values()];
+  const out: DiscoverItem[] = [];
+  for (let round = 0; out.length < items.length; round++) {
+    for (const q of queues) if (q[round]) out.push(q[round]);
+  }
+  return out;
 }

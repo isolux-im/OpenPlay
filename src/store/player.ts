@@ -1,9 +1,11 @@
 import { create } from 'zustand';
 
+import { recordDiagnostic } from '../diagnostics/crashReports';
 import { loadArtwork, peekArtwork } from '../library/artwork';
 import type { EngineItem, PlaybackEngine } from '../player/PlaybackEngine';
 import { indexAfterMove, moveItem, nextRepeat, shouldRestart, shuffleAround } from '../player/queue';
 import type { RepeatMode, Track } from '../types';
+import { useUi } from './ui';
 import { useUser, type Session } from './user';
 
 export type SleepTimer = { endsAt: number | null; atTrackEnd: boolean };
@@ -46,14 +48,24 @@ export type PlayerState = {
   restoreSession: (session: Session, exists: (id: string) => boolean) => void;
 };
 
-/** Un morceau compte comme écouté après 30 s ou la moitié de sa durée. */
+/**
+ * Une écoute est validée après 30 s de lecture effective (sauts dans le morceau exclus),
+ * ou la moitié de la durée pour un morceau de moins d'une minute ; une seule fois par lecture.
+ */
 export const PLAY_COUNT_THRESHOLD_SEC = 30;
+/** Écart maximal entre deux mises à jour de position compté comme de la lecture continue. */
+const MAX_LISTEN_STEP_SEC = 2.5;
+/** Au-delà de ce nombre d'échecs consécutifs, on arrête plutôt que d'enchaîner les fichiers illisibles. */
+const MAX_CONSECUTIVE_ERRORS = 3;
 const SESSION_SAVE_INTERVAL_MS = 5000;
 
 let engine: PlaybackEngine | null = null;
 let resolveTrack: (id: string) => Track | undefined = () => undefined;
 let unsubscribers: (() => void)[] = [];
 let countedCurrent = false;
+let listenedSec = 0;
+let lastPositionSec = 0;
+let consecutiveErrors = 0;
 let lastSessionSave = 0;
 let now: () => number = () => Date.now();
 
@@ -305,8 +317,20 @@ export function connectPlayer(
         durationSec: s.durationSec > 0 ? s.durationSec : state.durationSec,
       });
       const currentId = state.queue[state.index];
-      const threshold = Math.min(PLAY_COUNT_THRESHOLD_SEC, (s.durationSec || Infinity) / 2);
-      if (currentId && !countedCurrent && s.positionSec >= threshold) {
+      const step = s.positionSec - lastPositionSec;
+      const duration = s.durationSec || state.durationSec;
+      // Répétition d'un morceau : retour au début depuis la fin = nouvelle lecture.
+      if (step < -5 && s.positionSec < 2 && duration > 0 && lastPositionSec >= duration - 3) {
+        countedCurrent = false;
+        listenedSec = 0;
+      }
+      if (s.playing && step > 0 && step <= MAX_LISTEN_STEP_SEC) {
+        listenedSec += step;
+        if (listenedSec >= 1) consecutiveErrors = 0;
+      }
+      lastPositionSec = s.positionSec;
+      const threshold = Math.min(PLAY_COUNT_THRESHOLD_SEC, (duration || Infinity) / 2);
+      if (currentId && !countedCurrent && listenedSec >= threshold) {
         countedCurrent = true;
         useUser.getState().recordPlay(currentId, now());
       }
@@ -333,6 +357,8 @@ export function connectPlayer(
       const state = store.getState();
       if (i < 0 || i >= state.queue.length) return;
       countedCurrent = false;
+      listenedSec = 0;
+      lastPositionSec = 0;
       store.setState({ index: i, positionSec: 0, durationSec: resolveTrack(state.queue[i])?.durationSec ?? 0 });
       if (state.sleep.atTrackEnd) {
         store.setState({ sleep: { endsAt: null, atTrackEnd: false } });
@@ -345,6 +371,30 @@ export function connectPlayer(
         if (!peekArtwork(track)) loadArtwork(track).then((info) => info.uri && store.getState().queue[store.getState().index] === track.id && e.setNowPlaying(item, info.uri));
       }
     }),
+    e.onError(({ index, message }) => {
+      const state = store.getState();
+      const at = index >= 0 && index < state.queue.length ? index : state.index;
+      const track = resolveTrack(state.queue[at]);
+      const title = track?.title ?? 'Ce morceau';
+      recordDiagnostic('Fichier audio illisible', `${title} (${track?.mimeType ?? 'type inconnu'}) : ${message}`);
+      consecutiveErrors += 1;
+      const nextIndex = at < state.queue.length - 1 ? at + 1 : state.repeat === 'all' ? 0 : -1;
+      if (nextIndex >= 0 && nextIndex !== at && consecutiveErrors < MAX_CONSECUTIVE_ERRORS) {
+        useUi.getState().showToast(`« ${title} » est illisible : morceau suivant`);
+        store.setState({ index: nextIndex, positionSec: 0, durationSec: resolveTrack(state.queue[nextIndex])?.durationSec ?? 0, isPlaying: true });
+        // Le moteur repart d'un lecteur neuf, positionné sur le morceau suivant.
+        e.skipTo(nextIndex);
+        e.play();
+      } else {
+        // On s'arrête : le lecteur neuf ne sera créé qu'à la prochaine demande de lecture (pas de boucle d'échecs).
+        useUi.getState().showToast(`Lecture impossible : « ${title} » est absent ou illisible`);
+        store.setState({ isPlaying: false, positionSec: 0 });
+        consecutiveErrors = 0;
+      }
+      countedCurrent = false;
+      listenedSec = 0;
+      lastPositionSec = 0;
+    }),
   );
 }
 
@@ -354,6 +404,9 @@ export function disconnectPlayer() {
   engine?.release();
   engine = null;
   countedCurrent = false;
+  listenedSec = 0;
+  lastPositionSec = 0;
+  consecutiveErrors = 0;
   lastSessionSave = 0;
   now = () => Date.now();
 }

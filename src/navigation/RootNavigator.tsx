@@ -6,6 +6,7 @@ import { useMemo, type ComponentType } from 'react';
 import { AddSongsScreen } from '../screens/AddSongsScreen';
 import { AlbumScreen } from '../screens/AlbumScreen';
 import { ArtistScreen } from '../screens/ArtistScreen';
+import { DiscoverScreen } from '../screens/DiscoverScreen';
 import { HomeScreen } from '../screens/HomeScreen';
 import {
   AlbumsScreen,
@@ -46,6 +47,7 @@ const SHARED: { name: keyof AnyStackParams; component: ComponentType }[] = [
   { name: 'Favorites', component: FavoritesScreen },
   { name: 'History', component: HistoryScreen },
   { name: 'AddSongs', component: AddSongsScreen },
+  { name: 'Discover', component: DiscoverScreen },
 ];
 
 /** Une pile par onglet, avec le même jeu d'écrans de détail : la barre d'onglets reste visible. */

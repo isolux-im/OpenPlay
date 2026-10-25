@@ -2,13 +2,13 @@
   "expo": {
     "name": "OpenPlay",
     "slug": "openplay",
-    "version": "2.0.0",
+    "version": "2.1.0",
     "orientation": "portrait",
     "icon": "./assets/brand/icon.png",
     "userInterfaceStyle": "automatic",
     "android": {
       "package": "com.openplay.app",
-      "versionCode": 2,
+      "versionCode": 3,
       "adaptiveIcon": {
         "backgroundColor": "#F4F5F7",
         "foregroundImage": "./assets/brand/android-icon-foreground.png",
@@ -24,7 +24,9 @@
         "android.permission.SYSTEM_ALERT_WINDOW"
       ],
       "permissions": [
-        "android.permission.POST_NOTIFICATIONS"
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE"
       ]
     },
     "plugins": [

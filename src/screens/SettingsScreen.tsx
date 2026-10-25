@@ -1,9 +1,10 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Constants from 'expo-constants';
 import { useEffect, useState, type ReactNode } from 'react';
-import { Alert, Linking, Pressable, StyleSheet, Switch, View } from 'react-native';
+import { Alert, Linking, Platform, Pressable, Share, StyleSheet, Switch, View } from 'react-native';
 
 import { BrandLogo } from '../components/BrandLogo';
+import { clearCrashReport, loadCrashReport, type CrashReport } from '../diagnostics/crashReports';
 import { ScrollScreen } from '../components/Screen';
 import { formatTotalDuration } from '../library/text';
 import { deleteApiKey, getApiKey, setApiKey } from '../lyrics/apiKeys';
@@ -196,6 +197,30 @@ export function SettingsScreen() {
         <Row icon="moon" iconColor="#5856D6" label="Minuterie de sommeil" detail={sleep.atTrackEnd ? 'Fin du morceau' : sleep.endsAt ? `${Math.max(0, Math.round((sleep.endsAt - now) / 60000))} min` : 'Désactivée'} onPress={openSleep} last />
       </Group>
 
+      <Group
+        title="À découvrir"
+        footer="Un morceau passe dans « À réécouter » quand sa dernière écoute dépasse ce délai. Une écoute compte après 30 s de lecture effective. Calcul local, sans connexion.">
+        <View style={styles.block}>
+          <Text variant="subhead" tone="secondary" style={{ marginBottom: 8 }}>
+            Délai avant « À réécouter »
+          </Text>
+          <Segmented<21 | 30>
+            options={[
+              { value: 21, label: '21 jours' },
+              { value: 30, label: '30 jours' },
+            ]}
+            value={s.discoverDays}
+            onChange={(discoverDays) => s.update({ discoverDays })}
+          />
+        </View>
+      </Group>
+
+      <Group
+        title="Paroles en ligne"
+        footer="À l'ouverture des paroles d'un morceau qui n'en a pas sur l'appareil, son titre, son artiste, son album et sa durée sont envoyés à LRCLIB (service libre, sans compte). Les paroles trouvées ne sont pas conservées après la fermeture de l'application.">
+        <Row icon="search" iconColor="#8E8E93" label="Recherche automatique (LRCLIB)" right={<Switch value={s.onlineLyrics} onValueChange={(v) => s.update({ onlineLyrics: v })} {...switchColors} />} last />
+      </Group>
+
       <AiLyricsGroup />
 
       <Group title="Historique">
@@ -207,7 +232,7 @@ export function SettingsScreen() {
           destructive
           last
           onPress={() =>
-            Alert.alert("Effacer l'historique ?", 'Les écoutes récentes et les compteurs « Les plus écoutés » seront remis à zéro.', [
+            Alert.alert("Effacer l'historique ?", 'Les écoutes récentes, les compteurs « Les plus écoutés » et les dates utilisées par « À découvrir » seront remis à zéro. Les playlists et favoris sont conservés.', [
               { text: 'Annuler', style: 'cancel' },
               { text: 'Effacer', style: 'destructive', onPress: clearHistory },
             ])
@@ -215,15 +240,65 @@ export function SettingsScreen() {
         />
       </Group>
 
+      <DiagnosticGroup />
+
       <View style={{ marginTop: 32 }}>
         <BrandLogo width={120} />
       </View>
 
-      <Group title="Informations" footer="OpenPlay fonctionne entièrement hors ligne : aucune donnée ne quitte l'appareil.">
+      <Group title="Informations" footer="La lecture fonctionne entièrement hors ligne. Seules la recherche de paroles (LRCLIB) et les transcriptions que vous lancez utilisent Internet ; l'historique d'écoute reste sur l'appareil.">
         <Row icon="information-circle" iconColor="#8E8E93" label="Version" detail={Constants.expoConfig?.version ?? '—'} />
         <Row icon="code-slash" iconColor="#8E8E93" label="Technologies" detail="Expo · React Native" last />
       </Group>
     </ScrollScreen>
+  );
+}
+
+/** Rapports de plantage locaux : consultables et partageables par l'utilisateur, jamais envoyés automatiquement. */
+function DiagnosticGroup() {
+  const [report, setReport] = useState<CrashReport | null | undefined>(undefined);
+  const showToast = useUi((x) => x.showToast);
+
+  useEffect(() => {
+    let alive = true;
+    loadCrashReport()
+      .then((r) => alive && setReport(r))
+      .catch(() => alive && setReport(null));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  if (report === null) return null;
+  const count = report?.count ?? 0;
+  const header = `OpenPlay ${Constants.expoConfig?.version ?? ''} · Android ${Platform.Version}`;
+
+  return (
+    <Group
+      title="Diagnostic"
+      footer="Le journal reste sur l'appareil. « Partager » ouvre la feuille de partage d'Android : rien n'est envoyé sans votre action. Il peut contenir des noms de morceaux.">
+      <Row
+        icon="pulse"
+        iconColor="#8E8E93"
+        label="Rapport de plantage"
+        detail={report === undefined ? '…' : count ? String(count) : 'Aucun'}
+        onPress={count ? () => Share.share({ title: 'Rapport OpenPlay', message: `${header}\n\n${report?.text ?? ''}` }).catch(() => undefined) : undefined}
+        last={!count}
+      />
+      {count ? (
+        <Row
+          icon="trash"
+          iconColor="#8E8E93"
+          label="Effacer le journal"
+          last
+          onPress={async () => {
+            await clearCrashReport();
+            setReport(await loadCrashReport());
+            showToast('Journal effacé');
+          }}
+        />
+      ) : null}
+    </Group>
   );
 }
 

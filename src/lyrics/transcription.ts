@@ -1,3 +1,4 @@
+import { NetError, request, readJson, type diagnose } from '../net/http';
 import type { Track } from '../types';
 
 export type ProviderId = 'groq' | 'openai';
@@ -50,10 +51,19 @@ export class TranscriptionError extends Error {
   constructor(
     public code: TranscriptionErrorCode,
     message: string,
+    /** Détail technique pour le journal de diagnostic. */
+    public detail: string | null = null,
   ) {
     super(message);
   }
+
+  get retryable(): boolean {
+    return this.code !== 'no-key' && this.code !== 'too-large' && this.code !== 'auth';
+  }
 }
+
+/** Envoi (jusqu'à 25 Mo, parfois en 4G) puis analyse : délai large mais borné. */
+export const TRANSCRIPTION_TIMEOUT_MS = 240_000;
 
 export type Segment = { start: number; end?: number; text: string };
 
@@ -128,9 +138,10 @@ export type TranscribeOptions = {
   language: LanguageCode;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
+  diagnoseImpl?: typeof diagnose;
 };
 
-export async function transcribeTrack({ track, provider, apiKey, language, signal, fetchImpl = fetch }: TranscribeOptions): Promise<string> {
+export async function transcribeTrack({ track, provider, apiKey, language, signal, fetchImpl = fetch, diagnoseImpl }: TranscribeOptions): Promise<string> {
   const p = PROVIDERS[provider];
   if (!apiKey) throw new TranscriptionError('no-key', 'Ajoutez votre clé API dans Paramètres › Paroles par IA.');
   if (track.sizeBytes > p.maxBytes) {
@@ -141,19 +152,46 @@ export async function transcribeTrack({ track, provider, apiKey, language, signa
 
   let res: Response;
   try {
-    res = await fetchImpl(p.endpoint, { method: 'POST', headers: { Authorization: `Bearer ${apiKey}` }, body: form, signal });
+    res = await request(p.endpoint, {
+      service: p.label,
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: form,
+      signal,
+      timeoutMs: TRANSCRIPTION_TIMEOUT_MS,
+      fetchImpl,
+      ...(diagnoseImpl ? { diagnoseImpl } : {}),
+    });
   } catch (e) {
-    if ((e as { name?: string })?.name === 'AbortError') throw new TranscriptionError('cancelled', 'Transcription annulée.');
-    throw new TranscriptionError('network', 'Connexion impossible. Vérifiez votre accès à Internet.');
+    throw toTranscriptionError(e);
   }
-  if (!res.ok) {
-    let detail: string | undefined;
-    try {
-      detail = ((await res.json()) as { error?: { message?: string } })?.error?.message;
-    } catch {
-      detail = undefined;
+  try {
+    return responseToLyrics(await readJson(res, p.label));
+  } catch (e) {
+    throw toTranscriptionError(e);
+  }
+}
+
+function toTranscriptionError(e: unknown): TranscriptionError {
+  if (e instanceof TranscriptionError) return e;
+  if (!(e instanceof NetError)) return new TranscriptionError('server', 'Transcription impossible.', String(e));
+  switch (e.kind) {
+    case 'cancelled':
+      return new TranscriptionError('cancelled', 'Transcription annulée.');
+    case 'auth':
+    case 'too-large':
+    case 'rate-limit':
+    case 'server':
+    case 'bad-request':
+    case 'not-found': {
+      const err = e.status ? errorForStatus(e.status, e.detail ?? undefined) : new TranscriptionError('server', e.message);
+      // Délai indiqué par le service (Retry-After) plutôt qu'un « plus tard » vague.
+      if (err.code === 'quota' && e.retryAfterSec) return new TranscriptionError('quota', e.message, e.detail);
+      return new TranscriptionError(err.code, err.message, e.detail);
     }
-    throw errorForStatus(res.status, detail);
+    case 'bad-response':
+      return new TranscriptionError('server', e.message, e.detail);
+    default:
+      return new TranscriptionError('network', e.message, e.detail);
   }
-  return responseToLyrics(await res.json());
 }

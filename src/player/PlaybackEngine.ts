@@ -1,6 +1,7 @@
 import { createAudioPlaylist, requestNotificationPermissionsAsync, setAudioModeAsync, type AudioPlaylist } from 'expo-audio';
 import { Platform } from 'react-native';
 
+import { describeError, recordDiagnostic } from '../diagnostics/crashReports';
 import type { RepeatMode } from '../types';
 
 export type EngineItem = {
@@ -10,6 +11,9 @@ export type EngineItem = {
   artist: string;
   album: string;
 };
+
+/** Échec de lecture d'un élément de la file (fichier absent, illisible, format non pris en charge). */
+export type EngineError = { index: number; message: string };
 
 export type EngineStatus = {
   playing: boolean;
@@ -39,6 +43,11 @@ export interface PlaybackEngine {
   setNowPlaying(item: EngineItem, artworkUri: string | null): void;
   onStatus(listener: (status: EngineStatus) => void): () => void;
   onTrackChanged(listener: (index: number) => void): () => void;
+  /**
+   * Échec de lecture. Après une erreur, ExoPlayer reste à l'arrêt : le moteur repart alors d'un
+   * lecteur neuf à la prochaine commande de lecture (play, skipTo, next, previous, load).
+   */
+  onError(listener: (error: EngineError) => void): () => void;
   release(): void;
 }
 
@@ -50,106 +59,215 @@ function source(item: EngineItem) {
 
 export class ExpoPlaylistEngine implements PlaybackEngine {
   private playlist: AudioPlaylist;
+  private subscriptions: { remove: () => void }[] = [];
+  private statusListeners = new Set<(s: EngineStatus) => void>();
+  private trackListeners = new Set<(i: number) => void>();
+  private errorListeners = new Set<(e: EngineError) => void>();
+  /** Copie de la file native, pour reconstruire un lecteur neuf après une erreur. */
+  private items: EngineItem[] = [];
+  private current = 0;
+  private failed = false;
+  private repeat: RepeatMode = 'off';
   private lockScreenActive = false;
+  private nowPlaying: { item: EngineItem; artworkUri: string | null } | null = null;
   private notificationsAsked = false;
+  private released = false;
+  private lastError: string | null = null;
 
   constructor() {
-    this.playlist = createAudioPlaylist({ updateInterval: 500, loop: 'none' });
+    this.playlist = this.create();
     setAudioModeAsync({
       playsInSilentMode: true,
       shouldPlayInBackground: true,
       interruptionMode: 'doNotMix',
-    }).catch(() => {
-      // Mode audio par défaut : la lecture reste possible au premier plan.
+    }).catch((e: unknown) => recordDiagnostic('Mode audio non appliqué', describeError(e)));
+  }
+
+  /** Lecteur natif et relais de ses événements vers les écouteurs du moteur (conservés d'un lecteur à l'autre). */
+  private create(): AudioPlaylist {
+    const playlist = createAudioPlaylist({ updateInterval: 500, loop: LOOP[this.repeat] });
+    this.subscriptions = [
+      playlist.addListener('playlistStatusUpdate', (s) => {
+        if (s.currentIndex >= 0) this.current = s.currentIndex;
+        const status = { playing: s.playing, isBuffering: s.isBuffering, positionSec: s.currentTime, durationSec: s.duration, index: s.currentIndex };
+        this.statusListeners.forEach((l) => l(status));
+        // ExoPlayer signale ses échecs dans la mise à jour d'état (champ « error », absent des types publiés).
+        const error = (s as { error?: { message?: string | null } | string | null }).error;
+        if (!error) return;
+        const message = (typeof error === 'string' ? error : error.message) || 'Erreur de lecture';
+        const key = `${s.currentIndex}:${message}`;
+        if (key === this.lastError) return;
+        this.lastError = key;
+        this.failed = true;
+        this.errorListeners.forEach((l) => l({ index: s.currentIndex, message }));
+      }),
+      playlist.addListener('trackChanged', (e) => {
+        this.lastError = null;
+        this.current = e.currentIndex;
+        this.trackListeners.forEach((l) => l(e.currentIndex));
+      }),
+    ];
+    return playlist;
+  }
+
+  /**
+   * Les commandes natives sont appelées depuis des gestes : une exception y serait fatale pour
+   * l'application. Elle est consignée dans le journal de diagnostic au lieu de fermer OpenPlay.
+   */
+  private guard(action: string, run: () => void) {
+    if (this.released) return;
+    try {
+      run();
+    } catch (e) {
+      recordDiagnostic(`Commande audio « ${action} » en échec`, describeError(e));
+    }
+  }
+
+  /** Remplace un lecteur en erreur par un lecteur neuf, positionné sur `index` (sans lancer la lecture). */
+  private rebuild(index: number) {
+    this.subscriptions.forEach((sub) => sub.remove());
+    this.guard('remplacement du lecteur', () => this.playlist.destroy());
+    this.lockScreenActive = false;
+    this.failed = false;
+    this.lastError = null;
+    try {
+      this.playlist = this.create();
+    } catch (e) {
+      recordDiagnostic('Recréation du lecteur en échec', describeError(e));
+      return;
+    }
+    this.guard('chargement de la file', () => {
+      for (const item of this.items) this.playlist.add(source(item));
     });
+    const target = Math.max(0, Math.min(index, this.items.length - 1));
+    this.current = target;
+    if (this.items.length) this.guard('aller au morceau', () => this.playlist.skipTo(target));
+    const item = this.items[target];
+    if (item) this.setNowPlaying(item, this.nowPlaying?.item.id === item.id ? this.nowPlaying.artworkUri : null);
   }
 
   load(items: EngineItem[], startIndex: number, startPositionSec: number, autoplay: boolean) {
-    this.playlist.clear();
-    for (const item of items) this.playlist.add(source(item));
+    this.items = [...items];
+    if (this.failed) this.rebuild(startIndex);
+    else {
+      this.lastError = null;
+      this.guard('chargement de la file', () => {
+        this.playlist.clear();
+        for (const item of items) this.playlist.add(source(item));
+      });
+    }
     if (items.length === 0) return;
-    this.playlist.skipTo(Math.max(0, Math.min(startIndex, items.length - 1)));
-    if (startPositionSec > 0) this.playlist.seekTo(startPositionSec).catch(() => {});
+    this.skipTo(Math.max(0, Math.min(startIndex, items.length - 1)));
+    if (startPositionSec > 0) this.seekTo(startPositionSec);
     if (autoplay) this.play();
   }
 
   play() {
+    if (this.failed) this.rebuild(this.current);
     if (!this.notificationsAsked && Platform.OS === 'android') {
       this.notificationsAsked = true;
       // Android 13+ : sans cette autorisation, la notification de lecture n'apparaît pas.
       requestNotificationPermissionsAsync().catch(() => {});
     }
-    this.playlist.play();
+    this.guard('lecture', () => this.playlist.play());
   }
 
   pause() {
-    this.playlist.pause();
+    this.guard('pause', () => this.playlist.pause());
   }
 
   next() {
-    this.playlist.next();
+    if (this.failed) return this.rebuild(this.current + 1 < this.items.length ? this.current + 1 : this.repeat === 'all' ? 0 : this.current);
+    this.guard('suivant', () => this.playlist.next());
   }
 
   previous() {
-    this.playlist.previous();
+    if (this.failed) return this.rebuild(this.current > 0 ? this.current - 1 : this.repeat === 'all' ? this.items.length - 1 : 0);
+    this.guard('précédent', () => this.playlist.previous());
   }
 
   skipTo(index: number) {
-    this.playlist.skipTo(index);
+    if (this.failed) return this.rebuild(index);
+    this.current = index;
+    this.guard('aller au morceau', () => this.playlist.skipTo(index));
   }
 
   seekTo(seconds: number) {
-    this.playlist.seekTo(seconds).catch(() => {});
+    this.guard('position', () => {
+      this.playlist.seekTo(seconds).catch((e: unknown) => recordDiagnostic('Déplacement dans le morceau en échec', describeError(e)));
+    });
   }
 
   insert(item: EngineItem, index: number) {
-    if (index >= this.playlist.trackCount) this.playlist.add(source(item));
-    else this.playlist.insert(source(item), index);
+    this.items.splice(Math.min(index, this.items.length), 0, item);
+    if (index <= this.current && this.items.length > 1) this.current += 1;
+    this.guard('insertion', () => {
+      if (index >= this.playlist.trackCount) this.playlist.add(source(item));
+      else this.playlist.insert(source(item), index);
+    });
   }
 
   remove(index: number) {
-    this.playlist.remove(index);
+    if (index >= 0 && index < this.items.length) this.items.splice(index, 1);
+    if (index < this.current) this.current -= 1;
+    this.guard('retrait', () => this.playlist.remove(index));
   }
 
   setRepeat(mode: RepeatMode) {
-    this.playlist.loop = LOOP[mode];
+    this.repeat = mode;
+    this.guard('répétition', () => {
+      this.playlist.loop = LOOP[mode];
+    });
   }
 
   setNowPlaying(item: EngineItem, artworkUri: string | null) {
+    this.nowPlaying = { item, artworkUri };
     const metadata = {
       title: item.title,
       artist: item.artist,
       albumTitle: item.album,
       ...(artworkUri ? { artworkUrl: artworkUri } : {}),
     };
-    if (!this.lockScreenActive) {
-      this.lockScreenActive = true;
-      this.playlist.setActiveForLockScreen(true, metadata, { showNextTrack: true, showPreviousTrack: true });
-    } else {
-      this.playlist.updateLockScreenMetadata(metadata);
-    }
+    this.guard('écran de verrouillage', () => {
+      if (!this.lockScreenActive) {
+        this.playlist.setActiveForLockScreen(true, metadata, { showNextTrack: true, showPreviousTrack: true });
+        this.lockScreenActive = true;
+      } else {
+        this.playlist.updateLockScreenMetadata(metadata);
+      }
+    });
   }
 
   onStatus(listener: (status: EngineStatus) => void) {
-    const sub = this.playlist.addListener('playlistStatusUpdate', (s) =>
-      listener({
-        playing: s.playing,
-        isBuffering: s.isBuffering,
-        positionSec: s.currentTime,
-        durationSec: s.duration,
-        index: s.currentIndex,
-      }),
-    );
-    return () => sub.remove();
+    this.statusListeners.add(listener);
+    return () => {
+      this.statusListeners.delete(listener);
+    };
   }
 
   onTrackChanged(listener: (index: number) => void) {
-    const sub = this.playlist.addListener('trackChanged', (e) => listener(e.currentIndex));
-    return () => sub.remove();
+    this.trackListeners.add(listener);
+    return () => {
+      this.trackListeners.delete(listener);
+    };
+  }
+
+  onError(listener: (error: EngineError) => void) {
+    this.errorListeners.add(listener);
+    return () => {
+      this.errorListeners.delete(listener);
+    };
   }
 
   release() {
-    this.playlist.destroy();
+    if (this.released) return;
+    this.released = true;
+    this.subscriptions.forEach((sub) => sub.remove());
+    try {
+      this.playlist.destroy();
+    } catch (e) {
+      recordDiagnostic('Libération du lecteur en échec', describeError(e));
+    }
   }
 }
 
@@ -165,6 +283,7 @@ export class SimulatedEngine implements PlaybackEngine {
   nowPlaying: { item: EngineItem; artworkUri: string | null } | null = null;
   private statusListeners = new Set<(s: EngineStatus) => void>();
   private trackListeners = new Set<(i: number) => void>();
+  private errorListeners = new Set<(e: EngineError) => void>();
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(private durationOf: (id: string) => number = () => 180, private tickMs = 500) {}
@@ -256,6 +375,23 @@ export class SimulatedEngine implements PlaybackEngine {
   onTrackChanged(listener: (i: number) => void) {
     this.trackListeners.add(listener);
     return () => this.trackListeners.delete(listener);
+  }
+  onError(listener: (e: EngineError) => void) {
+    this.errorListeners.add(listener);
+    return () => this.errorListeners.delete(listener);
+  }
+  /** Tests : lecture continue de `seconds` secondes, par pas de 0,5 s. */
+  advance(seconds: number) {
+    for (let t = 0; t < seconds; t += 0.5) {
+      this.position += 0.5;
+      this.emit();
+    }
+  }
+  /** Tests : simule un fichier illisible sur l'élément courant (le lecteur s'arrête, comme ExoPlayer). */
+  fail(message = 'Source error') {
+    this.playing = false;
+    this.errorListeners.forEach((l) => l({ index: this.index, message }));
+    this.emit();
   }
   release() {
     if (this.timer) clearInterval(this.timer);

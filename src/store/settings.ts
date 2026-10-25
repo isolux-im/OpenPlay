@@ -19,6 +19,10 @@ export type Settings = {
   haptics: boolean;
   aiProvider: ProviderId;
   aiLanguage: LanguageCode;
+  /** Recherche automatique des paroles sur LRCLIB (titre, artiste, album et durée envoyés). */
+  onlineLyrics: boolean;
+  /** Délai (jours) au-delà duquel un morceau passe dans « À réécouter ». */
+  discoverDays: 21 | 30;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -31,6 +35,8 @@ export const DEFAULT_SETTINGS: Settings = {
   haptics: true,
   aiProvider: 'groq',
   aiLanguage: 'auto',
+  onlineLyrics: true,
+  discoverDays: 30,
 };
 
 /**

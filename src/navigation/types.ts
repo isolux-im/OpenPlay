@@ -18,6 +18,7 @@ export type SharedStackParams = {
   Favorites: undefined;
   History: undefined;
   AddSongs: { playlistId: string };
+  Discover: undefined;
 };
 
 export type HomeStackParams = SharedStackParams & { Home: undefined };

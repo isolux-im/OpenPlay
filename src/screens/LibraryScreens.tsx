@@ -7,7 +7,7 @@ import { Carousel, Chips, EmptyState, Grid, MediaCard, MenuRow, QuickTile, Secti
 import { PressableScale } from '../components/PressableScale';
 import { HeaderButton, ListScreen, ScrollScreen } from '../components/Screen';
 import { TrackRow } from '../components/TrackRow';
-import { groupHistory, mostPlayed, recentlyAddedAlbums, recentlyPlayedAlbums, recentlyAddedTracks, rediscover, sortTracks } from '../library/selectors';
+import { groupHistory, mostPlayed, recentlyAddedAlbums, recentlyPlayedAlbums, recentlyAddedTracks, sortTracks, uniqueDiscover } from '../library/selectors';
 import { pluralize } from '../library/text';
 import { goToTab, useAppNavigation } from '../navigation/ref';
 import type { SharedStackParams, SmartPlaylistKind } from '../navigation/types';
@@ -23,6 +23,7 @@ import { Text } from '../ui/Text';
 import { GUTTER, radius, useTheme } from '../ui/theme';
 import { TrackCollectionScreen } from './TrackCollectionScreen';
 import { useNow } from '../ui/useNow';
+import { useDiscover } from './DiscoverScreen';
 import { LibraryGate } from './LibraryGate';
 
 export function LibraryScreen() {
@@ -38,6 +39,11 @@ export function LibraryScreen() {
   const recentAlbums = played.length ? played : added;
   const recentCount = useMemo(() => new Set(history.map((h) => h.trackId)).size, [history]);
   const smart: SmartPlaylistKind[] = ['mostPlayed', 'recentlyAdded', 'rediscover'];
+  const discover = useDiscover();
+  const discoverCount = useMemo(() => {
+    const u = uniqueDiscover(discover);
+    return u.never.length + u.forgotten.length + u.rare.length;
+  }, [discover]);
   const { colors } = useTheme();
 
   return (
@@ -58,6 +64,9 @@ export function LibraryScreen() {
           <View style={styles.quickRow}>
             <QuickTile icon="list-outline" label="Playlists" count={playlists.length} onPress={() => goToTab('PlaylistsTab')} />
             <QuickTile icon="musical-notes-outline" label="Titres" count={index.tracks.length} onPress={() => navigation.navigate('Songs')} />
+          </View>
+          <View style={styles.quickRow}>
+            <QuickTile icon="sparkles-outline" label="À découvrir" count={discoverCount} onPress={() => navigation.navigate('Discover')} />
           </View>
         </View>
 
@@ -117,7 +126,7 @@ export function SmartCard({ kind, width = 150 }: { kind: SmartPlaylistKind; widt
   const navigation = useAppNavigation();
   const tracks = useSmartPlaylist(kind);
   const meta = SMART_PLAYLISTS[kind];
-  return <MediaCard title={meta.title} subtitle={`Automatique · ${pluralize(tracks.length, 'titre')}`} mosaic={tracks} width={width} onPress={() => navigation.navigate('SmartPlaylist', { kind })} />;
+  return <MediaCard title={meta.title} subtitle={`Automatique · ${pluralize(tracks.length, 'titre')}`} mosaic={tracks} width={width} onPress={() => (kind === 'rediscover' ? navigation.navigate('Discover') : navigation.navigate('SmartPlaylist', { kind }))} />;
 }
 
 export function AlbumGridCard({ album }: { album: Album }) {
@@ -330,15 +339,14 @@ export const SMART_PLAYLISTS: Record<SmartPlaylistKind, { title: string; icon: '
   favorites: { title: 'Favoris', icon: 'heart' },
   mostPlayed: { title: 'Les plus écoutés', icon: 'flame' },
   recentlyAdded: { title: 'Ajoutés récemment', icon: 'sparkles' },
-  rediscover: { title: 'À redécouvrir', icon: 'refresh' },
+  rediscover: { title: 'À découvrir', icon: 'refresh' },
 };
 
 export function useSmartPlaylist(kind: SmartPlaylistKind) {
   const index = useLibrary((s) => s.index);
   const favorites = useUser((s) => s.favorites);
   const playCounts = useUser((s) => s.playCounts);
-  const history = useUser((s) => s.history);
-  const now = useNow();
+  const discover = useDiscover();
   return useMemo(() => {
     switch (kind) {
       case 'favorites':
@@ -347,10 +355,12 @@ export function useSmartPlaylist(kind: SmartPlaylistKind) {
         return mostPlayed(playCounts, index.byId, 50);
       case 'recentlyAdded':
         return recentlyAddedTracks(index, 50);
-      case 'rediscover':
-        return rediscover(index, history, now, 30, 50);
+      case 'rediscover': {
+        const u = uniqueDiscover(discover);
+        return [...u.never, ...u.forgotten, ...u.rare].map((i) => i.track);
+      }
     }
-  }, [kind, index, favorites, playCounts, history, now]);
+  }, [kind, index, favorites, playCounts, discover]);
 }
 
 export function SmartPlaylistScreen() {

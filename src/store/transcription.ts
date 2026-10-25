@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 
+import { describeError, recordDiagnostic } from '../diagnostics/crashReports';
 import { getApiKey } from '../lyrics/apiKeys';
 import { TranscriptionError, transcribeTrack } from '../lyrics/transcription';
 import type { Track } from '../types';
@@ -44,6 +45,9 @@ export const useTranscription = create<TranscriptionState>()((set) => ({
       return true;
     } catch (e) {
       const message = e instanceof TranscriptionError ? e.message : 'Transcription impossible.';
+      // Les pannes réseau ou serveur sont notées (sans clé API) pour diagnostiquer « Connexion impossible ».
+      if (!(e instanceof TranscriptionError)) recordDiagnostic('Transcription : erreur inattendue', describeError(e));
+      else if (e.code === 'network' || e.code === 'server') recordDiagnostic(`Transcription en échec (${e.code})`, `${e.message}${e.detail ? ` · ${e.detail}` : ''}`);
       set((s) => {
         const jobs = { ...s.jobs };
         if (e instanceof TranscriptionError && e.code === 'cancelled') delete jobs[track.id];

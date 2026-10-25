@@ -24,6 +24,8 @@ type UserState = {
   playlists: Playlist[];
   history: HistoryEntry[];
   playCounts: Record<string, number>;
+  /** Date (ms) de la dernière écoute validée par morceau : non limitée, contrairement à `history`. */
+  lastPlayed: Record<string, number>;
   recentSearches: string[];
   lyrics: Record<string, string>;
   session: Session | null;
@@ -49,6 +51,22 @@ type UserState = {
   saveSession: (s: Session | null) => void;
 };
 
+/**
+ * v2 : ajout de `lastPlayed`, reconstitué depuis l'historique existant (rien n'est supprimé).
+ * Les morceaux comptés mais sortis de l'historique limité restent sans date connue.
+ */
+export function migrateUser(persisted: unknown, version: number): Record<string, unknown> {
+  const s = { ...((persisted ?? {}) as Record<string, unknown>) };
+  if (version < 2) {
+    const lastPlayed: Record<string, number> = {};
+    for (const h of (s.history as HistoryEntry[] | undefined) ?? []) {
+      if (h && typeof h.at === 'number' && (lastPlayed[h.trackId] ?? 0) < h.at) lastPlayed[h.trackId] = h.at;
+    }
+    s.lastPlayed = lastPlayed;
+  }
+  return s;
+}
+
 let idCounter = 0;
 export function newId(prefix: string): string {
   idCounter += 1;
@@ -66,6 +84,7 @@ export const useUser = create<UserState>()(
       playlists: [],
       history: [],
       playCounts: {},
+      lastPlayed: {},
       recentSearches: [],
       lyrics: {},
       session: null,
@@ -104,9 +123,11 @@ export const useUser = create<UserState>()(
         set((s) => {
           const gone = new Set(ids);
           const playCounts = { ...s.playCounts };
+          const lastPlayed = { ...s.lastPlayed };
           const lyrics = { ...s.lyrics };
           for (const id of ids) {
             delete playCounts[id];
+            delete lastPlayed[id];
             delete lyrics[id];
           }
           return {
@@ -114,6 +135,7 @@ export const useUser = create<UserState>()(
             playlists: s.playlists.map((p) => (p.trackIds.some((id) => gone.has(id)) ? { ...p, trackIds: p.trackIds.filter((id) => !gone.has(id)), updatedAt: Date.now() } : p)),
             history: s.history.filter((h) => !gone.has(h.trackId)),
             playCounts,
+            lastPlayed,
             lyrics,
           };
         }),
@@ -122,8 +144,9 @@ export const useUser = create<UserState>()(
         set((s) => ({
           history: [{ trackId, at }, ...s.history].slice(0, HISTORY_LIMIT),
           playCounts: { ...s.playCounts, [trackId]: (s.playCounts[trackId] ?? 0) + 1 },
+          lastPlayed: { ...s.lastPlayed, [trackId]: Math.max(at, s.lastPlayed[trackId] ?? 0) },
         })),
-      clearHistory: () => set({ history: [], playCounts: {} }),
+      clearHistory: () => set({ history: [], playCounts: {}, lastPlayed: {} }),
       addRecentSearch: (q) => {
         const v = q.trim();
         if (!v) return;
@@ -142,12 +165,14 @@ export const useUser = create<UserState>()(
     {
       name: 'openplay.user.v1',
       storage: persistStorage,
-      version: 1,
-      partialize: ({ favorites, playlists, history, playCounts, recentSearches, lyrics, session }) => ({
+      version: 2,
+      migrate: (persisted, version) => migrateUser(persisted, version) as UserState,
+      partialize: ({ favorites, playlists, history, playCounts, lastPlayed, recentSearches, lyrics, session }) => ({
         favorites,
         playlists,
         history,
         playCounts,
+        lastPlayed,
         recentSearches,
         lyrics,
         session,

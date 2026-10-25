@@ -73,7 +73,7 @@ function Row({ title, tracks, onPress, onMenu, label }: { title: string; tracks:
 function SmartRow({ kind }: { kind: SmartPlaylistKind }) {
   const navigation = useAppNavigation();
   const tracks = useSmartPlaylist(kind);
-  return <Row title={SMART_PLAYLISTS[kind].title} label="Automatique" tracks={tracks} onPress={() => navigation.navigate('SmartPlaylist', { kind })} />;
+  return <Row title={SMART_PLAYLISTS[kind].title} label="Automatique" tracks={tracks} onPress={() => (kind === 'rediscover' ? navigation.navigate('Discover') : navigation.navigate('SmartPlaylist', { kind }))} />;
 }
 
 function PlaylistRow({ playlist }: { playlist: Playlist }) {
