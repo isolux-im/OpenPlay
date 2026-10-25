@@ -206,17 +206,17 @@ export function SettingsScreen() {
 
       <Group
         title="Vidéos"
-        footer="Orientation : « Portrait » ne fait jamais pivoter l’écran ; « Selon vidéo » passe en paysage pour une vidéo horizontale ; « Auto » suit le téléphone (rotation automatique d’Android). Le bouton du lecteur permet toujours de pivoter à la demande. Fenêtre flottante : en quittant OpenPlay pendant une vidéo, elle continue dans une petite fenêtre au-dessus des autres applications (Android 8 et plus ; entrée automatique sur Android 12 et plus). Générique : OpenPlay compare le son du début de deux épisodes d’une même série, sur l’appareil ; rien n’est envoyé.">
+        footer="Orientation : « Auto » suit la position du téléphone pendant la lecture, comme VLC (vertical = portrait, horizontal = paysage), même si la rotation automatique d’Android est désactivée ; « Portrait » et « Paysage » bloquent l’écran ; « Selon vidéo » choisit d’après la vidéo. Le bouton du lecteur passe de l’automatique au paysage puis au portrait verrouillés. Fenêtre flottante : en quittant OpenPlay pendant une vidéo, elle continue dans une petite fenêtre au-dessus des autres applications (Android 8 et plus ; entrée automatique sur Android 12 et plus). Générique : OpenPlay compare le son du début de deux épisodes d’une même série, sur l’appareil ; rien n’est envoyé.">
         <View style={styles.block}>
           <Text variant="subhead" tone="secondary" style={{ marginBottom: 8 }}>
-            Orientation à l’ouverture d’une vidéo
+            Orientation pendant la lecture
           </Text>
           <Segmented<'keep' | 'video' | 'landscape' | 'sensor'>
             options={[
-              { value: 'keep', label: 'Portrait' },
-              { value: 'video', label: 'Selon vidéo' },
-              { value: 'landscape', label: 'Paysage' },
               { value: 'sensor', label: 'Auto' },
+              { value: 'keep', label: 'Portrait' },
+              { value: 'landscape', label: 'Paysage' },
+              { value: 'video', label: 'Selon vidéo' },
             ]}
             value={s.videoOrientation}
             onChange={(videoOrientation) => s.update({ videoOrientation })}

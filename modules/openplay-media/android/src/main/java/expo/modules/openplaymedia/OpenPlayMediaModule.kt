@@ -225,7 +225,8 @@ class OpenPlayMediaModule : Module() {
       activity.requestedOrientation = when (mode) {
         "landscape" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         "portrait" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-        else -> ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+        // Comme VLC : suit la position du téléphone pendant la lecture, même si la rotation automatique d'Android est désactivée.
+        else -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
       }
     }.runOnQueue(Queues.MAIN)
 

@@ -45,8 +45,8 @@ export type Settings = {
   /** Vidéo : générique repéré passé sans appui. */
   videoIntroAutoSkip: boolean;
   /**
-   * Vidéo : orientation à l'ouverture du lecteur. `keep` : aucune rotation (portrait) ; `video` : selon la vidéo ;
-   * `landscape` : toujours en paysage ; `sensor` : suit le téléphone (rotation automatique d'Android).
+   * Vidéo : orientation pendant la lecture. `sensor` (comme VLC) : suit la position du téléphone ; `keep` : portrait ;
+   * `landscape` : toujours en paysage ; `video` : selon la vidéo.
    */
   videoOrientation: 'keep' | 'video' | 'landscape' | 'sensor';
   /** Vidéo : format d'affichage (conservé d'une vidéo à l'autre, comme dans VLC). */
@@ -77,7 +77,7 @@ export const DEFAULT_SETTINGS: Settings = {
   videoDoubleTap: true,
   videoSwipe: true,
   videoFit: 'best',
-  videoOrientation: 'keep',
+  videoOrientation: 'sensor',
   videoAutoNext: true,
   videoIntroDetect: true,
   videoIntroAutoSkip: false,

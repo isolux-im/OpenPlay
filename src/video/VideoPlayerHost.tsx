@@ -47,6 +47,7 @@ const UP_NEXT_MS = 10_000;
 type Orientation = 'landscape' | 'portrait' | 'sensor';
 /** Orientation choisie à la main, conservée d'une vidéo à la suivante tant que le lecteur reste ouvert. */
 let carriedOrientation: Orientation | null = null;
+const ORIENTATION_LABELS: Record<Orientation, string> = { sensor: 'Rotation automatique', landscape: 'Paysage verrouillé', portrait: 'Portrait verrouillé' };
 /** Temps de visionnage écrit par paquets (évite une écriture du stockage à chaque seconde). */
 const WATCH_FLUSH_SEC = 30;
 
@@ -162,7 +163,8 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   const [rate, setRate] = useState(1);
   const [upNext, setUpNext] = useState<{ video: Video; deadline: number } | null>(null);
   const [upNextLeft, setUpNextLeft] = useState(0);
-  const [orientation, setOrientation] = useState<Orientation | null>(() => carriedOrientation);
+  // « Auto » et « Paysage » s'appliquent dès l'ouverture ; « Selon vidéo » attend la taille de la vidéo.
+  const [orientation, setOrientation] = useState<Orientation | null>(() => carriedOrientation ?? (orientationMode === 'sensor' || orientationMode === 'landscape' ? orientationMode : null));
   const [flash, setFlash] = useState<{ text: string; at: number } | null>(null);
   const [level, setLevel] = useState<{ kind: 'brightness' | 'volume'; value: number; at: number } | null>(null);
   /** Variante sans module natif (web) : voile sombre en guise de luminosité. */
@@ -264,7 +266,6 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
       if (player.videoTrack?.size) setTrackSize(player.videoTrack.size);
       // Orientation choisie dans les réglages ; « selon la vidéo » utilise la taille MediaStore corrigée de la rotation.
       if (orientationMode === 'video') setOrientation((o) => o ?? preferredOrientation(video.width && video.height ? video : (player.videoTrack?.size ?? video)));
-      else if (orientationMode !== 'keep') setOrientation((o) => o ?? orientationMode);
       // Fichier importé choisi : pas de piste intégrée affichée en même temps.
       if (subtitleChoice.kind !== 'embedded') setSubtitleTrack(player, null);
       if (usePlayer.getState().isPlaying) usePlayer.getState().pause();
@@ -504,10 +505,11 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   };
 
   const rotate = () => {
-    const next = orientation === 'landscape' ? 'portrait' : 'landscape';
+    // Comme le verrou de rotation de VLC : automatique → paysage verrouillé → portrait verrouillé → automatique.
+    const next: Orientation = orientation === 'sensor' ? 'landscape' : orientation === 'landscape' ? 'portrait' : 'sensor';
     carriedOrientation = next;
     setOrientation(next);
-    setFlash({ text: next === 'landscape' ? 'Paysage' : 'Portrait', at: Date.now() });
+    setFlash({ text: ORIENTATION_LABELS[next], at: Date.now() });
     touch();
   };
 
@@ -764,7 +766,12 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
               <IconButton icon={subtitleChoice.kind === 'off' ? 'chatbox-outline' : 'chatbox-ellipses'} label="Sous-titres" onPress={() => setSubtitlesOpen(true)} size={22} />
               <IconButton icon="lock-open-outline" label="Verrouiller les commandes" onPress={() => setLocked(true)} size={22} />
               {OpenPlayMedia?.setScreenOrientationAsync ? (
-                <IconButton icon={orientation === 'landscape' ? 'phone-portrait-outline' : 'phone-landscape-outline'} label={orientation === 'landscape' ? 'Passer en portrait' : 'Passer en paysage'} onPress={rotate} size={22} />
+                <IconButton
+                  icon={orientation === 'sensor' ? 'sync-outline' : orientation === 'landscape' ? 'phone-landscape-outline' : 'phone-portrait-outline'}
+                  label={`Orientation : ${ORIENTATION_LABELS[orientation ?? 'portrait'].toLowerCase()}. Toucher pour changer`}
+                  onPress={rotate}
+                  size={22}
+                />
               ) : null}
             </View>
           </View>
