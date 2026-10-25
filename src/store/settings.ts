@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 import type { LanguageCode, ProviderId } from '../lyrics/transcription';
+import type { SubtitleContrast, SubtitleSize } from '../video/subtitles';
 import type { VideoSort } from '../video/types';
 import { persist } from 'zustand/middleware';
 
@@ -36,6 +37,9 @@ export type Settings = {
   videoDoubleTap: boolean;
   videoSort: VideoSort;
   videoLayout: 'grid' | 'list';
+  /** Sous-titres importés (SRT / WebVTT) : taille et contraste d'affichage. */
+  subtitleSize: SubtitleSize;
+  subtitleContrast: SubtitleContrast;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -57,6 +61,8 @@ export const DEFAULT_SETTINGS: Settings = {
   videoDoubleTap: true,
   videoSort: 'date',
   videoLayout: 'grid',
+  subtitleSize: 'medium',
+  subtitleContrast: 'shadow',
 };
 
 /**

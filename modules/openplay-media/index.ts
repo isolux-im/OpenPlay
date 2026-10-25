@@ -44,6 +44,8 @@ export type NativeArtwork = {
   height: number;
 };
 
+export type PickedFile = { uri: string; name: string; size: number; persistent: boolean };
+
 export type ExitReason = { timestamp: number; reason: 'crash' | 'crash-native' | 'anr' | 'low-memory' | 'init-failure'; description: string | null; trace: string | null };
 
 export type NetworkDiagnosis = {
@@ -64,6 +66,11 @@ type OpenPlayMediaModule = {
   openVideoWithAsync?(videoId: string, mimeType: string, title: string): Promise<void>;
   /** URI file:// d'une miniature en cache, ou null. */
   getVideoThumbnailAsync?(videoId: string, size: number): Promise<string | null>;
+  /** Sélecteur de fichiers Android (sous-titres) ; null si l'utilisateur annule. `persistent` : accès conservé après redémarrage. */
+  pickSubtitleAsync?(): Promise<PickedFile | null>;
+  /** Texte du fichier (encodage détecté) ; erreur ERR_SUBTITLE_UNREADABLE ou ERR_SUBTITLE_TOO_LARGE. */
+  readSubtitleAsync?(uri: string): Promise<string>;
+  releaseSubtitleAsync?(uri: string): Promise<void>;
   /** Journal de diagnostic local et fins anormales enregistrées par Android 11+. Absents des anciennes versions. */
   getCrashReportsAsync?(): Promise<{ log: string | null; exits: ExitReason[] }>;
   clearCrashReportsAsync?(): Promise<void>;

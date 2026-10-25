@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { deleteTracksFromDevice, shareAlbum, sharePlaylist, shareTrack } from '../library/actions';
 import { formatDuration, formatTotalDuration, pluralize } from '../library/text';
+import { useSubtitles } from '../store/subtitles';
 import { useVideoHistory } from '../store/videoHistory';
 import { useVideoPlayer } from '../store/videoPlayer';
 import { useVideos } from '../store/videos';
@@ -12,6 +13,7 @@ import { formatResolution, resumePosition } from '../video/library';
 import { formatSize } from '../video/VideoList';
 import { VideoThumb } from '../video/VideoThumb';
 import { openVideoWith, shareVideo } from '../video/actions';
+import { canImportSubtitles, importSubtitles, unlinkSubtitles } from '../video/subtitleFiles';
 import { navigateInCurrentTab } from '../navigation/ref';
 import type { SharedStackParams } from '../navigation/types';
 import { useLibrary } from '../store/library';
@@ -79,6 +81,7 @@ function useMenuModel(target: ContextTarget): Model | null {
   const video = useVideos((s) => (target.kind === 'video' ? s.byId[target.videoId] : undefined));
   const videoEntry = useVideoHistory((s) => (target.kind === 'video' ? s.entries[target.videoId] : undefined));
   const videoFavorite = useVideoHistory((s) => (target.kind === 'video' ? s.favorites.includes(target.videoId) : false));
+  const videoSubtitles = useSubtitles((s) => (target.kind === 'video' ? s.byVideo[target.videoId] : undefined));
 
   if (target.kind === 'video') {
     if (!video) return null;
@@ -113,7 +116,20 @@ function useMenuModel(target: ContextTarget): Model | null {
               showToast(videoFavorite ? 'Retiré des favoris' : 'Ajouté aux favoris');
             },
           },
-          { icon: 'information-circle-outline', label: 'Informations', onPress: () => Alert.alert(video.title, details.join('\n')) },
+          { icon: 'information-circle-outline', label: 'Informations', onPress: () => Alert.alert(video.title, [...details, videoSubtitles ? `Sous-titres : ${videoSubtitles.name}` : null].filter(Boolean).join('\n')) },
+          ...(canImportSubtitles() ? [{ icon: 'chatbox-ellipses-outline' as const, label: videoSubtitles ? 'Remplacer les sous-titres…' : 'Associer des sous-titres…', onPress: () => void importSubtitles(video) }] : []),
+          ...(videoSubtitles
+            ? [
+                {
+                  icon: 'chatbox-outline' as const,
+                  label: 'Retirer les sous-titres',
+                  onPress: () => {
+                    unlinkSubtitles(video.id);
+                    showToast('Sous-titres retirés');
+                  },
+                },
+              ]
+            : []),
           { icon: 'share-outline', label: 'Partager', onPress: () => void shareVideo(video) },
           { icon: 'open-outline', label: 'Ouvrir avec…', onPress: () => void openVideoWith(video) },
         ],

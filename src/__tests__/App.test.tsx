@@ -142,6 +142,16 @@ describe('application', () => {
     expect(screen.getByRole('button', { name: 'Vitesse 1×' })).toBeTruthy();
     await fireEvent.press(screen.getByRole('button', { name: 'Vitesse 1×' }));
     expect(screen.getByRole('button', { name: 'Vitesse 1,25×' })).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Sous-titres' }));
+    expect(screen.getByRole('radio', { name: 'Désactivés' }).props.accessibilityState).toEqual({ selected: true });
+    await fireEvent.press(screen.getByRole('radio', { name: 'Grande' }));
+    expect(useSettings.getState().subtitleSize).toBe('large');
+    await fireEvent.press(screen.getByRole('radio', { name: 'Jaune sur noir' }));
+    expect(useSettings.getState().subtitleContrast).toBe('yellow');
+    // Sans module natif (web, tests), pas d'import de fichier.
+    expect(screen.queryByRole('button', { name: /^Importer un fichier/ })).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'Fermer' }));
+    expect(screen.queryByRole('radio', { name: 'Désactivés' })).toBeNull();
     await fireEvent.press(screen.getByRole('button', { name: 'Fermer la vidéo' }));
     expect(useVideoPlayer.getState().session).toBeNull();
   });

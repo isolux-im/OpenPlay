@@ -1,5 +1,6 @@
 package expo.modules.openplaymedia
 
+import android.app.Activity
 import android.app.ActivityManager
 import android.app.ApplicationExitInfo
 import android.content.ContentUris
@@ -14,9 +15,12 @@ import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import android.provider.OpenableColumns
 import android.util.Log
 import android.util.Size
 import androidx.palette.graphics.Palette
+import expo.modules.kotlin.Promise
+import expo.modules.kotlin.exception.CodedException
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.functions.Coroutine
 import expo.modules.kotlin.functions.Queues
@@ -34,11 +38,20 @@ import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
 import java.net.URL
 import java.net.UnknownHostException
+import java.nio.ByteBuffer
+import java.nio.charset.CharacterCodingException
+import java.nio.charset.Charset
+import java.nio.charset.CodingErrorAction
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import javax.net.ssl.SSLException
+
+private const val PICK_SUBTITLE_REQUEST = 0x5354
+
+/** Un fichier de sous-titres dépasse rarement quelques centaines de Ko. */
+private const val MAX_SUBTITLE_BYTES = 4 * 1024 * 1024
 
 /**
  * Lecture des métadonnées audio depuis MediaStore (titre, artiste, album, genre, dossier),
@@ -51,6 +64,9 @@ class OpenPlayMediaModule : Module() {
 
   /** Pochettes décodées en parallèle : borné pour éviter la saturation mémoire sur les grandes bibliothèques. */
   private val artworkPermits = Semaphore(3)
+
+  /** Sélection de fichier de sous-titres en attente du retour du sélecteur Android. */
+  private var pendingSubtitlePick: Promise? = null
 
   override fun definition() = ModuleDefinition {
     Name("OpenPlayMedia")
@@ -141,6 +157,119 @@ class OpenPlayMediaModule : Module() {
       }
       startChooser(view, title)
     }.runOnQueue(Queues.MAIN)
+
+    // Sous-titres : fichier choisi par l'utilisateur dans le sélecteur Android (aucun dossier n'est parcouru).
+    AsyncFunction("pickSubtitleAsync") { promise: Promise ->
+      val activity = appContext.currentActivity ?: throw Exceptions.MissingActivity()
+      pendingSubtitlePick?.resolve(null)
+      pendingSubtitlePick = promise
+      val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+        addCategory(Intent.CATEGORY_OPENABLE)
+        // Les fichiers .srt / .vtt ont rarement un type MIME fiable : le contenu est vérifié à la lecture.
+        type = "*/*"
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+      }
+      try {
+        activity.startActivityForResult(intent, PICK_SUBTITLE_REQUEST)
+      } catch (e: Exception) {
+        pendingSubtitlePick = null
+        promise.reject("ERR_NO_PICKER", "Aucun sélecteur de fichiers disponible", e)
+      }
+    }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("readSubtitleAsync") Coroutine { uri: String ->
+      withContext(Dispatchers.IO) { readSubtitle(Uri.parse(uri)) }
+    }
+
+    AsyncFunction("releaseSubtitleAsync") { uri: String ->
+      try {
+        context.contentResolver.releasePersistableUriPermission(Uri.parse(uri), Intent.FLAG_GRANT_READ_URI_PERMISSION)
+      } catch (e: Exception) {
+        // Accès déjà retiré ou jamais conservé.
+      }
+    }
+
+    OnActivityResult { _, payload ->
+      if (payload.requestCode != PICK_SUBTITLE_REQUEST) return@OnActivityResult
+      val promise = pendingSubtitlePick ?: return@OnActivityResult
+      pendingSubtitlePick = null
+      val uri = payload.data?.data
+      if (payload.resultCode != Activity.RESULT_OK || uri == null) {
+        promise.resolve(null)
+        return@OnActivityResult
+      }
+      try {
+        promise.resolve(pickedFile(uri))
+      } catch (e: Exception) {
+        promise.reject("ERR_SUBTITLE_PICK", e.message, e)
+      }
+    }
+  }
+
+  private fun pickedFile(uri: Uri): Map<String, Any?> {
+    // Accès conservé après redémarrage quand le fournisseur le permet (sinon : pour cette session seulement).
+    val persistent = try {
+      context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+      true
+    } catch (e: Exception) {
+      false
+    }
+    var name: String? = null
+    var size = 0L
+    try {
+      context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { c ->
+        if (c.moveToFirst()) {
+          name = c.getStringOrNull(0)
+          if (!c.isNull(1)) size = c.getLong(1)
+        }
+      }
+    } catch (e: Exception) {
+      // Nom indisponible : le fichier reste utilisable.
+    }
+    return mapOf("uri" to uri.toString(), "name" to (name ?: uri.lastPathSegment ?: "Sous-titres"), "size" to size.toDouble(), "persistent" to persistent)
+  }
+
+  private class SubtitleTooLargeException : CodedException("ERR_SUBTITLE_TOO_LARGE", "Fichier de sous-titres trop volumineux", null)
+
+  private class SubtitleUnreadableException(cause: Throwable?) : CodedException("ERR_SUBTITLE_UNREADABLE", "Fichier de sous-titres inaccessible", cause)
+
+  private fun readSubtitle(uri: Uri): String {
+    val bytes = try {
+      val stream = context.contentResolver.openInputStream(uri) ?: throw IOException("no stream")
+      stream.use { input ->
+        val out = java.io.ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        while (true) {
+          val n = input.read(buffer)
+          if (n < 0) break
+          if (out.size() + n > MAX_SUBTITLE_BYTES) throw SubtitleTooLargeException()
+          out.write(buffer, 0, n)
+        }
+        out.toByteArray()
+      }
+    } catch (e: SubtitleTooLargeException) {
+      throw e
+    } catch (e: Exception) {
+      throw SubtitleUnreadableException(e)
+    }
+    return decodeText(bytes)
+  }
+
+  /** UTF-8 / UTF-16 (avec BOM), sinon UTF-8 strict, sinon Windows-1252 (fréquent pour les .srt anciens). */
+  private fun decodeText(bytes: ByteArray): String {
+    fun starts(vararg b: Int) = bytes.size >= b.size && b.indices.all { bytes[it] == b[it].toByte() }
+    if (starts(0xEF, 0xBB, 0xBF)) return String(bytes, 3, bytes.size - 3, Charsets.UTF_8)
+    if (starts(0xFF, 0xFE)) return String(bytes, 2, bytes.size - 2, Charsets.UTF_16LE)
+    if (starts(0xFE, 0xFF)) return String(bytes, 2, bytes.size - 2, Charsets.UTF_16BE)
+    return try {
+      Charsets.UTF_8.newDecoder()
+        .onMalformedInput(CodingErrorAction.REPORT)
+        .onUnmappableCharacter(CodingErrorAction.REPORT)
+        .decode(ByteBuffer.wrap(bytes))
+        .toString()
+    } catch (e: CharacterCodingException) {
+      String(bytes, Charset.forName("windows-1252"))
+    }
   }
 
   /** Dernières fins anormales du processus enregistrées par Android 11+ (y compris plantages natifs et ANR). */

@@ -1,6 +1,6 @@
 import { useEventListener } from 'expo';
 import { StatusBar } from 'expo-status-bar';
-import { VideoView, isPictureInPictureSupported, useVideoPlayer as useNativeVideoPlayer, type VideoContentFit, type VideoPlayer } from 'expo-video';
+import { VideoView, isPictureInPictureSupported, useVideoPlayer as useNativeVideoPlayer, type SubtitleTrack, type VideoContentFit, type VideoPlayer } from 'expo-video';
 import { useEffect, useRef, useState } from 'react';
 import { BackHandler, Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -11,6 +11,7 @@ import { registerVideoPauser } from '../player/mediaFocus';
 import { Scrubber } from '../player/ui/Scrubber';
 import { usePlayer } from '../store/player';
 import { useSettings } from '../store/settings';
+import { useSubtitles } from '../store/subtitles';
 import { useUi } from '../store/ui';
 import { useVideoHistory } from '../store/videoHistory';
 import { useVideoPlayer } from '../store/videoPlayer';
@@ -19,6 +20,9 @@ import { tap } from '../ui/haptics';
 import { Icon, type IconName } from '../ui/Icon';
 import { Text } from '../ui/Text';
 import { resumePosition } from './library';
+import { importSubtitles, unlinkSubtitles, useExternalSubtitles } from './subtitleFiles';
+import { SubtitleOverlay, SubtitlePanel, trackKey, type SubtitleChoice } from './SubtitlePanel';
+import { cueTextAt } from './subtitles';
 import type { Video } from './types';
 
 export const VIDEO_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2] as const;
@@ -31,6 +35,7 @@ const HIDE_CONTROLS_MS = 3500;
 const DOUBLE_TAP_MS = 280;
 const SEEK_STEP = 10;
 const SAVE_EVERY_MS = 5000;
+const RESUME_HINT_MS = 6000;
 
 /** Lecteur vidéo plein écran, au-dessus de l'application ; une nouvelle ouverture recrée le lecteur. */
 export function VideoPlayerHost() {
@@ -47,6 +52,14 @@ function setTime(player: VideoPlayer, sec: number) {
 
 function setPlaybackRate(player: VideoPlayer, rate: number) {
   player.playbackRate = rate;
+}
+
+function setSubtitleTrack(player: VideoPlayer, track: SubtitleTrack | null) {
+  try {
+    player.subtitleTrack = track;
+  } catch {
+    // Piste refusée par le lecteur natif : la vidéo continue sans sous-titres intégrés.
+  }
 }
 
 function IconButton({ icon, label, onPress, size = 26, disabled = false }: { icon: IconName; label: string; onPress: () => void; size?: number; disabled?: boolean }) {
@@ -94,14 +107,24 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
     at: number;
   } | null>(null);
   const [interaction, setInteraction] = useState(0);
+  const [resumedAt, setResumedAt] = useState<number | null>(null);
+  const subtitleLink = useSubtitles((s) => s.byVideo[video.id]);
+  const external = useExternalSubtitles(subtitleLink);
+  const [subtitleChoice, setSubtitleChoice] = useState<SubtitleChoice>(() => (subtitleLink ? { kind: 'external' } : { kind: 'off' }));
+  const [embeddedTracks, setEmbeddedTracks] = useState<SubtitleTrack[]>([]);
+  const [subtitlesOpen, setSubtitlesOpen] = useState(false);
   const started = useRef(false);
+  const failed = useRef(false);
+  /** Dernière position connue : un lecteur libéré (fermeture de la fenêtre flottante) peut renvoyer 0. */
+  const lastPosition = useRef(0);
   const lastSave = useRef(0);
   const lastTap = useRef<{ at: number; side: 'left' | 'right' } | null>(null);
   const singleTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const index = list.indexOf(video.id);
 
   const player = useNativeVideoPlayer(video.uri ? { uri: video.uri } : null, (p) => {
-    p.timeUpdateEventInterval = 0.5;
+    // 0,25 s : précision suffisante pour l'affichage des sous-titres importés.
+    p.timeUpdateEventInterval = 0.25;
     p.keepScreenOnWhilePlaying = true;
     // Une seule notification de lecture : celle de la musique. La vidéo ne joue pas en arrière-plan hors PiP.
     p.showNowPlayingNotification = false;
@@ -111,6 +134,7 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   });
 
   const save = (pos: number) => {
+    if (!started.current || failed.current) return;
     const d = duration || player.duration || video.durationSec;
     if (d > 0) useVideoHistory.getState().savePosition(video.id, pos, d, Date.now());
   };
@@ -129,14 +153,19 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
       if (resumeAt > 0) {
         setTime(player, resumeAt);
         setPosition(resumeAt);
-        showToast(`Reprise à ${formatDuration(resumeAt)}`);
+        lastPosition.current = resumeAt;
+        setResumedAt(resumeAt);
       }
+      setEmbeddedTracks(player.availableSubtitleTracks ?? []);
+      // Fichier importé choisi : pas de piste intégrée affichée en même temps.
+      if (subtitleChoice.kind !== 'embedded') setSubtitleTrack(player, null);
       if (usePlayer.getState().isPlaying) usePlayer.getState().pause();
       player.play();
     }
     if (status === 'error') {
       const message = e?.message ?? 'erreur inconnue';
       recordDiagnostic('Vidéo illisible', `${video.filename} (${video.mimeType}) : ${message}`);
+      failed.current = true;
       setError('Lecture impossible : format ou codec non pris en charge, ou fichier inaccessible.');
       player.pause();
     }
@@ -147,11 +176,20 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
     if (isPlaying) {
       setEnded(false);
       if (usePlayer.getState().isPlaying) usePlayer.getState().pause();
-    } else if (started.current) save(player.currentTime);
+    } else save(currentPosition());
+  });
+
+  useEventListener(player, 'availableSubtitleTracksChange', ({ availableSubtitleTracks }) => setEmbeddedTracks(availableSubtitleTracks));
+
+  // Piste intégrée activée par le lecteur (piste par défaut du fichier) : le choix affiché suit.
+  useEventListener(player, 'subtitleTrackChange', ({ subtitleTrack }) => {
+    if (subtitleTrack) setSubtitleChoice({ kind: 'embedded', id: trackKey(subtitleTrack) });
+    else setSubtitleChoice((c) => (c.kind === 'embedded' ? { kind: 'off' } : c));
   });
 
   useEventListener(player, 'timeUpdate', ({ currentTime }) => {
     setPosition(currentTime);
+    lastPosition.current = currentTime;
     const now = Date.now();
     if (now - lastSave.current > SAVE_EVERY_MS) {
       lastSave.current = now;
@@ -165,14 +203,20 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
     save(duration || player.duration);
   });
 
+  function currentPosition() {
+    const t = player.currentTime;
+    return t > 0 || lastPosition.current < 1 ? t : lastPosition.current;
+  }
+
   const exit = () => {
-    if (started.current && !error) save(player.currentTime);
+    save(currentPosition());
     close();
   };
 
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      exit();
+      if (subtitlesOpen) setSubtitlesOpen(false);
+      else exit();
       return true;
     });
     return () => sub.remove();
@@ -180,10 +224,16 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
 
   // Les commandes se masquent seules pendant la lecture.
   useEffect(() => {
-    if (!controls || !playing || locked) return;
+    if (!controls || !playing || locked || subtitlesOpen) return;
     const t = setTimeout(() => setControls(false), HIDE_CONTROLS_MS);
     return () => clearTimeout(t);
-  }, [controls, playing, locked, interaction]);
+  }, [controls, playing, locked, interaction, subtitlesOpen]);
+
+  useEffect(() => {
+    if (resumedAt === null) return;
+    const t = setTimeout(() => setResumedAt(null), RESUME_HINT_MS);
+    return () => clearTimeout(t);
+  }, [resumedAt]);
 
   useEffect(
     () => () => {
@@ -199,7 +249,28 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
     const target = Math.max(0, Math.min(d > 0 ? d - 0.5 : Infinity, player.currentTime + delta));
     setTime(player, target);
     setPosition(target);
+    lastPosition.current = target;
     touch();
+  };
+
+  const restartFromZero = () => {
+    tap();
+    setTime(player, 0);
+    setPosition(0);
+    lastPosition.current = 0;
+    setResumedAt(null);
+    setEnded(false);
+    player.play();
+  };
+
+  const chooseSubtitles = (c: SubtitleChoice) => {
+    if (c.kind === 'embedded') setSubtitleTrack(player, embeddedTracks.find((t) => trackKey(t) === c.id) ?? null);
+    else setSubtitleTrack(player, null);
+    setSubtitleChoice(c);
+  };
+
+  const importForVideo = async () => {
+    if (await importSubtitles(video)) chooseSubtitles({ kind: 'external' });
   };
 
   const onSurfacePress = (x: number) => {
@@ -236,6 +307,7 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
     tap();
     if (ended) {
       player.replay();
+      lastPosition.current = 0;
       setEnded(false);
     } else if (playing) player.pause();
     else player.play();
@@ -260,6 +332,7 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   const fit = FITS[fitIndex];
   const pipSupported = pipEnabled && pipAvailable();
   const showControls = controls && !inPip;
+  const cueText = subtitleChoice.kind === 'external' && subtitleLink && external.status === 'ready' && !inPip && !error ? cueTextAt(external.cues, position, subtitleLink.offsetSec) : null;
 
   return (
     <View style={styles.root} accessibilityViewIsModal>
@@ -280,6 +353,21 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
 
       {!inPip ? (
         <Pressable style={StyleSheet.absoluteFill} onPress={(e) => onSurfacePress(e.nativeEvent.locationX)} accessibilityLabel={showControls ? 'Masquer les commandes' : 'Afficher les commandes'} />
+      ) : null}
+
+      <SubtitleOverlay text={cueText} bottom={insets.bottom + (showControls && !locked ? 124 : 28)} />
+
+      {resumedAt !== null && !inPip && !error ? (
+        <View style={[styles.resume, { top: insets.top + 72 }]}>
+          <Text variant="footnote" weight="semibold" color="#FFFFFF">
+            Reprise à {formatDuration(resumedAt)}
+          </Text>
+          <Pressable onPress={restartFromZero} hitSlop={8} style={styles.resumeButton} accessibilityRole="button" accessibilityLabel="Recommencer depuis le début">
+            <Text variant="footnote" weight="semibold" color="#111111">
+              Recommencer
+            </Text>
+          </Pressable>
+        </View>
       ) : null}
 
       {seekHint ? (
@@ -372,11 +460,30 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
                 </Text>
               </Pressable>
               <View style={{ flex: 1 }} />
+              <IconButton icon={subtitleChoice.kind === 'off' ? 'chatbox-outline' : 'chatbox-ellipses'} label="Sous-titres" onPress={() => setSubtitlesOpen(true)} size={22} />
               <IconButton icon="lock-open-outline" label="Verrouiller les commandes" onPress={() => setLocked(true)} size={22} />
               <IconButton icon="expand-outline" label="Plein écran paysage" onPress={fullscreen} size={22} />
             </View>
           </View>
         </View>
+      ) : null}
+
+      {subtitlesOpen && !inPip ? (
+        <SubtitlePanel
+          choice={subtitleChoice.kind === 'external' && !subtitleLink ? { kind: 'off' } : subtitleChoice}
+          onChoose={chooseSubtitles}
+          embedded={embeddedTracks}
+          link={subtitleLink}
+          external={external}
+          onImport={() => void importForVideo()}
+          onUnlink={() => {
+            unlinkSubtitles(video.id);
+            chooseSubtitles({ kind: 'off' });
+          }}
+          onOffset={(sec) => useSubtitles.getState().setOffset(video.id, sec)}
+          onClose={() => setSubtitlesOpen(false)}
+          bottom={insets.bottom + 12}
+        />
       ) : null}
     </View>
   );
@@ -461,4 +568,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   center: { textAlign: 'center' },
+  resume: {
+    position: 'absolute',
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingLeft: 16,
+    paddingRight: 6,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+  },
+  resumeButton: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: '#FFFFFF' },
 });
