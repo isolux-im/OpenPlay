@@ -43,6 +43,10 @@ const RESUME_HINT_MS = 6000;
 /** Marges où un glissement appartient au système (barre d'état, navigation, retour). */
 const EDGE = 40;
 const UP_NEXT_MS = 10_000;
+
+type Orientation = 'landscape' | 'portrait' | 'sensor';
+/** Orientation choisie à la main, conservée d'une vidéo à la suivante tant que le lecteur reste ouvert. */
+let carriedOrientation: Orientation | null = null;
 /** Temps de visionnage écrit par paquets (évite une écriture du stockage à chaque seconde). */
 const WATCH_FLUSH_SEC = 30;
 
@@ -136,6 +140,7 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   const { width, height } = useWindowDimensions();
   const swipeEnabled = useSettings((s) => s.videoSwipe);
   const fitMode = useSettings((s) => s.videoFit);
+  const orientationMode = useSettings((s) => s.videoOrientation);
   const autoNext = useSettings((s) => s.videoAutoNext);
   const introDetect = useSettings((s) => s.videoIntroDetect);
   const introAutoSkip = useSettings((s) => s.videoIntroAutoSkip);
@@ -157,7 +162,7 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   const [rate, setRate] = useState(1);
   const [upNext, setUpNext] = useState<{ video: Video; deadline: number } | null>(null);
   const [upNextLeft, setUpNextLeft] = useState(0);
-  const [orientation, setOrientation] = useState<'landscape' | 'portrait' | null>(null);
+  const [orientation, setOrientation] = useState<Orientation | null>(() => carriedOrientation);
   const [flash, setFlash] = useState<{ text: string; at: number } | null>(null);
   const [level, setLevel] = useState<{ kind: 'brightness' | 'volume'; value: number; at: number } | null>(null);
   /** Variante sans module natif (web) : voile sombre en guise de luminosité. */
@@ -225,6 +230,9 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
       })
       .catch(() => {});
     return () => {
+      // Passage à la vidéo suivante (épisode, précédent / suivant) : on garde l'orientation et le réglage en cours.
+      if (useVideoPlayer.getState().session) return;
+      carriedOrientation = null;
       void OpenPlayMedia?.setImmersiveAsync?.(false).catch(() => {});
       void OpenPlayMedia?.setScreenOrientationAsync?.('default').catch(() => {});
       void OpenPlayMedia?.setWindowBrightnessAsync?.(-1).catch(() => {});
@@ -254,8 +262,9 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
       }
       setEmbeddedTracks(player.availableSubtitleTracks ?? []);
       if (player.videoTrack?.size) setTrackSize(player.videoTrack.size);
-      // Orientation automatique selon la vidéo (taille MediaStore corrigée de la rotation, à défaut celle de la piste).
-      setOrientation((o) => o ?? preferredOrientation(video.width && video.height ? video : (player.videoTrack?.size ?? video)));
+      // Orientation choisie dans les réglages ; « selon la vidéo » utilise la taille MediaStore corrigée de la rotation.
+      if (orientationMode === 'video') setOrientation((o) => o ?? preferredOrientation(video.width && video.height ? video : (player.videoTrack?.size ?? video)));
+      else if (orientationMode !== 'keep') setOrientation((o) => o ?? orientationMode);
       // Fichier importé choisi : pas de piste intégrée affichée en même temps.
       if (subtitleChoice.kind !== 'embedded') setSubtitleTrack(player, null);
       if (usePlayer.getState().isPlaying) usePlayer.getState().pause();
@@ -496,6 +505,7 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
 
   const rotate = () => {
     const next = orientation === 'landscape' ? 'portrait' : 'landscape';
+    carriedOrientation = next;
     setOrientation(next);
     setFlash({ text: next === 'landscape' ? 'Paysage' : 'Portrait', at: Date.now() });
     touch();

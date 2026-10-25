@@ -206,7 +206,22 @@ export function SettingsScreen() {
 
       <Group
         title="Vidéos"
-        footer="Fenêtre flottante : en quittant OpenPlay pendant une vidéo, elle continue dans une petite fenêtre au-dessus des autres applications (Android 8 et plus ; entrée automatique sur Android 12 et plus). Générique : OpenPlay compare le son du début de deux épisodes d’une même série, sur l’appareil ; rien n’est envoyé.">
+        footer="Orientation : « Portrait » ne fait jamais pivoter l’écran ; « Selon vidéo » passe en paysage pour une vidéo horizontale ; « Auto » suit le téléphone (rotation automatique d’Android). Le bouton du lecteur permet toujours de pivoter à la demande. Fenêtre flottante : en quittant OpenPlay pendant une vidéo, elle continue dans une petite fenêtre au-dessus des autres applications (Android 8 et plus ; entrée automatique sur Android 12 et plus). Générique : OpenPlay compare le son du début de deux épisodes d’une même série, sur l’appareil ; rien n’est envoyé.">
+        <View style={styles.block}>
+          <Text variant="subhead" tone="secondary" style={{ marginBottom: 8 }}>
+            Orientation à l’ouverture d’une vidéo
+          </Text>
+          <Segmented<'keep' | 'video' | 'landscape' | 'sensor'>
+            options={[
+              { value: 'keep', label: 'Portrait' },
+              { value: 'video', label: 'Selon vidéo' },
+              { value: 'landscape', label: 'Paysage' },
+              { value: 'sensor', label: 'Auto' },
+            ]}
+            value={s.videoOrientation}
+            onChange={(videoOrientation) => s.update({ videoOrientation })}
+          />
+        </View>
         <Row icon="albums" iconColor="#8E8E93" label="Mini-lecteur flottant (PiP)" right={<Switch value={s.videoPip} onValueChange={(v) => s.update({ videoPip: v })} {...switchColors} />} />
         <Row icon="hand-left" iconColor="#8E8E93" label="Double appui : ±10 secondes" right={<Switch value={s.videoDoubleTap} onValueChange={(v) => s.update({ videoDoubleTap: v })} {...switchColors} />} />
         <Row icon="swap-vertical" iconColor="#8E8E93" label="Glisser : luminosité (gauche), volume (droite)" right={<Switch value={s.videoSwipe} onValueChange={(v) => s.update({ videoSwipe: v })} {...switchColors} />} />
