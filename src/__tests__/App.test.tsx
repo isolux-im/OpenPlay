@@ -155,4 +155,19 @@ describe('application', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Fermer la vidéo' }));
     expect(useVideoPlayer.getState().session).toBeNull();
   });
+
+  it('regroupe les épisodes en série et affiche le bilan de visionnage', async () => {
+    await renderApp();
+    await fireEvent.press(screen.getByRole('tab', { name: 'Vidéos' }));
+    await fireEvent.press(await screen.findByRole('radio', { name: 'Séries' }));
+    await fireEvent.press(await screen.findByRole('button', { name: /^Série Lagune Blues, 3 épisodes/ }));
+    expect(await screen.findByRole('button', { name: 'Commencer : S01E01' })).toBeTruthy();
+    expect(screen.getByText('S01E03')).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Commencer : S01E01' }));
+    expect(useVideoPlayer.getState().session?.list).toEqual(['demo-video-9', 'demo-video-10', 'demo-video-11']);
+    await fireEvent.press(screen.getByRole('button', { name: 'Fermer la vidéo' }));
+    await fireEvent.press(screen.getAllByRole('button', { name: 'Retour' }).at(-1)!);
+    await fireEvent.press(await screen.findByRole('button', { name: 'Bilan de visionnage' }));
+    expect(await screen.findByText('Pas encore de bilan')).toBeTruthy();
+  });
 });

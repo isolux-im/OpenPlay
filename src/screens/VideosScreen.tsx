@@ -4,7 +4,7 @@ import { ActivityIndicator, Linking, Pressable, StyleSheet, TextInput, View } fr
 
 import { Chips, EmptyState } from '../components/Blocks';
 import { HeaderButton, ListScreen } from '../components/Screen';
-import { pluralize } from '../library/text';
+import { normalizeText, pluralize } from '../library/text';
 import { useAppNavigation } from '../navigation/ref';
 import type { SharedStackParams } from '../navigation/types';
 import { useSettings } from '../store/settings';
@@ -16,15 +16,18 @@ import { GUTTER, radius, useTheme } from '../ui/theme';
 import { continueWatching, recentlyWatched, searchVideos, sortVideos, videoFolders } from '../video/library';
 import type { VideoSort } from '../video/types';
 import { VideoList } from '../video/VideoList';
+import { useSeriesIndex } from '../video/useSeries';
 import { VideoThumb } from '../video/VideoThumb';
+import { SeriesRow } from './VideoSeriesScreen';
 
-type Section = 'all' | 'continue' | 'recent' | 'favorites' | 'folders';
+type Section = 'all' | 'continue' | 'recent' | 'favorites' | 'series' | 'folders';
 
 const SECTIONS: { key: Section; label: string }[] = [
   { key: 'all', label: 'Toutes' },
   { key: 'continue', label: 'Continuer' },
   { key: 'recent', label: 'Récentes' },
   { key: 'favorites', label: 'Favoris' },
+  { key: 'series', label: 'Séries' },
   { key: 'folders', label: 'Dossiers' },
 ];
 
@@ -36,14 +39,18 @@ const SORTS: { key: VideoSort; label: string }[] = [
 ];
 
 function LayoutButton() {
+  const navigation = useAppNavigation();
   const layout = useSettings((s) => s.videoLayout);
   const update = useSettings((s) => s.update);
   return (
-    <HeaderButton
+    <View style={styles.headerButtons}>
+      <HeaderButton icon="stats-chart-outline" label="Bilan de visionnage" onPress={() => navigation.push('VideoStats')} />
+      <HeaderButton
       icon={layout === 'grid' ? 'list-outline' : 'grid-outline'}
       label={layout === 'grid' ? 'Afficher en liste' : 'Afficher en grille'}
       onPress={() => update({ videoLayout: layout === 'grid' ? 'list' : 'grid' })}
-    />
+      />
+    </View>
   );
 }
 
@@ -111,6 +118,11 @@ export function VideosScreen() {
     }
   }, [videos, deferred, section, entries, favorites, sort]);
   const folders = useMemo(() => videoFolders(searchVideos(videos, deferred)), [videos, deferred]);
+  const allSeries = useSeriesIndex().list;
+  const series = useMemo(() => {
+    const q = normalizeText(deferred);
+    return q ? allSeries.filter((x) => normalizeText(x.name).includes(q)) : allSeries;
+  }, [allSeries, deferred]);
 
   if (status !== 'ready') {
     return (
@@ -164,6 +176,20 @@ export function VideosScreen() {
     </View>
   );
 
+  if (section === 'series') {
+    return (
+      <ListScreen
+        title="Vidéos"
+        titleRight={<LayoutButton />}
+        header={header}
+        data={series}
+        keyExtractor={(x) => x.key}
+        renderItem={({ item }) => <SeriesRow series={item} onPress={() => navigation.push('VideoSeries', { key: item.key })} />}
+        ListEmptyComponent={<EmptyState icon="tv-outline" title="Aucune série" message="Les épisodes nommés « S01E02 », « 1x02 » ou « Épisode 2 » sont regroupés ici automatiquement (deux épisodes au moins)." />}
+      />
+    );
+  }
+
   if (section === 'folders') {
     return (
       <ListScreen
@@ -195,7 +221,7 @@ export function VideosScreen() {
     );
   }
 
-  const empty: Record<Exclude<Section, 'folders'>, [string, string]> = {
+  const empty: Record<Exclude<Section, 'folders' | 'series'>, [string, string]> = {
     all: query ? ['Aucun résultat', `Rien ne correspond à « ${query.trim()} ».`] : ['Aucune vidéo', 'Aucune vidéo accessible sur l’appareil.'],
     continue: ['Rien à reprendre', 'Les vidéos commencées et non terminées apparaîtront ici.'],
     recent: ['Aucune vidéo regardée', 'Les vidéos ouvertes dans OpenPlay apparaîtront ici.'],
@@ -223,6 +249,7 @@ export function VideoFolderScreen() {
 
 const styles = StyleSheet.create({
   center: { paddingVertical: 60, alignItems: 'center' },
+  headerButtons: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   field: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: GUTTER, marginBottom: 10, paddingHorizontal: 14, height: 44, borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth },
   input: { flex: 1, fontSize: 16, paddingVertical: 0 },
   banner: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: GUTTER, marginBottom: 10, padding: 12, borderRadius: radius.lg },

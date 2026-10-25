@@ -21,7 +21,7 @@ const PERIODS: { key: StatsPeriod; label: string }[] = [
   { key: 'year', label: 'Cette année' },
 ];
 
-function Tile({ value, label }: { value: string; label: string }) {
+export function Tile({ value, label }: { value: string; label: string }) {
   const { colors } = useTheme();
   return (
     <View style={[styles.tile, { backgroundColor: colors.card }]}>
@@ -70,7 +70,7 @@ function RankList<T>({ items, title, subtitle, onPress, art }: { items: Ranked<T
   );
 }
 
-function HoursChart({ hours, peak }: { hours: number[]; peak: number | null }) {
+export function HoursChart({ hours, peak, verb = 'écoutez' }: { hours: number[]; peak: number | null; verb?: string }) {
   const { colors } = useTheme();
   const max = Math.max(...hours, 1);
   return (
@@ -91,7 +91,7 @@ function HoursChart({ hours, peak }: { hours: number[]; peak: number | null }) {
       </View>
       {peak !== null ? (
         <Text variant="footnote" tone="secondary" style={{ marginTop: 8 }}>
-          Vous écoutez surtout entre {peak} h et {peak + 1} h.
+          Vous {verb} surtout entre {peak} h et {peak + 1} h.
         </Text>
       ) : null}
     </View>

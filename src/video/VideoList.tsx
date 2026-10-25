@@ -57,7 +57,12 @@ function GridItem({ video, list, width }: { video: Video; list: string[]; width:
   );
 }
 
-function ListItem({ video, list }: { video: Video; list: string[] }) {
+/** Ligne de vidéo (vignette, titre, détails) ; `subtitle` remplace la ligne de détails, `watched` ajoute une coche. */
+export function VideoRow(props: { video: Video; list: string[]; label?: string; title?: string; subtitle?: string; watched?: boolean }) {
+  return <ListItem {...props} />;
+}
+
+function ListItem({ video, list, label, title, subtitle, watched }: { video: Video; list: string[]; label?: string; title?: string; subtitle?: string; watched?: boolean }) {
   const { colors } = useTheme();
   const { play, menu } = useVideoActions(video, list);
   const progress = useProgress(video);
@@ -72,12 +77,20 @@ function ListItem({ video, list }: { video: Video; list: string[] }) {
       accessibilityLabel={`Lire ${video.title}, ${formatDuration(video.durationSec)}`}>
       <VideoThumb video={video} width={128} progress={progress} />
       <View style={styles.rowText}>
+        {label ? (
+          <Text variant="caption" weight="semibold" tone="secondary">
+            {label}
+          </Text>
+        ) : null}
         <Text variant="callout" weight="medium" numberOfLines={2}>
-          {video.title}
+          {title ?? video.title}
         </Text>
-        <Text variant="footnote" tone="secondary" numberOfLines={1}>
-          {[formatSize(video.sizeBytes), new Date(video.addedAt).toLocaleDateString('fr-FR')].filter(Boolean).join(' · ')}
-        </Text>
+        <View style={styles.rowMeta}>
+          {watched ? <Icon name="checkmark-circle" size={15} color={colors.secondaryText} /> : null}
+          <Text variant="footnote" tone="secondary" numberOfLines={1} style={{ flexShrink: 1 }}>
+            {subtitle ?? [formatSize(video.sizeBytes), new Date(video.addedAt).toLocaleDateString('fr-FR')].filter(Boolean).join(' · ')}
+          </Text>
+        </View>
       </View>
       <Pressable onPress={menu} hitSlop={10} style={styles.more} accessibilityRole="button" accessibilityLabel={`Options pour ${video.title}`}>
         <Icon name="ellipsis-vertical" size={18} color={colors.secondaryText} />
@@ -128,5 +141,6 @@ const styles = StyleSheet.create({
   gridTitle: { marginTop: 8 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: GUTTER, paddingVertical: 8 },
   rowText: { flex: 1, gap: 4 },
+  rowMeta: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   more: { paddingLeft: 4, paddingVertical: 8 },
 });

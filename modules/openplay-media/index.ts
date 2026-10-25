@@ -68,6 +68,11 @@ type OpenPlayMediaModule = {
   openVideoWithAsync?(videoId: string, mimeType: string, title: string): Promise<void>;
   /** URI file:// d'une miniature en cache, ou null. */
   getVideoThumbnailAsync?(videoId: string, size: number): Promise<string | null>;
+  /**
+   * Générique commun aux `maxSeconds` premières secondes de deux vidéos (empreinte sonore, en cache sous
+   * `cacheA` / `cacheB`) : positions en secondes dans chacune, ou null.
+   */
+  findCommonIntroAsync?(idA: string, cacheA: string, idB: string, cacheB: string, maxSeconds: number): Promise<{ startA: number; endA: number; startB: number; endB: number; density: number } | null>;
   /** Volume média (0 à 1, `volumeSteps` crans) et luminosité de la fenêtre (0 à 1). */
   getVideoControlsStateAsync?(): Promise<{ volume: number; volumeSteps: number; brightness: number }>;
   setMediaVolumeAsync?(fraction: number): Promise<void>;

@@ -72,6 +72,9 @@ class OpenPlayMediaModule : Module() {
   /** Pochettes décodées en parallèle : borné pour éviter la saturation mémoire sur les grandes bibliothèques. */
   private val artworkPermits = Semaphore(3)
 
+  /** Analyse sonore (générique) : une à la fois, pour ne pas gêner la lecture. */
+  private val introPermits = Semaphore(1)
+
   /** Sélection de fichier de sous-titres en attente du retour du sélecteur Android. */
   private var pendingSubtitlePick: Promise? = null
 
@@ -167,6 +170,23 @@ class OpenPlayMediaModule : Module() {
       }
       startChooser(view, title)
     }.runOnQueue(Queues.MAIN)
+
+    // Générique de début commun à deux épisodes : positions (s) dans chacun, ou null.
+    AsyncFunction("findCommonIntroAsync") Coroutine { idA: String, cacheA: String, idB: String, cacheB: String, maxSeconds: Int ->
+      introPermits.withPermit {
+        withContext(Dispatchers.Default) {
+          val a = IntroDetector.fingerprint(context, ContentUris.withAppendedId(videoCollection(), idA.toLong()), safeName(cacheA), idA.hashCode(), maxSeconds)
+          val b = IntroDetector.fingerprint(context, ContentUris.withAppendedId(videoCollection(), idB.toLong()), safeName(cacheB), idB.hashCode(), maxSeconds)
+          if (a == null || b == null) {
+            null
+          } else {
+            IntroDetector.common(a, b)?.let { m ->
+              mapOf("startA" to m.startA, "endA" to m.endA, "startB" to m.startB, "endB" to m.endB, "density" to m.density)
+            }
+          }
+        }
+      }
+    }
 
     // Lecteur vidéo : luminosité de la fenêtre et volume média (glissement vertical), orientation, plein écran immersif.
     AsyncFunction("getVideoControlsStateAsync") { ->
@@ -279,6 +299,8 @@ class OpenPlayMediaModule : Module() {
       }
     }
   }
+
+  private fun safeName(value: String): String = value.replace(Regex("[^A-Za-z0-9_-]"), "_").take(80)
 
   /** Luminosité de la fenêtre si OpenPlay l'a réglée, sinon valeur approchée du réglage système (0 à 1). */
   private fun currentBrightness(): Float {

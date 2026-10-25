@@ -13,20 +13,26 @@ import { registerVideoPauser } from '../player/mediaFocus';
 import { Scrubber } from '../player/ui/Scrubber';
 import { usePlayer } from '../store/player';
 import { useSettings } from '../store/settings';
+import { useIntros } from '../store/intros';
 import { useSubtitles } from '../store/subtitles';
 import { useUi } from '../store/ui';
 import { useVideoHistory } from '../store/videoHistory';
 import { useVideoPlayer } from '../store/videoPlayer';
+import { useVideoStats } from '../store/videoStats';
 import { useVideos } from '../store/videos';
 import { tap } from '../ui/haptics';
 import { Icon, type IconName } from '../ui/Icon';
 import { Text } from '../ui/Text';
 import { fitLabel, nextFitMode, preferredOrientation, swipeLevel, videoFrame, volumeStep } from './display';
-import { resumePosition } from './library';
+import { detectIntro, inIntro } from './intro';
+import { isFinished, resumePosition } from './library';
+import { episodeLabel, nextEpisode } from './series';
 import { importSubtitles, unlinkSubtitles, useExternalSubtitles } from './subtitleFiles';
 import { SubtitleOverlay, SubtitlePanel, trackKey, type SubtitleChoice } from './SubtitlePanel';
 import { cueTextAt } from './subtitles';
 import type { Video } from './types';
+import { useSeriesIndex } from './useSeries';
+import { VideoThumb } from './VideoThumb';
 
 export const VIDEO_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2] as const;
 const HIDE_CONTROLS_MS = 3500;
@@ -36,6 +42,9 @@ const SAVE_EVERY_MS = 5000;
 const RESUME_HINT_MS = 6000;
 /** Marges où un glissement appartient au système (barre d'état, navigation, retour). */
 const EDGE = 40;
+const UP_NEXT_MS = 10_000;
+/** Temps de visionnage écrit par paquets (évite une écriture du stockage à chaque seconde). */
+const WATCH_FLUSH_SEC = 30;
 
 /** Lecteur vidéo plein écran, au-dessus de l'application ; une nouvelle ouverture recrée le lecteur. */
 export function VideoPlayerHost() {
@@ -127,6 +136,11 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   const { width, height } = useWindowDimensions();
   const swipeEnabled = useSettings((s) => s.videoSwipe);
   const fitMode = useSettings((s) => s.videoFit);
+  const autoNext = useSettings((s) => s.videoAutoNext);
+  const introDetect = useSettings((s) => s.videoIntroDetect);
+  const introAutoSkip = useSettings((s) => s.videoIntroAutoSkip);
+  const series = useSeriesIndex().byVideo[video.id];
+  const intro = useIntros((s) => s.byVideo[video.id]);
   const pipEnabled = useSettings((s) => s.videoPip);
   const doubleTapEnabled = useSettings((s) => s.videoDoubleTap);
   const { close, step } = useVideoPlayer.getState();
@@ -141,6 +155,8 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   const [controls, setControls] = useState(true);
   const [locked, setLocked] = useState(false);
   const [rate, setRate] = useState(1);
+  const [upNext, setUpNext] = useState<{ video: Video; deadline: number } | null>(null);
+  const [upNextLeft, setUpNextLeft] = useState(0);
   const [orientation, setOrientation] = useState<'landscape' | 'portrait' | null>(null);
   const [flash, setFlash] = useState<{ text: string; at: number } | null>(null);
   const [level, setLevel] = useState<{ kind: 'brightness' | 'volume'; value: number; at: number } | null>(null);
@@ -162,6 +178,9 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   const failed = useRef(false);
   /** Dernière position connue : un lecteur libéré (fermeture de la fenêtre flottante) peut renvoyer 0. */
   const lastPosition = useRef(0);
+  const watch = useRef({ last: -1, pending: 0 });
+  const finishedRecorded = useRef(false);
+  const introSkipped = useRef(false);
   const controlsState = useRef({ volume: 1, volumeSteps: 15, brightness: 1 });
   const swipe = useRef<{ kind: 'brightness' | 'volume'; start: number; sent: number } | null>(null);
   const lastSave = useRef(0);
@@ -180,10 +199,21 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
     p.preservesPitch = true;
   });
 
+  const flushWatching = () => {
+    const sec = watch.current.pending;
+    watch.current.pending = 0;
+    if (sec > 0) useVideoStats.getState().addWatching(video.id, Date.now(), sec);
+  };
+
   const save = (pos: number) => {
     if (!started.current || failed.current) return;
     const d = duration || player.duration || video.durationSec;
     if (d > 0) useVideoHistory.getState().savePosition(video.id, pos, d, Date.now());
+    if (d > 0 && !finishedRecorded.current && isFinished(pos, d)) {
+      finishedRecorded.current = true;
+      useVideoStats.getState().addFinished(video.id, Date.now());
+    }
+    flushWatching();
   };
 
   // Plein écran immersif pendant la lecture ; orientation, luminosité et barres système rétablies à la fermeture.
@@ -263,6 +293,16 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   useEventListener(player, 'timeUpdate', ({ currentTime }) => {
     setPosition(currentTime);
     lastPosition.current = currentTime;
+    // Temps réellement regardé : progression du média divisée par la vitesse ; les sauts sont ignorés.
+    const delta = currentTime - watch.current.last;
+    if (player.playing && watch.current.last >= 0 && delta > 0 && delta < 2) watch.current.pending += delta / (player.playbackRate || 1);
+    watch.current.last = currentTime;
+    if (watch.current.pending >= WATCH_FLUSH_SEC) flushWatching();
+    if (introAutoSkip && !introSkipped.current && inIntro(intro, currentTime)) {
+      introSkipped.current = true;
+      setTime(player, intro.end);
+      setFlash({ text: 'Générique passé', at: Date.now() });
+    }
     const now = Date.now();
     if (now - lastSave.current > SAVE_EVERY_MS) {
       lastSave.current = now;
@@ -274,7 +314,47 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
     setEnded(true);
     setControls(true);
     save(duration || player.duration);
+    const next = series && autoNext && !inPip ? nextEpisode(series, video.id) : null;
+    if (next) {
+      setUpNext({ video: next, deadline: Date.now() + UP_NEXT_MS });
+      setUpNextLeft(Math.ceil(UP_NEXT_MS / 1000));
+    }
   });
+
+  const playEpisode = (next: Video) => {
+    setUpNext(null);
+    useVideoPlayer.getState().open(next.id, series ? series.episodes.map((e) => e.id) : [next.id]);
+  };
+
+  // Compte à rebours de l'épisode suivant.
+  useEffect(() => {
+    if (!upNext) return;
+    const t = setInterval(() => {
+      const left = upNext.deadline - Date.now();
+      if (left <= 0) {
+        clearInterval(t);
+        setUpNext(null);
+        useVideoPlayer.getState().open(upNext.video.id, series ? series.episodes.map((e) => e.id) : [upNext.video.id]);
+      } else setUpNextLeft(Math.ceil(left / 1000));
+    }, 250);
+    return () => clearInterval(t);
+  }, [upNext, series]);
+
+  // Repérage du générique, quelques secondes après le début pour ne pas ralentir l'ouverture.
+  useEffect(() => {
+    if (!series || !introDetect || intro) return;
+    const t = setTimeout(() => void detectIntro(series, video), 4000);
+    return () => clearTimeout(t);
+  }, [series, introDetect, intro, video]);
+
+  useEffect(
+    () => () => {
+      const sec = watch.current.pending;
+      watch.current.pending = 0;
+      if (sec > 0) useVideoStats.getState().addWatching(video.id, Date.now(), sec);
+    },
+    [video.id],
+  );
 
   function currentPosition() {
     const t = player.currentTime;
@@ -391,6 +471,7 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   const toggle = () => {
     tap();
     if (ended) {
+      setUpNext(null);
       player.replay();
       lastPosition.current = 0;
       setEnded(false);
@@ -486,6 +567,7 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   const frame = videoFrame(fitMode, { width, height }, video.width && video.height ? video : trackSize, PixelRatio.get());
   const pipSupported = pipEnabled && pipAvailable();
   const showControls = controls && !inPip;
+  const showSkipIntro = !introAutoSkip && !inPip && !error && !locked && inIntro(intro, position);
   const cueText = subtitleChoice.kind === 'external' && subtitleLink && external.status === 'ready' && !inPip && !error ? cueTextAt(external.cues, position, subtitleLink.offsetSec) : null;
 
   return (
@@ -527,6 +609,51 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
       ) : null}
 
       <SubtitleOverlay text={cueText} bottom={insets.bottom + (showControls && !locked ? 124 : 28)} />
+
+      {showSkipIntro ? (
+        <Pressable
+          onPress={() => {
+            tap();
+            setTime(player, intro.end);
+            setPosition(intro.end);
+            lastPosition.current = intro.end;
+          }}
+          style={[styles.skipIntro, { bottom: insets.bottom + (showControls ? 128 : 36) }]}
+          accessibilityRole="button"
+          accessibilityLabel="Passer le générique">
+          <Icon name="play-skip-forward" size={18} color="#111111" />
+          <Text variant="headline" color="#111111">
+            Passer le générique
+          </Text>
+        </Pressable>
+      ) : null}
+
+      {upNext && !inPip ? (
+        <View style={[styles.upNext, { bottom: insets.bottom + 128, width: Math.min(420, width - 32) }]} accessibilityLiveRegion="polite">
+          <VideoThumb video={upNext.video} width={112} />
+          <View style={{ flex: 1, gap: 6 }}>
+            <Text variant="caption" color="rgba(255,255,255,0.7)">
+              Épisode suivant dans {upNextLeft} s
+            </Text>
+            <Text variant="callout" weight="semibold" color="#FFFFFF" numberOfLines={2}>
+              {series?.info[upNext.video.id] ? `${episodeLabel(series.info[upNext.video.id])} · ` : ''}
+              {upNext.video.title}
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <Pressable onPress={() => playEpisode(upNext.video)} style={styles.upNextPlay} accessibilityRole="button" accessibilityLabel="Lire l’épisode suivant maintenant">
+                <Text variant="footnote" weight="semibold" color="#111111">
+                  Lire
+                </Text>
+              </Pressable>
+              <Pressable onPress={() => setUpNext(null)} style={styles.upNextCancel} accessibilityRole="button" accessibilityLabel="Annuler l’épisode suivant">
+                <Text variant="footnote" weight="semibold" color="#FFFFFF">
+                  Annuler
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      ) : null}
 
       {resumedAt !== null && !inPip && !error ? (
         <View style={[styles.resume, { top: insets.top + 72 }]}>
@@ -662,6 +789,28 @@ const styles = StyleSheet.create({
     zIndex: 300,
     elevation: 50,
   },
+  skipIntro: {
+    position: 'absolute',
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+  },
+  upNext: {
+    position: 'absolute',
+    right: 16,
+    flexDirection: 'row',
+    gap: 12,
+    padding: 12,
+    borderRadius: 16,
+    backgroundColor: 'rgba(20,20,22,0.92)',
+  },
+  upNextPlay: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 999, backgroundColor: '#FFFFFF' },
+  upNextCancel: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.18)' },
   stage: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center' },
   levelSide: { position: 'absolute', top: 0, bottom: 0, flexDirection: 'row', alignItems: 'center', gap: 16 },
   levelColumn: { alignItems: 'center', gap: 12 },

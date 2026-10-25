@@ -93,6 +93,9 @@ export function demoVideos(): Video[] {
     ['Mariage de Koffi', 'DCIM/Camera', 5420, 1_900_000_000],
     ['Anniversaire', 'DCIM/Camera', 312, 120_000_000],
     ['Documentaire Ganvié', 'Download', 2890, 640_000_000],
+    ['Lagune Blues S01E01', 'Movies/Séries/Lagune Blues', 2610, 520_000_000],
+    ['Lagune Blues S01E02', 'Movies/Séries/Lagune Blues', 2540, 505_000_000],
+    ['Lagune Blues S01E03', 'Movies/Séries/Lagune Blues', 2700, 530_000_000],
   ];
   return items.map(([title, folder, durationSec, sizeBytes], i) => ({
     id: `demo-video-${i + 1}`,

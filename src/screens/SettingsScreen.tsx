@@ -14,6 +14,8 @@ import { useLibrary } from '../store/library';
 import { usePlayer } from '../store/player';
 import { useSettings, type AccentKey, type ThemeMode } from '../store/settings';
 import { useStats } from '../store/stats';
+import { useVideoHistory } from '../store/videoHistory';
+import { useVideoStats } from '../store/videoStats';
 import { useUi } from '../store/ui';
 import { useUser } from '../store/user';
 import { tap } from '../ui/haptics';
@@ -204,10 +206,33 @@ export function SettingsScreen() {
 
       <Group
         title="Vidéos"
-        footer="Fenêtre flottante : en quittant OpenPlay pendant une vidéo, elle continue dans une petite fenêtre au-dessus des autres applications (Android 8 et plus ; entrée automatique sur Android 12 et plus).">
+        footer="Fenêtre flottante : en quittant OpenPlay pendant une vidéo, elle continue dans une petite fenêtre au-dessus des autres applications (Android 8 et plus ; entrée automatique sur Android 12 et plus). Générique : OpenPlay compare le son du début de deux épisodes d’une même série, sur l’appareil ; rien n’est envoyé.">
         <Row icon="albums" iconColor="#8E8E93" label="Mini-lecteur flottant (PiP)" right={<Switch value={s.videoPip} onValueChange={(v) => s.update({ videoPip: v })} {...switchColors} />} />
         <Row icon="hand-left" iconColor="#8E8E93" label="Double appui : ±10 secondes" right={<Switch value={s.videoDoubleTap} onValueChange={(v) => s.update({ videoDoubleTap: v })} {...switchColors} />} />
-        <Row icon="swap-vertical" iconColor="#8E8E93" label="Glisser : luminosité (gauche), volume (droite)" right={<Switch value={s.videoSwipe} onValueChange={(v) => s.update({ videoSwipe: v })} {...switchColors} />} last />
+        <Row icon="swap-vertical" iconColor="#8E8E93" label="Glisser : luminosité (gauche), volume (droite)" right={<Switch value={s.videoSwipe} onValueChange={(v) => s.update({ videoSwipe: v })} {...switchColors} />} />
+        <Row icon="play-forward" iconColor="#8E8E93" label="Séries : enchaîner les épisodes" right={<Switch value={s.videoAutoNext} onValueChange={(v) => s.update({ videoAutoNext: v })} {...switchColors} />} />
+        <Row icon="musical-notes" iconColor="#8E8E93" label="Séries : repérer le générique" right={<Switch value={s.videoIntroDetect} onValueChange={(v) => s.update({ videoIntroDetect: v })} {...switchColors} />} />
+        <Row icon="play-skip-forward" iconColor="#8E8E93" label="Passer le générique automatiquement" right={<Switch value={s.videoIntroAutoSkip} onValueChange={(v) => s.update({ videoIntroAutoSkip: v })} {...switchColors} />} />
+        <Row
+          icon="trash"
+          iconColor="#FF3B30"
+          label="Effacer l'historique vidéo"
+          destructive
+          last
+          onPress={() =>
+            Alert.alert("Effacer l'historique vidéo ?", 'Les positions de reprise, les épisodes vus et le bilan de visionnage seront remis à zéro. Les favoris et les sous-titres associés sont conservés.', [
+              { text: 'Annuler', style: 'cancel' },
+              {
+                text: 'Effacer',
+                style: 'destructive',
+                onPress: () => {
+                  useVideoHistory.getState().clear();
+                  useVideoStats.getState().clear();
+                },
+              },
+            ])
+          }
+        />
       </Group>
 
       <Group
