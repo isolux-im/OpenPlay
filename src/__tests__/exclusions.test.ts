@@ -18,13 +18,13 @@ describe('dossiers masqués', () => {
     const all = useLibrary.getState().allTracks;
     const folder = folderSummary(all)[0];
     useSettings.setState({ excludedFolders: [folder.path] });
-    useLibrary.getState().applyExclusions();
+    useLibrary.getState().refreshIndex();
     const { index, allTracks } = useLibrary.getState();
     expect(allTracks).toHaveLength(all.length);
     expect(index.tracks).toHaveLength(all.length - folder.count);
     expect(index.tracks.some((t) => t.folder === folder.path)).toBe(false);
     useSettings.setState({ excludedFolders: [] });
-    useLibrary.getState().applyExclusions();
+    useLibrary.getState().refreshIndex();
     expect(useLibrary.getState().index.tracks).toHaveLength(all.length);
   });
 

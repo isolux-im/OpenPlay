@@ -41,11 +41,12 @@ function useBootstrap(engineFactory: () => PlaybackEngine) {
     else return useSettings.persist.onFinishHydration(start);
   }, []);
 
-  // Dossiers exclus modifiés dans les réglages : l'index est recalculé sans nouvelle analyse.
+  // Dossiers masqués ou infos corrigées : l'index est recalculé sans nouvelle analyse.
   const excludedFolders = useSettings((s) => s.excludedFolders);
+  const trackEdits = useUser((s) => s.trackEdits);
   useEffect(() => {
-    useLibrary.getState().applyExclusions();
-  }, [excludedFolders]);
+    useLibrary.getState().refreshIndex();
+  }, [excludedFolders, trackEdits]);
 
   const status = useLibrary((s) => s.status);
   useEffect(() => {

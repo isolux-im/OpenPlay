@@ -1,4 +1,4 @@
-import { useCallback, type ReactNode } from 'react';
+import { useCallback, useMemo, type ReactNode } from 'react';
 import { View } from 'react-native';
 
 import { EmptyState, PlayShuffleButtons } from '../components/Blocks';
@@ -24,12 +24,15 @@ type Props = {
   emptyTitle?: string;
   emptyMessage?: string;
   rowSubtitle?: (t: Track) => string;
+  /** Valeur de tri pour l'index A–Z (liste déjà triée sur cette valeur). */
+  alphabetKey?: (t: Track) => string;
 };
 
 /** Écran générique « liste de morceaux » : titres, favoris, genre, dossier, playlists automatiques. */
-export function TrackCollectionScreen({ title, tracks, label, backLabel, subtitle, headerExtra, right, emptyIcon = 'musical-notes', emptyTitle = 'Aucun morceau', emptyMessage, rowSubtitle }: Props) {
+export function TrackCollectionScreen({ title, tracks, label, backLabel, subtitle, headerExtra, right, emptyIcon = 'musical-notes', emptyTitle = 'Aucun morceau', emptyMessage, rowSubtitle, alphabetKey }: Props) {
   const { playAt, play, shuffle } = usePlayList(tracks, label ?? title);
   const total = tracks.reduce((s, t) => s + t.durationSec, 0);
+  const alphabet = useMemo(() => (alphabetKey ? { keys: tracks.map(alphabetKey), rowHeight: TRACK_ROW_HEIGHT } : undefined), [tracks, alphabetKey]);
   const openPicker = useUi((s) => s.openPlaylistPicker);
   const renderItem = useCallback(
     ({ item, index }: { item: Track; index: number }) => <TrackRow track={item} number={index + 1} artwork showDuration onPress={() => playAt(index)} subtitle={rowSubtitle?.(item)} />,
@@ -44,6 +47,7 @@ export function TrackCollectionScreen({ title, tracks, label, backLabel, subtitl
       right={right}
       subtitle={subtitle ?? (tracks.length ? collectionMeta(tracks) : undefined)}
       data={tracks}
+      alphabet={alphabet}
       keyExtractor={(t) => t.id}
       renderItem={renderItem}
       getItemLayout={(_, index) => ({ length: TRACK_ROW_HEIGHT, offset: TRACK_ROW_HEIGHT * index, index })}

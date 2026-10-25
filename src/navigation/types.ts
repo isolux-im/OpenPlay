@@ -21,6 +21,7 @@ export type SharedStackParams = {
   Discover: undefined;
   ExcludedFolders: undefined;
   Stats: undefined;
+  EditTrack: { id: string };
 };
 
 export type HomeStackParams = SharedStackParams & { Home: undefined };

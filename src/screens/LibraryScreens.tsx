@@ -16,7 +16,7 @@ import { usePlayer } from '../store/player';
 import { useSettings, type SongSort } from '../store/settings';
 import { useUi } from '../store/ui';
 import { useUser } from '../store/user';
-import type { Album, Artist, Folder, Genre } from '../types';
+import type { Album, Artist, Folder, Genre, Track } from '../types';
 import { tap } from '../ui/haptics';
 import { Icon } from '../ui/Icon';
 import { Text } from '../ui/Text';
@@ -156,6 +156,9 @@ export function AlbumGridCard({ album }: { album: Album }) {
   );
 }
 
+const alphabetByTitle = (t: Track) => t.title;
+const alphabetByArtist = (t: Track) => t.artist;
+
 const SORT_LABELS: Record<SongSort, string> = { title: 'Titre', artist: 'Artiste', album: 'Album', added: 'Date d’ajout' };
 
 export function SongsScreen() {
@@ -169,11 +172,14 @@ export function SongsScreen() {
       title="Titres"
       backLabel="Bibliothèque"
       tracks={sorted}
+      alphabetKey={sort === 'title' ? alphabetByTitle : sort === 'artist' ? alphabetByArtist : undefined}
       label="Tous les titres"
       headerExtra={<Chips options={order.map((o) => ({ key: o, label: SORT_LABELS[o] }))} value={sort} onChange={(o) => update({ songSort: o })} />}
     />
   );
 }
+
+const ARTIST_ROW_HEIGHT = 68;
 
 export function ArtistsScreen() {
   const navigation = useAppNavigation();
@@ -198,7 +204,20 @@ export function ArtistsScreen() {
     ),
     [navigation, index, colors],
   );
-  return <ListScreen title="Artistes" back backLabel="Bibliothèque" data={index.artists} keyExtractor={(a) => a.id} renderItem={renderItem} ListEmptyComponent={<EmptyState icon="mic-outline" title="Aucun artiste" />} />;
+  const alphabet = useMemo(() => ({ keys: index.artists.map((a) => a.name), rowHeight: ARTIST_ROW_HEIGHT }), [index.artists]);
+  return (
+    <ListScreen
+      title="Artistes"
+      back
+      backLabel="Bibliothèque"
+      data={index.artists}
+      alphabet={alphabet}
+      keyExtractor={(a) => a.id}
+      renderItem={renderItem}
+      getItemLayout={(_, i) => ({ length: ARTIST_ROW_HEIGHT, offset: ARTIST_ROW_HEIGHT * i, index: i })}
+      ListEmptyComponent={<EmptyState icon="mic-outline" title="Aucun artiste" />}
+    />
+  );
 }
 
 export function AlbumsScreen() {
@@ -403,7 +422,7 @@ const styles = StyleSheet.create({
   quickGrid: { paddingHorizontal: GUTTER, gap: 12, marginTop: 4 },
   quickRow: { flexDirection: 'row', gap: 12 },
   browse: { marginHorizontal: GUTTER, borderRadius: radius.lg, overflow: 'hidden' },
-  listRow: { flexDirection: 'row', alignItems: 'center', paddingLeft: GUTTER, height: 68 },
+  listRow: { flexDirection: 'row', alignItems: 'center', paddingLeft: GUTTER, height: ARTIST_ROW_HEIGHT },
   listText: { flex: 1, flexDirection: 'row', alignItems: 'center', marginLeft: 14, height: '100%', borderBottomWidth: StyleSheet.hairlineWidth, paddingRight: GUTTER },
   folderIcon: { width: 52, height: 52, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   tiles: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: GUTTER - 6 },

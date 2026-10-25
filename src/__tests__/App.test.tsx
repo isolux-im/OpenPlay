@@ -118,4 +118,13 @@ describe('application', () => {
     expect(button).toBeTruthy();
     useSettings.setState({ onlineLyrics: true });
   });
+
+  it('affiche l’index A–Z sur la liste des titres et y saute', async () => {
+    await renderApp();
+    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    await fireEvent.press((await screen.findAllByRole('button', { name: /^Titres, \d+$/ }))[0]);
+    const strip = await screen.findByRole('adjustable', { name: 'Index alphabétique' });
+    await fireEvent(strip, 'accessibilityAction', { nativeEvent: { actionName: 'increment' } });
+    expect(strip).toBeTruthy();
+  });
 });

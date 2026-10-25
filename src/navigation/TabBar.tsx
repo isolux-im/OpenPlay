@@ -1,11 +1,13 @@
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { BlurView } from 'expo-blur';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
-import Animated, { FadeInDown, FadeOutDown, useAnimatedStyle } from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, { FadeInDown, FadeOutDown, runOnJS, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Artwork } from '../components/Artwork';
 import { PressableScale } from '../components/PressableScale';
+import { miniSwipeAction } from '../player/gestures';
 import { useLibrary } from '../store/library';
 import { usePlayer } from '../store/player';
 import { tap } from '../ui/haptics';
@@ -38,13 +40,56 @@ export function MiniPlayer() {
   const track = useLibrary((s) => (trackId ? s.index.byId[trackId] : undefined));
   const isPlaying = usePlayer((s) => s.isPlaying);
   const progress = usePlayer((s) => (s.durationSec > 0 ? Math.min(1, s.positionSec / s.durationSec) : 0));
-  const { toggle, next, setExpanded } = usePlayer.getState();
+  const { toggle, next, previous, setExpanded } = usePlayer.getState();
   const progressStyle = useAnimatedStyle(() => ({ width: `${progress * 100}%` }), [progress]);
+  const dragX = useSharedValue(0);
+  const dragStyle = useAnimatedStyle(() => ({ transform: [{ translateX: dragX.get() }], opacity: 1 - Math.min(0.35, Math.abs(dragX.get()) / 400) }));
+
+  const finish = (tx: number, ty: number, vx: number, vy: number) => {
+    const action = miniSwipeAction(tx, ty, vx, vy);
+    if (!action) return;
+    tap('selection');
+    if (action === 'next') next();
+    else if (action === 'previous') previous();
+    else setExpanded(true);
+  };
+
+  // Glisser horizontalement : suivant / précédent ; vers le haut : ouvrir. Un simple appui ouvre toujours le lecteur.
+  const swipe = Gesture.Pan()
+    .activeOffsetX([-12, 12])
+    .activeOffsetY([-12, 10_000])
+    .onUpdate((e) => {
+      dragX.set(Math.abs(e.translationX) > Math.abs(e.translationY) ? e.translationX * 0.6 : 0);
+    })
+    .onEnd((e) => {
+      runOnJS(finish)(e.translationX, e.translationY, e.velocityX, e.velocityY);
+    })
+    .onFinalize(() => {
+      dragX.set(withSpring(0, { damping: 18, stiffness: 220 }));
+    });
 
   if (!track) return null;
   return (
     <Animated.View entering={FadeInDown.springify().damping(18)} exiting={FadeOutDown} style={styles.miniWrap}>
-      <PressableScale scaleTo={0.98} onPress={() => setExpanded(true)} style={[styles.mini, { backgroundColor: colors.card, borderColor: colors.separator }]} accessibilityRole="button" accessibilityLabel={`Ouvrir le lecteur : ${track.title}, ${track.artist}`}>
+      <GestureDetector gesture={swipe}>
+      <Animated.View style={dragStyle}>
+      <PressableScale
+        scaleTo={0.98}
+        onPress={() => setExpanded(true)}
+        style={[styles.mini, { backgroundColor: colors.card, borderColor: colors.separator }]}
+        accessibilityRole="button"
+        accessibilityLabel={`Ouvrir le lecteur : ${track.title}, ${track.artist}`}
+        accessibilityHint="Glisser à gauche ou à droite pour changer de morceau"
+        accessibilityActions={[
+          { name: 'activate', label: 'Ouvrir le lecteur' },
+          { name: 'nextTrack', label: 'Morceau suivant' },
+          { name: 'previousTrack', label: 'Morceau précédent' },
+        ]}
+        onAccessibilityAction={(e) => {
+          if (e.nativeEvent.actionName === 'nextTrack') next();
+          else if (e.nativeEvent.actionName === 'previousTrack') previous();
+          else setExpanded(true);
+        }}>
         <Artwork track={track} size={44} rounded={10} />
         <View style={styles.miniText}>
           <Text variant="subhead" weight="semibold" numberOfLines={1}>
@@ -72,6 +117,8 @@ export function MiniPlayer() {
           <Animated.View style={[styles.miniProgress, { backgroundColor: colors.text }, progressStyle]} />
         </View>
       </PressableScale>
+      </Animated.View>
+      </GestureDetector>
     </Animated.View>
   );
 }

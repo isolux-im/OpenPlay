@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+import type { TrackEdit } from '../library/trackEdits';
 import type { Playlist, RepeatMode } from '../types';
 import { persistStorage } from './storage';
 
@@ -28,6 +29,8 @@ type UserState = {
   lastPlayed: Record<string, number>;
   /** Position (s) où reprendre les fichiers longs (livres audio, cours, podcasts). */
   resumePositions: Record<string, number>;
+  /** Corrections locales des informations des morceaux (titre, artiste, album, genre). */
+  trackEdits: Record<string, TrackEdit>;
   recentSearches: string[];
   lyrics: Record<string, string>;
   session: Session | null;
@@ -52,6 +55,7 @@ type UserState = {
   setLyrics: (trackId: string, text: string | null) => void;
   saveSession: (s: Session | null) => void;
   setResumePosition: (trackId: string, sec: number | null) => void;
+  setTrackEdit: (trackId: string, edit: TrackEdit | null) => void;
 };
 
 /** Nombre maximal de positions de reprise conservées (les plus anciennes sont oubliées). */
@@ -92,6 +96,7 @@ export const useUser = create<UserState>()(
       playCounts: {},
       lastPlayed: {},
       resumePositions: {},
+      trackEdits: {},
       recentSearches: [],
       lyrics: {},
       session: null,
@@ -132,11 +137,13 @@ export const useUser = create<UserState>()(
           const playCounts = { ...s.playCounts };
           const lastPlayed = { ...s.lastPlayed };
           const resumePositions = { ...s.resumePositions };
+          const trackEdits = { ...s.trackEdits };
           const lyrics = { ...s.lyrics };
           for (const id of ids) {
             delete playCounts[id];
             delete lastPlayed[id];
             delete resumePositions[id];
+            delete trackEdits[id];
             delete lyrics[id];
           }
           return {
@@ -146,6 +153,7 @@ export const useUser = create<UserState>()(
             playCounts,
             lastPlayed,
             resumePositions,
+            trackEdits,
             lyrics,
           };
         }),
@@ -171,6 +179,13 @@ export const useUser = create<UserState>()(
           return { lyrics };
         }),
       saveSession: (session) => set({ session }),
+      setTrackEdit: (trackId, edit) =>
+        set((s) => {
+          const trackEdits = { ...s.trackEdits };
+          if (edit) trackEdits[trackId] = edit;
+          else delete trackEdits[trackId];
+          return { trackEdits };
+        }),
       setResumePosition: (trackId, sec) =>
         set((s) => {
           const { [trackId]: previous, ...rest } = s.resumePositions;
@@ -185,13 +200,14 @@ export const useUser = create<UserState>()(
       storage: persistStorage,
       version: 2,
       migrate: (persisted, version) => migrateUser(persisted, version) as UserState,
-      partialize: ({ favorites, playlists, history, playCounts, lastPlayed, resumePositions, recentSearches, lyrics, session }) => ({
+      partialize: ({ favorites, playlists, history, playCounts, lastPlayed, resumePositions, trackEdits, recentSearches, lyrics, session }) => ({
         favorites,
         playlists,
         history,
         playCounts,
         lastPlayed,
         resumePositions,
+        trackEdits,
         recentSearches,
         lyrics,
         session,

@@ -7,8 +7,10 @@ import { demoTracks } from '../library/demoLibrary';
 import { EMPTY_INDEX, buildIndex } from '../library/indexLibrary';
 import { trackFromNative } from '../library/trackFromNative';
 import { withoutExcluded } from '../library/exclusions';
+import { applyEdits } from '../library/trackEdits';
 import type { LibraryIndex, Track } from '../types';
 import { useSettings } from './settings';
+import { useUser } from './user';
 
 export type LibraryStatus = 'checking' | 'needs-permission' | 'denied' | 'loading' | 'ready' | 'error';
 
@@ -25,9 +27,14 @@ type LibraryState = {
   scan: (minDurationSec: number) => Promise<void>;
   /** Retire des morceaux de l'index (après suppression du fichier), sans nouvelle analyse. */
   removeTracks: (ids: string[]) => void;
-  /** Reconstruit l'index après un changement des dossiers exclus, sans nouvelle analyse. */
-  applyExclusions: () => void;
+  /** Reconstruit l'index (dossiers masqués, infos corrigées) sans nouvelle analyse. */
+  refreshIndex: () => void;
 };
+
+/** Index affiché : dossiers masqués retirés, corrections de l'utilisateur appliquées. */
+function indexFor(tracks: Track[]): LibraryIndex {
+  return buildIndex(applyEdits(withoutExcluded(tracks, useSettings.getState().excludedFolders), useUser.getState().trackEdits));
+}
 
 /** Sans module natif (web, tests), la bibliothèque de démonstration remplace MediaStore. */
 const isDemoMode = () => !OpenPlayMedia;
@@ -70,7 +77,7 @@ export const useLibrary = create<LibraryState>()((set, get) => ({
       const tracks = OpenPlayMedia
         ? (await OpenPlayMedia.queryTracksAsync(minDurationSec * 1000)).map(trackFromNative)
         : demoTracks().filter((t) => t.durationSec >= minDurationSec);
-      set({ allTracks: tracks, index: buildIndex(withoutExcluded(tracks, useSettings.getState().excludedFolders)), status: 'ready', scannedAt: Date.now(), isDemo: isDemoMode() });
+      set({ allTracks: tracks, index: indexFor(tracks), status: 'ready', scannedAt: Date.now(), isDemo: isDemoMode() });
     } catch {
       set({ status: 'error', error: 'Impossible de lire la bibliothèque musicale.' });
     }
@@ -81,7 +88,7 @@ export const useLibrary = create<LibraryState>()((set, get) => ({
     set((s) => ({ allTracks: s.allTracks.filter((t) => !gone.has(t.id)), index: buildIndex(s.index.tracks.filter((t) => !gone.has(t.id))) }));
   },
 
-  applyExclusions: () => {
-    set((s) => ({ index: buildIndex(withoutExcluded(s.allTracks, useSettings.getState().excludedFolders)) }));
+  refreshIndex: () => {
+    set((s) => ({ index: indexFor(s.allTracks) }));
   },
 }));

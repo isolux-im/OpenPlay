@@ -7,6 +7,7 @@ import { AddSongsScreen } from '../screens/AddSongsScreen';
 import { AlbumScreen } from '../screens/AlbumScreen';
 import { ArtistScreen } from '../screens/ArtistScreen';
 import { DiscoverScreen } from '../screens/DiscoverScreen';
+import { EditTrackScreen } from '../screens/EditTrackScreen';
 import { ExcludedFoldersScreen } from '../screens/ExcludedFoldersScreen';
 import { HomeScreen } from '../screens/HomeScreen';
 import {
@@ -52,6 +53,7 @@ const SHARED: { name: keyof AnyStackParams; component: ComponentType }[] = [
   { name: 'Discover', component: DiscoverScreen },
   { name: 'ExcludedFolders', component: ExcludedFoldersScreen },
   { name: 'Stats', component: StatsScreen },
+  { name: 'EditTrack', component: EditTrackScreen },
 ];
 
 /** Une pile par onglet, avec le même jeu d'écrans de détail : la barre d'onglets reste visible. */
