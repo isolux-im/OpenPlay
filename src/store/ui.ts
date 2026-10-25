@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { LibrarySection } from '../components/MediaSwitcher';
 
 export type TrackMenuContext = { playlistId?: string; playlistIndex?: number; queueIndex?: number };
 
@@ -25,6 +26,9 @@ export type PromptRequest = {
 export type PlayerMode = 'artwork' | 'lyrics' | 'queue';
 
 type UiState = {
+  /** Bibliothèque : section affichée (sélecteur Musique | Vidéos), gardée pendant la session. */
+  librarySection: LibrarySection;
+  setLibrarySection: (s: LibrarySection) => void;
   playerMode: PlayerMode;
   playerOptions: boolean;
   setPlayerMode: (m: PlayerMode) => void;
@@ -50,6 +54,8 @@ let toastTimer: ReturnType<typeof setTimeout> | null = null;
 let promptCounter = 0;
 
 export const useUi = create<UiState>()((set) => ({
+  librarySection: 'music',
+  setLibrarySection: (librarySection) => set({ librarySection }),
   playerMode: 'artwork',
   playerOptions: false,
   setPlayerMode: (playerMode) => set({ playerMode, playerOptions: false }),

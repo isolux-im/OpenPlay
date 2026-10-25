@@ -1,5 +1,5 @@
 import { useRoute, type RouteProp } from '@react-navigation/native';
-import { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Linking, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { Chips, EmptyState } from '../components/Blocks';
@@ -86,7 +86,8 @@ function VideosGate() {
   );
 }
 
-export function VideosScreen() {
+/** Vidéothèque ; dans la Bibliothèque, `switcher` (Musique | Vidéos) s'affiche en tête. */
+export function VideosScreen({ title = 'Vidéos', switcher }: { title?: string; switcher?: ReactNode } = {}) {
   const navigation = useAppNavigation();
   const { colors } = useTheme();
   const status = useVideos((s) => s.status);
@@ -126,12 +127,13 @@ export function VideosScreen() {
 
   if (status !== 'ready') {
     return (
-      <ListScreen title="Vidéos" data={[]} renderItem={() => null} ListEmptyComponent={<VideosGate />} />
+      <ListScreen title={title} header={switcher} data={[]} renderItem={() => null} ListEmptyComponent={<VideosGate />} />
     );
   }
 
   const header = (
     <View>
+      {switcher}
       <View style={[styles.field, { backgroundColor: colors.card, borderColor: colors.separator }]}>
         <Icon name="search-outline" size={18} color={colors.secondaryText} />
         <TextInput
@@ -179,7 +181,7 @@ export function VideosScreen() {
   if (section === 'series') {
     return (
       <ListScreen
-        title="Vidéos"
+        title={title}
         titleRight={<LayoutButton />}
         header={header}
         data={series}
@@ -193,7 +195,7 @@ export function VideosScreen() {
   if (section === 'folders') {
     return (
       <ListScreen
-        title="Vidéos"
+        title={title}
         titleRight={<LayoutButton />}
         header={header}
         data={folders}
@@ -229,7 +231,7 @@ export function VideosScreen() {
   };
   return (
     <VideoList
-      title="Vidéos"
+      title={title}
       titleRight={<LayoutButton />}
       header={header}
       videos={list}

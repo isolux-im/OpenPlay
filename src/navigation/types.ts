@@ -31,7 +31,6 @@ export type HomeStackParams = SharedStackParams & { Home: undefined };
 export type LibraryStackParams = SharedStackParams & { Library: undefined };
 export type PlaylistsStackParams = SharedStackParams & { Playlists: undefined };
 export type SearchStackParams = SharedStackParams & { Search: undefined };
-export type VideosStackParams = SharedStackParams & { Videos: undefined };
 export type SettingsStackParams = SharedStackParams & { Settings: undefined };
 
 export type TabParams = {
@@ -39,7 +38,6 @@ export type TabParams = {
   LibraryTab: NavigatorScreenParams<LibraryStackParams>;
   PlaylistsTab: NavigatorScreenParams<PlaylistsStackParams>;
   SearchTab: NavigatorScreenParams<SearchStackParams>;
-  VideosTab: NavigatorScreenParams<VideosStackParams>;
   SettingsTab: NavigatorScreenParams<SettingsStackParams>;
 };
 
@@ -48,6 +46,5 @@ export type AnyStackParams = SharedStackParams & {
   Library: undefined;
   Playlists: undefined;
   Search: undefined;
-  Videos: undefined;
   Settings: undefined;
 };

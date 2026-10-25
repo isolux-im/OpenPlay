@@ -26,7 +26,14 @@ const engine = () => new SimulatedEngine(() => 200, 0);
 
 beforeEach(() => {
   usePlayer.setState({ queue: [], originalQueue: [], index: -1, isPlaying: false, expanded: false });
+  useUi.setState({ librarySection: 'music' });
 });
+
+/** Vidéos : onglet Bibliothèque, puis « Vidéos » dans le sélecteur Musique | Vidéos. */
+async function openVideos() {
+  await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+  await fireEvent.press(await screen.findByRole('radio', { name: 'Vidéos' }));
+}
 
 // Le minuteur du toast ne doit pas survivre au test.
 afterEach(() => useUi.getState().hideToast());
@@ -42,7 +49,7 @@ describe('application', () => {
   it('affiche les cinq onglets et l’accueil avec la bibliothèque', async () => {
     await renderApp();
     // Ordre de la maquette.
-    expect(screen.getAllByRole('tab').map((t) => t.props.accessibilityLabel)).toEqual(['Accueil', 'Bibliothèque', 'Vidéos', 'Recherche', 'Playlists', 'Paramètres']);
+    expect(screen.getAllByRole('tab').map((t) => t.props.accessibilityLabel)).toEqual(['Accueil', 'Bibliothèque', 'Recherche', 'Playlists', 'Paramètres']);
     expect(await screen.findByText('Mix pour vous')).toBeTruthy();
     expect(screen.getAllByText('Lumières du Sud').length).toBeGreaterThan(0);
   });
@@ -129,9 +136,29 @@ describe('application', () => {
     expect(strip).toBeTruthy();
   });
 
-  it('affiche l’onglet Vidéos, ouvre le menu d’une vidéo et le lecteur', async () => {
+  it('réunit Musique et Vidéos dans la Bibliothèque sans perdre de section', async () => {
     await renderApp();
-    await fireEvent.press(screen.getByRole('tab', { name: 'Vidéos' }));
+    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    expect(screen.getByRole('radio', { name: 'Musique' }).props.accessibilityState).toEqual({ selected: true });
+    const musicTiles = [/^Récents/, /^Favoris/, /^Playlists/, /^Titres, \d+$/, /^À découvrir, \d+$/, /^Bilan/];
+    for (const name of musicTiles) expect((await screen.findAllByRole('button', { name })).length).toBeGreaterThan(0);
+    // Vidéos : la vidéothèque complète (recherche, sections, séries, bilan de visionnage).
+    await fireEvent.press(screen.getByRole('radio', { name: 'Vidéos' }));
+    expect(await screen.findByLabelText('Rechercher une vidéo')).toBeTruthy();
+    for (const name of ['Toutes', 'Continuer', 'Récentes', 'Favoris', 'Séries', 'Dossiers']) expect(screen.getByRole('radio', { name })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Bilan de visionnage' })).toBeTruthy();
+    // Retour à Musique : « À découvrir » et « Bilan d'écoute » toujours accessibles.
+    await fireEvent.press(screen.getByRole('radio', { name: 'Musique' }));
+    await fireEvent.press((await screen.findAllByRole('button', { name: /^Bilan/ }))[0]);
+    expect((await screen.findAllByText('Bilan d’écoute')).length).toBeGreaterThan(0);
+    await fireEvent.press(screen.getAllByRole('button', { name: 'Retour' }).at(-1)!);
+    await fireEvent.press((await screen.findAllByRole('button', { name: /^À découvrir, \d+$/ }))[0]);
+    expect(await screen.findByRole('radio', { name: 'Oubliés' })).toBeTruthy();
+  });
+
+  it('affiche les vidéos dans la Bibliothèque, ouvre le menu d’une vidéo et le lecteur', async () => {
+    await renderApp();
+    await openVideos();
     const video = (await screen.findAllByRole('button', { name: /^Lire Concert au Bénin/ }))[0];
     await fireEvent(video, 'longPress', { nativeEvent: { pageX: 100, pageY: 300 } });
     for (const label of ['Lire', 'Ajouter aux favoris', 'Informations', 'Partager', 'Ouvrir avec…']) {
@@ -158,7 +185,7 @@ describe('application', () => {
 
   it('regroupe les épisodes en série et affiche le bilan de visionnage', async () => {
     await renderApp();
-    await fireEvent.press(screen.getByRole('tab', { name: 'Vidéos' }));
+    await openVideos();
     await fireEvent.press(await screen.findByRole('radio', { name: 'Séries' }));
     await fireEvent.press(await screen.findByRole('button', { name: /^Série Lagune Blues, 3 épisodes/ }));
     expect(await screen.findByRole('button', { name: 'Commencer : S01E01' })).toBeTruthy();

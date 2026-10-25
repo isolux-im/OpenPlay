@@ -18,7 +18,6 @@ import { useTheme } from '../ui/theme';
 const TABS: Record<string, { label: string; icon: IconName; activeIcon: IconName }> = {
   HomeTab: { label: 'Accueil', icon: 'home-outline', activeIcon: 'home' },
   LibraryTab: { label: 'Bibliothèque', icon: 'library-outline', activeIcon: 'library' },
-  VideosTab: { label: 'Vidéos', icon: 'film-outline', activeIcon: 'film' },
   SearchTab: { label: 'Recherche', icon: 'search-outline', activeIcon: 'search' },
   PlaylistsTab: { label: 'Playlists', icon: 'list-outline', activeIcon: 'list' },
   SettingsTab: { label: 'Paramètres', icon: 'settings-outline', activeIcon: 'settings' },

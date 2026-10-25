@@ -10,6 +10,7 @@ import { DiscoverScreen } from '../screens/DiscoverScreen';
 import { EditTrackScreen } from '../screens/EditTrackScreen';
 import { ExcludedFoldersScreen } from '../screens/ExcludedFoldersScreen';
 import { HomeScreen } from '../screens/HomeScreen';
+import { LibraryHome } from '../screens/LibraryHome';
 import {
   AlbumsScreen,
   ArtistsScreen,
@@ -19,7 +20,6 @@ import {
   GenreScreen,
   GenresScreen,
   HistoryScreen,
-  LibraryScreen,
   SmartPlaylistScreen,
   SongsScreen,
 } from '../screens/LibraryScreens';
@@ -30,7 +30,7 @@ import { SettingsScreen } from '../screens/SettingsScreen';
 import { StatsScreen } from '../screens/StatsScreen';
 import { VideoSeriesScreen } from '../screens/VideoSeriesScreen';
 import { VideoStatsScreen } from '../screens/VideoStatsScreen';
-import { VideoFolderScreen, VideosScreen } from '../screens/VideosScreen';
+import { VideoFolderScreen } from '../screens/VideosScreen';
 import { useTheme } from '../ui/theme';
 import { navigationRef } from './ref';
 import { TabBar } from './TabBar';
@@ -63,7 +63,7 @@ const SHARED: { name: keyof AnyStackParams; component: ComponentType }[] = [
 ];
 
 /** Une pile par onglet, avec le même jeu d'écrans de détail : la barre d'onglets reste visible. */
-function makeStack(rootName: 'Home' | 'Library' | 'Playlists' | 'Search' | 'Videos' | 'Settings', root: ComponentType) {
+function makeStack(rootName: 'Home' | 'Library' | 'Playlists' | 'Search' | 'Settings', root: ComponentType) {
   const Stack = createNativeStackNavigator<AnyStackParams>();
   function TabStack() {
     const { colors } = useTheme();
@@ -83,10 +83,10 @@ function makeStack(rootName: 'Home' | 'Library' | 'Playlists' | 'Search' | 'Vide
 }
 
 const HomeStack = makeStack('Home', HomeScreen);
-const LibraryStack = makeStack('Library', LibraryScreen);
+// Bibliothèque : Musique et Vidéos réunies derrière le sélecteur Musique | Vidéos.
+const LibraryStack = makeStack('Library', LibraryHome);
 const PlaylistsStack = makeStack('Playlists', PlaylistsScreen);
 const SearchStack = makeStack('Search', SearchScreen);
-const VideosStack = makeStack('Videos', VideosScreen);
 const SettingsStack = makeStack('Settings', SettingsScreen);
 
 export function RootNavigator() {
@@ -101,7 +101,6 @@ export function RootNavigator() {
       <Tab.Navigator tabBar={(props) => <TabBar {...props} />} screenOptions={{ headerShown: false, animation: 'fade' }}>
         <Tab.Screen name="HomeTab" component={HomeStack} />
         <Tab.Screen name="LibraryTab" component={LibraryStack} />
-        <Tab.Screen name="VideosTab" component={VideosStack} />
         <Tab.Screen name="SearchTab" component={SearchStack} />
         <Tab.Screen name="PlaylistsTab" component={PlaylistsStack} />
         <Tab.Screen name="SettingsTab" component={SettingsStack} />

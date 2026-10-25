@@ -1,5 +1,5 @@
 import { useRoute, type RouteProp } from '@react-navigation/native';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, type ReactNode } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
 
 import { Artwork } from '../components/Artwork';
@@ -26,7 +26,7 @@ import { useNow } from '../ui/useNow';
 import { useDiscover } from './DiscoverScreen';
 import { LibraryGate } from './LibraryGate';
 
-export function LibraryScreen() {
+export function LibraryScreen({ switcher }: { switcher?: ReactNode } = {}) {
   const navigation = useAppNavigation();
   const index = useLibrary((s) => s.index);
   const favorites = useUser((s) => s.favorites.length);
@@ -55,6 +55,7 @@ export function LibraryScreen() {
           <HeaderButton icon="person-outline" label="Paramètres" onPress={() => goToTab('SettingsTab')} />
         </>
       }>
+      {switcher}
       <LibraryGate>
         <View style={styles.quickGrid}>
           <View style={styles.quickRow}>
