@@ -8,7 +8,8 @@ export type MenuAnchor = { x: number; y: number };
 export type ContextTarget =
   | { kind: 'track'; trackId: string; context: TrackMenuContext }
   | { kind: 'album'; albumId: string }
-  | { kind: 'playlist'; playlistId: string };
+  | { kind: 'playlist'; playlistId: string }
+  | { kind: 'video'; videoId: string; list: string[] };
 
 export type PromptRequest = {
   title: string;
@@ -36,6 +37,7 @@ type UiState = {
   openTrackMenu: (trackId: string, context?: TrackMenuContext, anchor?: MenuAnchor | null) => void;
   openAlbumMenu: (albumId: string, anchor?: MenuAnchor | null) => void;
   openPlaylistMenu: (playlistId: string, anchor?: MenuAnchor | null) => void;
+  openVideoMenu: (videoId: string, list: string[], anchor?: MenuAnchor | null) => void;
   openPlaylistPicker: (trackIds: string[]) => void;
   openPrompt: (p: PromptRequest) => void;
   openSleepSheet: () => void;
@@ -60,6 +62,7 @@ export const useUi = create<UiState>()((set) => ({
   openTrackMenu: (trackId, context = {}, anchor = null) => set({ menu: { target: { kind: 'track', trackId, context }, anchor } }),
   openAlbumMenu: (albumId, anchor = null) => set({ menu: { target: { kind: 'album', albumId }, anchor } }),
   openPlaylistMenu: (playlistId, anchor = null) => set({ menu: { target: { kind: 'playlist', playlistId }, anchor } }),
+  openVideoMenu: (videoId, list, anchor = null) => set({ menu: { target: { kind: 'video', videoId, list }, anchor } }),
   openPlaylistPicker: (trackIds) => set({ menu: null, playerOptions: false, playlistPicker: trackIds }),
   openPrompt: (prompt) => set({ menu: null, playlistPicker: null, prompt: { ...prompt, id: ++promptCounter } }),
   openSleepSheet: () => set({ menu: null, playerOptions: false, sleepSheet: true }),

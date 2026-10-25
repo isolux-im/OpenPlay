@@ -19,6 +19,22 @@ export type NativeTrack = {
   path: string | null;
 };
 
+export type NativeVideo = {
+  id: string;
+  uri: string;
+  title: string | null;
+  filename: string | null;
+  durationMs: number;
+  size: number;
+  dateAdded: number;
+  dateModified: number;
+  width: number;
+  height: number;
+  mimeType: string | null;
+  folder: string | null;
+  path: string | null;
+};
+
 export type NativeArtwork = {
   uri: string;
   dominant: string;
@@ -41,6 +57,13 @@ type OpenPlayMediaModule = {
   readLyricsAsync(path: string): Promise<string | null>;
   /** Ouvre la feuille de partage Android avec le fichier audio (URI MediaStore). Absent des anciennes versions. */
   shareAudioAsync?(trackId: string, mimeType: string, title: string): Promise<void>;
+  /** Vidéos accessibles (MediaStore.Video). Absent des anciennes versions. */
+  queryVideosAsync?(): Promise<NativeVideo[]>;
+  shareVideoAsync?(videoId: string, mimeType: string, title: string): Promise<void>;
+  /** « Ouvrir avec » : choix d'une autre application pour lire la vidéo. */
+  openVideoWithAsync?(videoId: string, mimeType: string, title: string): Promise<void>;
+  /** URI file:// d'une miniature en cache, ou null. */
+  getVideoThumbnailAsync?(videoId: string, size: number): Promise<string | null>;
   /** Journal de diagnostic local et fins anormales enregistrées par Android 11+. Absents des anciennes versions. */
   getCrashReportsAsync?(): Promise<{ log: string | null; exits: ExitReason[] }>;
   clearCrashReportsAsync?(): Promise<void>;

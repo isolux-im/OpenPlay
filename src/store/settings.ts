@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 import type { LanguageCode, ProviderId } from '../lyrics/transcription';
+import type { VideoSort } from '../video/types';
 import { persist } from 'zustand/middleware';
 
 import { persistStorage } from './storage';
@@ -29,6 +30,12 @@ export type Settings = {
   playbackRate: number;
   /** Reprise automatique des fichiers longs (livres audio, cours, podcasts). */
   resumeLongTracks: boolean;
+  /** Vidéo : passage en fenêtre flottante (PiP) en quittant OpenPlay pendant la lecture. */
+  videoPip: boolean;
+  /** Vidéo : double appui à gauche / à droite pour reculer / avancer de 10 s. */
+  videoDoubleTap: boolean;
+  videoSort: VideoSort;
+  videoLayout: 'grid' | 'list';
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -46,6 +53,10 @@ export const DEFAULT_SETTINGS: Settings = {
   excludedFolders: [],
   playbackRate: 1,
   resumeLongTracks: true,
+  videoPip: true,
+  videoDoubleTap: true,
+  videoSort: 'date',
+  videoLayout: 'grid',
 };
 
 /**

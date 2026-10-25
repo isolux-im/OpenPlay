@@ -77,3 +77,39 @@ jest.mock('react-native-reanimated', () => {
   };
 });
 require('react-native-gesture-handler/jestSetup');
+
+// expo-video : module natif remplacé par un lecteur factice (aucune lecture réelle sous Jest).
+jest.mock('expo-video', () => {
+  const React = jest.requireActual('react');
+  const { View } = jest.requireActual('react-native');
+  const makePlayer = () => {
+    const listeners: Record<string, ((payload: unknown) => void)[]> = {};
+    return {
+      currentTime: 0,
+      duration: 0,
+      playbackRate: 1,
+      playing: false,
+      play: jest.fn(),
+      pause: jest.fn(),
+      replay: jest.fn(),
+      addListener: (event: string, fn: (payload: unknown) => void) => {
+        (listeners[event] ??= []).push(fn);
+        return { remove: () => (listeners[event] = (listeners[event] ?? []).filter((f) => f !== fn)) };
+      },
+      emit: (event: string, payload: unknown) => (listeners[event] ?? []).forEach((f) => f(payload)),
+    };
+  };
+  return {
+    __esModule: true,
+    VideoView: React.forwardRef((props: object, _ref: unknown) => React.createElement(View, { ...props, testID: 'video-view' })),
+    useVideoPlayer: (_source: unknown, setup?: (p: unknown) => void) => {
+      const ref = React.useRef(null);
+      if (!ref.current) {
+        ref.current = makePlayer();
+        setup?.(ref.current);
+      }
+      return ref.current;
+    },
+    isPictureInPictureSupported: () => true,
+  };
+});

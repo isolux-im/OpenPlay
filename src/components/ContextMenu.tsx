@@ -5,6 +5,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { deleteTracksFromDevice, shareAlbum, sharePlaylist, shareTrack } from '../library/actions';
 import { formatDuration, formatTotalDuration, pluralize } from '../library/text';
+import { useVideoHistory } from '../store/videoHistory';
+import { useVideoPlayer } from '../store/videoPlayer';
+import { useVideos } from '../store/videos';
+import { formatResolution, resumePosition } from '../video/library';
+import { formatSize } from '../video/VideoList';
+import { VideoThumb } from '../video/VideoThumb';
+import { openVideoWith, shareVideo } from '../video/actions';
 import { navigateInCurrentTab } from '../navigation/ref';
 import type { SharedStackParams } from '../navigation/types';
 import { useLibrary } from '../store/library';
@@ -69,6 +76,51 @@ function useMenuModel(target: ContextTarget): Model | null {
   const { toggleFavorite, removeFromPlaylist, deletePlaylist, renamePlaylist } = useUser.getState();
   const { openPlaylistPicker, openPrompt, showToast } = useUi.getState();
   const player = usePlayer.getState();
+  const video = useVideos((s) => (target.kind === 'video' ? s.byId[target.videoId] : undefined));
+  const videoEntry = useVideoHistory((s) => (target.kind === 'video' ? s.entries[target.videoId] : undefined));
+  const videoFavorite = useVideoHistory((s) => (target.kind === 'video' ? s.favorites.includes(target.videoId) : false));
+
+  if (target.kind === 'video') {
+    if (!video) return null;
+    const { open } = useVideoPlayer.getState();
+    const history = useVideoHistory.getState();
+    const resumeAt = resumePosition(videoEntry, video.durationSec);
+    const details = [
+      `Fichier : ${video.filename}`,
+      `Dossier : ${video.folder}`,
+      `Durée : ${formatDuration(video.durationSec)}`,
+      video.sizeBytes ? `Taille : ${formatSize(video.sizeBytes)}` : null,
+      formatResolution(video) ? `Résolution : ${formatResolution(video)}` : null,
+      `Format : ${video.mimeType}`,
+      video.addedAt ? `Ajoutée le ${new Date(video.addedAt).toLocaleDateString('fr-FR')}` : null,
+    ].filter(Boolean);
+    return {
+      header: <MenuHeader art={<VideoThumb video={video} width={78} style={{ borderRadius: 8 }} />} title={video.title} subtitle={`Vidéo · ${formatDuration(video.durationSec)}`} />,
+      groups: [
+        resumeAt > 0
+          ? [
+              { icon: 'play-outline', label: `Reprendre à ${formatDuration(resumeAt)}`, onPress: () => open(video.id, target.list) },
+              { icon: 'refresh-outline', label: 'Recommencer', onPress: () => open(video.id, target.list, { restart: true }) },
+            ]
+          : [{ icon: 'play-outline', label: 'Lire', onPress: () => open(video.id, target.list, { restart: true }) }],
+        [
+          {
+            icon: videoFavorite ? 'heart-dislike-outline' : 'heart-outline',
+            label: videoFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris',
+            onPress: () => {
+              tap('success');
+              history.toggleFavorite(video.id);
+              showToast(videoFavorite ? 'Retiré des favoris' : 'Ajouté aux favoris');
+            },
+          },
+          { icon: 'information-circle-outline', label: 'Informations', onPress: () => Alert.alert(video.title, details.join('\n')) },
+          { icon: 'share-outline', label: 'Partager', onPress: () => void shareVideo(video) },
+          { icon: 'open-outline', label: 'Ouvrir avec…', onPress: () => void openVideoWith(video) },
+        ],
+        ...(videoEntry ? [[{ icon: 'time-outline' as const, label: "Retirer de l'historique", destructive: true, onPress: () => history.remove(video.id) }]] : []),
+      ],
+    };
+  }
 
   const playItems = (ids: string[], label: string | null, shuffle: boolean): Item[] => [
     { icon: 'play-outline', label: 'Lire', onPress: () => player.playTracks(ids, 0, { label }) },

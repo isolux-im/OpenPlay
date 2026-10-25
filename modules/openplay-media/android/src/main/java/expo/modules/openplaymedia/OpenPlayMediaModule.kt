@@ -83,6 +83,23 @@ class OpenPlayMediaModule : Module() {
       withContext(Dispatchers.IO) { readSiblingLyrics(path) }
     }
 
+    AsyncFunction("queryVideosAsync") Coroutine { ->
+      withContext(Dispatchers.IO) { queryVideos() }
+    }
+
+    AsyncFunction("getVideoThumbnailAsync") Coroutine { videoId: String, size: Int ->
+      artworkPermits.withPermit {
+        withContext(Dispatchers.IO) {
+          try {
+            videoThumbnail(videoId, size)
+          } catch (e: OutOfMemoryError) {
+            CrashRecorder.append(context, "Miniature vidéo ignorée (mémoire insuffisante)", "videoId=$videoId")
+            null
+          }
+        }
+      }
+    }
+
     AsyncFunction("getCrashReportsAsync") Coroutine { ->
       withContext(Dispatchers.IO) {
         mapOf("log" to CrashRecorder.read(context), "exits" to exitReasons())
@@ -103,6 +120,26 @@ class OpenPlayMediaModule : Module() {
 
     AsyncFunction("shareAudioAsync") { trackId: String, mimeType: String, title: String ->
       shareAudio(trackId, mimeType, title)
+    }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("shareVideoAsync") { videoId: String, mimeType: String, title: String ->
+      val uri = ContentUris.withAppendedId(videoCollection(), videoId.toLong())
+      val send = Intent(Intent.ACTION_SEND).apply {
+        type = mimeType.ifBlank { "video/*" }
+        putExtra(Intent.EXTRA_STREAM, uri)
+        putExtra(Intent.EXTRA_TITLE, title)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+      }
+      startChooser(send, title)
+    }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("openVideoWithAsync") { videoId: String, mimeType: String, title: String ->
+      val uri = ContentUris.withAppendedId(videoCollection(), videoId.toLong())
+      val view = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, mimeType.ifBlank { "video/*" })
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+      }
+      startChooser(view, title)
     }.runOnQueue(Queues.MAIN)
   }
 
@@ -207,6 +244,12 @@ class OpenPlayMediaModule : Module() {
     }
   }
 
+  private fun startChooser(intent: Intent, title: String) {
+    val chooser = Intent.createChooser(intent, title)
+    val activity = appContext.currentActivity
+    if (activity != null) activity.startActivity(chooser) else context.startActivity(chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+  }
+
   /** Feuille de partage système avec le fichier audio ; la lecture est accordée au destinataire. */
   private fun shareAudio(trackId: String, mimeType: String, title: String) {
     val uri = ContentUris.withAppendedId(audioCollection(), trackId.toLong())
@@ -222,6 +265,113 @@ class OpenPlayMediaModule : Module() {
       activity.startActivity(chooser)
     } else {
       context.startActivity(chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+  }
+
+  private fun videoCollection(): Uri =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+    } else {
+      MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+    }
+
+  /**
+   * Vidéos visibles par l'application (toutes, ou seulement celles choisies par l'utilisateur
+   * en accès partiel sur Android 14+). Aucune lecture directe du stockage : URI content://.
+   */
+  private fun queryVideos(): List<Map<String, Any?>> {
+    val projection = mutableListOf(
+      MediaStore.Video.Media._ID,
+      MediaStore.Video.Media.TITLE,
+      MediaStore.Video.Media.DISPLAY_NAME,
+      MediaStore.Video.Media.DURATION,
+      MediaStore.Video.Media.SIZE,
+      MediaStore.Video.Media.DATE_ADDED,
+      MediaStore.Video.Media.DATE_MODIFIED,
+      MediaStore.Video.Media.WIDTH,
+      MediaStore.Video.Media.HEIGHT,
+      MediaStore.Video.Media.MIME_TYPE,
+      MediaStore.Video.Media.BUCKET_DISPLAY_NAME,
+      MediaStore.Video.Media.DATA
+    )
+    val hasRelative = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+    if (hasRelative) projection.add(MediaStore.Video.Media.RELATIVE_PATH)
+    val result = ArrayList<Map<String, Any?>>()
+    context.contentResolver.query(videoCollection(), projection.toTypedArray(), null, null, "${MediaStore.Video.Media.DATE_ADDED} DESC")?.use { c ->
+      fun idx(name: String) = c.getColumnIndex(name)
+      val iId = idx(MediaStore.Video.Media._ID)
+      val iTitle = idx(MediaStore.Video.Media.TITLE)
+      val iName = idx(MediaStore.Video.Media.DISPLAY_NAME)
+      val iDuration = idx(MediaStore.Video.Media.DURATION)
+      val iSize = idx(MediaStore.Video.Media.SIZE)
+      val iAdded = idx(MediaStore.Video.Media.DATE_ADDED)
+      val iModified = idx(MediaStore.Video.Media.DATE_MODIFIED)
+      val iWidth = idx(MediaStore.Video.Media.WIDTH)
+      val iHeight = idx(MediaStore.Video.Media.HEIGHT)
+      val iMime = idx(MediaStore.Video.Media.MIME_TYPE)
+      val iBucket = idx(MediaStore.Video.Media.BUCKET_DISPLAY_NAME)
+      val iData = idx(MediaStore.Video.Media.DATA)
+      val iRelative = if (hasRelative) idx(MediaStore.Video.Media.RELATIVE_PATH) else -1
+      while (c.moveToNext()) {
+        val id = c.getLong(iId)
+        result.add(
+          mapOf(
+            "id" to id.toString(),
+            "uri" to ContentUris.withAppendedId(videoCollection(), id).toString(),
+            "title" to c.getStringOrNull(iTitle),
+            "filename" to c.getStringOrNull(iName),
+            "durationMs" to if (iDuration >= 0 && !c.isNull(iDuration)) c.getLong(iDuration).toDouble() else 0.0,
+            "size" to if (iSize >= 0 && !c.isNull(iSize)) c.getLong(iSize).toDouble() else 0.0,
+            "dateAdded" to if (iAdded >= 0) c.getLong(iAdded).toDouble() else 0.0,
+            "dateModified" to if (iModified >= 0) c.getLong(iModified).toDouble() else 0.0,
+            "width" to if (iWidth >= 0 && !c.isNull(iWidth)) c.getInt(iWidth) else 0,
+            "height" to if (iHeight >= 0 && !c.isNull(iHeight)) c.getInt(iHeight) else 0,
+            "mimeType" to c.getStringOrNull(iMime),
+            "folder" to (c.getStringOrNull(iRelative)?.trimEnd('/') ?: c.getStringOrNull(iBucket)),
+            "path" to c.getStringOrNull(iData)
+          )
+        )
+      }
+    }
+    return result
+  }
+
+  /** Miniature d'une vidéo, en cache (JPEG) : vignette système, sinon image extraite du début. */
+  private fun videoThumbnail(videoId: String, size: Int): String? {
+    val id = videoId.toLongOrNull() ?: return null
+    val dir = File(context.cacheDir, "openplay-video-thumbs").apply { mkdirs() }
+    val file = File(dir, "$id-$size.jpg")
+    if (file.exists() && file.length() > 0) return Uri.fromFile(file).toString()
+    val uri = ContentUris.withAppendedId(videoCollection(), id)
+    val system: Bitmap? = try {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        context.contentResolver.loadThumbnail(uri, Size(size, size * 9 / 16), null)
+      } else {
+        null
+      }
+    } catch (e: Exception) {
+      null
+    }
+    val bitmap: Bitmap = system ?: frameAt(uri, size) ?: return null
+    val tmp = File(dir, "${file.name}.${Thread.currentThread().id}.tmp")
+    FileOutputStream(tmp).use { bitmap.compress(Bitmap.CompressFormat.JPEG, 88, it) }
+    if (!tmp.renameTo(file)) tmp.delete()
+    return Uri.fromFile(file).toString()
+  }
+
+  private fun frameAt(uri: Uri, size: Int): Bitmap? {
+    val retriever = MediaMetadataRetriever()
+    return try {
+      retriever.setDataSource(context, uri)
+      retriever.getFrameAtTime(1_000_000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)?.let { scale(it, size) }
+    } catch (e: Exception) {
+      null
+    } finally {
+      try {
+        retriever.release()
+      } catch (e: Exception) {
+        // Libération best effort.
+      }
     }
   }
 

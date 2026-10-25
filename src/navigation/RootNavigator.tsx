@@ -28,6 +28,7 @@ import { PlaylistsScreen } from '../screens/PlaylistsScreen';
 import { SearchScreen } from '../screens/SearchScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { StatsScreen } from '../screens/StatsScreen';
+import { VideoFolderScreen, VideosScreen } from '../screens/VideosScreen';
 import { useTheme } from '../ui/theme';
 import { navigationRef } from './ref';
 import { TabBar } from './TabBar';
@@ -54,10 +55,11 @@ const SHARED: { name: keyof AnyStackParams; component: ComponentType }[] = [
   { name: 'ExcludedFolders', component: ExcludedFoldersScreen },
   { name: 'Stats', component: StatsScreen },
   { name: 'EditTrack', component: EditTrackScreen },
+  { name: 'VideoFolder', component: VideoFolderScreen },
 ];
 
 /** Une pile par onglet, avec le même jeu d'écrans de détail : la barre d'onglets reste visible. */
-function makeStack(rootName: 'Home' | 'Library' | 'Playlists' | 'Search' | 'Settings', root: ComponentType) {
+function makeStack(rootName: 'Home' | 'Library' | 'Playlists' | 'Search' | 'Videos' | 'Settings', root: ComponentType) {
   const Stack = createNativeStackNavigator<AnyStackParams>();
   function TabStack() {
     const { colors } = useTheme();
@@ -80,6 +82,7 @@ const HomeStack = makeStack('Home', HomeScreen);
 const LibraryStack = makeStack('Library', LibraryScreen);
 const PlaylistsStack = makeStack('Playlists', PlaylistsScreen);
 const SearchStack = makeStack('Search', SearchScreen);
+const VideosStack = makeStack('Videos', VideosScreen);
 const SettingsStack = makeStack('Settings', SettingsScreen);
 
 export function RootNavigator() {
@@ -94,6 +97,7 @@ export function RootNavigator() {
       <Tab.Navigator tabBar={(props) => <TabBar {...props} />} screenOptions={{ headerShown: false, animation: 'fade' }}>
         <Tab.Screen name="HomeTab" component={HomeStack} />
         <Tab.Screen name="LibraryTab" component={LibraryStack} />
+        <Tab.Screen name="VideosTab" component={VideosStack} />
         <Tab.Screen name="SearchTab" component={SearchStack} />
         <Tab.Screen name="PlaylistsTab" component={PlaylistsStack} />
         <Tab.Screen name="SettingsTab" component={SettingsStack} />

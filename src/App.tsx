@@ -19,6 +19,8 @@ import { useLibrary } from './store/library';
 import { connectPlayer, disconnectPlayer, usePlayer } from './store/player';
 import { useSettings } from './store/settings';
 import { useUser } from './store/user';
+import { useVideoPlayer } from './store/videoPlayer';
+import { VideoPlayerHost } from './video/VideoPlayerHost';
 import { ThemeProvider, useTheme } from './ui/theme';
 
 installJsErrorRecorder();
@@ -82,6 +84,9 @@ function Shell({ engineFactory }: { engineFactory: () => PlaybackEngine }) {
         </ErrorBoundary>
         <ErrorBoundary overlay fallbackTitle="Le lecteur n’a pas pu s’afficher" onClose={{ label: 'Fermer le lecteur', run: () => usePlayer.getState().setExpanded(false) }}>
           <FullPlayer />
+        </ErrorBoundary>
+        <ErrorBoundary overlay fallbackTitle="La vidéo n’a pas pu s’afficher" onClose={{ label: 'Fermer la vidéo', run: () => useVideoPlayer.getState().close() }}>
+          <VideoPlayerHost />
         </ErrorBoundary>
       </GlassTarget>
     </View>

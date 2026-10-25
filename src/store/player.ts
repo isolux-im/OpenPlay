@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { recordDiagnostic } from '../diagnostics/crashReports';
 import { loadArtwork, peekArtwork } from '../library/artwork';
 import type { EngineItem, PlaybackEngine } from '../player/PlaybackEngine';
+import { pauseVideoForMusic } from '../player/mediaFocus';
 import { indexAfterMove, moveItem, nextRepeat, shouldRestart, shuffleAround } from '../player/queue';
 import type { RepeatMode, Track } from '../types';
 import { formatDuration } from '../library/text';
@@ -200,6 +201,7 @@ export const usePlayer = create<PlayerState>()((set, get) => {
         durationSec: resolveTrack(queue[index])?.durationSec ?? 0,
         sourceLabel: options.label ?? null,
       });
+      pauseVideoForMusic();
       engine.load(itemsFor(queue), index, resumeAt, true);
       announceResume(resumeAt);
       announceNowPlaying();
@@ -209,6 +211,7 @@ export const usePlayer = create<PlayerState>()((set, get) => {
     toggle: () => (get().isPlaying ? get().pause() : get().play()),
     play: () => {
       if (!get().queue.length) return;
+      pauseVideoForMusic();
       engine?.play();
       set({ isPlaying: true });
     },
@@ -235,6 +238,7 @@ export const usePlayer = create<PlayerState>()((set, get) => {
     },
     jumpTo: (i) => {
       if (i < 0 || i >= get().queue.length) return;
+      pauseVideoForMusic();
       engine?.skipTo(i);
       engine?.play();
       set({ isPlaying: true });

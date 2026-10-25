@@ -21,7 +21,7 @@ export function navigateInCurrentTab<K extends keyof SharedStackParams>(screen: 
 }
 
 /** Bascule vers la racine d'un autre onglet (raccourcis de la bibliothèque). */
-export function goToTab(tab: 'HomeTab' | 'LibraryTab' | 'SearchTab' | 'PlaylistsTab' | 'SettingsTab') {
+export function goToTab(tab: 'HomeTab' | 'LibraryTab' | 'VideosTab' | 'SearchTab' | 'PlaylistsTab' | 'SettingsTab') {
   if (!navigationRef.isReady()) return;
   (navigationRef.navigate as (name: string) => void)(tab);
 }

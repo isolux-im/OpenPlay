@@ -18,6 +18,7 @@ import { useTheme } from '../ui/theme';
 const TABS: Record<string, { label: string; icon: IconName; activeIcon: IconName }> = {
   HomeTab: { label: 'Accueil', icon: 'home-outline', activeIcon: 'home' },
   LibraryTab: { label: 'Bibliothèque', icon: 'library-outline', activeIcon: 'library' },
+  VideosTab: { label: 'Vidéos', icon: 'film-outline', activeIcon: 'film' },
   SearchTab: { label: 'Recherche', icon: 'search-outline', activeIcon: 'search' },
   PlaylistsTab: { label: 'Playlists', icon: 'list-outline', activeIcon: 'list' },
   SettingsTab: { label: 'Paramètres', icon: 'settings-outline', activeIcon: 'settings' },
@@ -152,7 +153,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
               accessibilityState={{ selected: focused }}
               accessibilityLabel={meta?.label ?? route.name}>
               <Icon name={focused ? meta.activeIcon : meta.icon} size={23} color={color} />
-              <Text variant="caption" weight={focused ? 'bold' : 'medium'} color={color} style={styles.tabLabel}>
+              <Text variant="caption" weight={focused ? 'bold' : 'medium'} color={color} style={styles.tabLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
                 {meta?.label}
               </Text>
             </Pressable>
@@ -168,7 +169,7 @@ const styles = StyleSheet.create({
   bar: { flexDirection: 'row', paddingTop: 8 },
   hairline: { position: 'absolute', top: 0, left: 0, right: 0, height: StyleSheet.hairlineWidth },
   tab: { flex: 1, alignItems: 'center', gap: 2 },
-  tabLabel: { fontSize: 10.5, marginTop: 1 },
+  tabLabel: { fontSize: 10, marginTop: 1, paddingHorizontal: 2 },
   miniWrap: { marginHorizontal: 12, marginBottom: 10, borderRadius: 20, boxShadow: '0px 8px 24px rgba(0,0,0,0.14)' },
   mini: { flexDirection: 'row', alignItems: 'center', height: 64, paddingLeft: 10, paddingRight: 8, borderRadius: 20, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth },
   miniText: { flex: 1, marginHorizontal: 12 },
