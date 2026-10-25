@@ -4,6 +4,8 @@ import App from '../App';
 import { SimulatedEngine } from '../player/PlaybackEngine';
 import { useLibrary } from '../store/library';
 import { usePlayer } from '../store/player';
+import { useUi } from '../store/ui';
+import { useUser } from '../store/user';
 
 jest.mock('react-native-safe-area-context', () => {
   const { View } = jest.requireActual('react-native');
@@ -24,6 +26,9 @@ beforeEach(() => {
   usePlayer.setState({ queue: [], originalQueue: [], index: -1, isPlaying: false, expanded: false });
 });
 
+// Le minuteur du toast ne doit pas survivre au test.
+afterEach(() => useUi.getState().hideToast());
+
 async function renderApp() {
   await render(<App engineFactory={engine} />);
   await act(async () => {
@@ -34,9 +39,8 @@ async function renderApp() {
 describe('application', () => {
   it('affiche les cinq onglets et l’accueil avec la bibliothèque', async () => {
     await renderApp();
-    for (const label of ['Accueil', 'Bibliothèque', 'Playlists', 'Recherche', 'Paramètres']) {
-      expect(screen.getByRole('tab', { name: label })).toBeTruthy();
-    }
+    // Ordre de la maquette.
+    expect(screen.getAllByRole('tab').map((t) => t.props.accessibilityLabel)).toEqual(['Accueil', 'Bibliothèque', 'Recherche', 'Playlists', 'Paramètres']);
     expect(await screen.findByText('Mix pour vous')).toBeTruthy();
     expect(screen.getAllByText('Lumières du Sud').length).toBeGreaterThan(0);
   });
@@ -61,5 +65,33 @@ describe('application', () => {
     await fireEvent.changeText(await screen.findByLabelText('Rechercher dans la bibliothèque'), 'neon');
     expect(await screen.findByText('Meilleur résultat')).toBeTruthy();
     expect(screen.getAllByText('Neon Drift').length).toBeGreaterThan(0);
+  });
+
+  it('ouvre le menu contextuel vitré par appui long et ajoute aux favoris', async () => {
+    useUser.setState({ favorites: [] });
+    await renderApp();
+    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    await fireEvent.press(await screen.findByRole('button', { name: /^Albums/ }));
+    await fireEvent.press((await screen.findAllByRole('button', { name: /^Racines/ }))[0]);
+    const row = await screen.findByRole('button', { name: /^Lire Lagune/ });
+    await fireEvent(row, 'longPress', { nativeEvent: { pageX: 200, pageY: 300 } });
+    for (const label of ['Lire', 'Lire ensuite', 'Ajouter à une playlist', 'Ajouter aux favoris', 'Partager', 'Supprimer']) {
+      expect(await screen.findByRole('menuitem', { name: label })).toBeTruthy();
+    }
+    await fireEvent.press(screen.getByRole('menuitem', { name: 'Ajouter aux favoris' }));
+    const lagune = useLibrary.getState().index.tracks.find((t) => t.title === 'Lagune')!;
+    expect(useUser.getState().favorites).toEqual([lagune.id]);
+    expect(useUi.getState().menu).toBeNull();
+  });
+
+  it('affiche la qualité audio dans le panneau « … » du lecteur', async () => {
+    await renderApp();
+    const t = useLibrary.getState().index.tracks[0];
+    await act(async () => usePlayer.getState().playTracks([t.id], 0));
+    await fireEvent.press(await screen.findByRole('button', { name: /^Ouvrir le lecteur/ }));
+    await fireEvent.press(await screen.findByRole('button', { name: "Plus d'options de lecture" }));
+    await fireEvent.press(await screen.findByRole('menuitem', { name: 'Qualité audio' }));
+    expect(await screen.findByText('MP3')).toBeTruthy();
+    expect(screen.getByText(/^≈ \d+ kbit\/s$/)).toBeTruthy();
   });
 });

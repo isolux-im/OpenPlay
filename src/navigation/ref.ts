@@ -19,3 +19,9 @@ export function navigateInCurrentTab<K extends keyof SharedStackParams>(screen: 
   // Les piles partagent le même jeu d'écrans : la navigation imbriquée est sûre pour chaque onglet.
   (navigationRef.navigate as (name: string, p: object) => void)(tab, { screen, params });
 }
+
+/** Bascule vers la racine d'un autre onglet (raccourcis de la bibliothèque). */
+export function goToTab(tab: 'HomeTab' | 'LibraryTab' | 'SearchTab' | 'PlaylistsTab' | 'SettingsTab') {
+  if (!navigationRef.isReady()) return;
+  (navigationRef.navigate as (name: string) => void)(tab);
+}

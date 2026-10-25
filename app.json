@@ -4,16 +4,15 @@
     "slug": "openplay",
     "version": "2.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/brand/icon.png",
     "userInterfaceStyle": "automatic",
     "android": {
       "package": "com.openplay.app",
       "versionCode": 2,
       "adaptiveIcon": {
-        "backgroundColor": "#F2385A",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#F4F5F7",
+        "foregroundImage": "./assets/brand/android-icon-foreground.png",
+        "backgroundImage": "./assets/brand/android-icon-background.png"
       },
       "predictiveBackGestureEnabled": false,
       "blockedPermissions": [
@@ -45,8 +44,25 @@
         }
       ],
       "expo-image",
-      "expo-font"
+      "expo-font",
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/brand/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#F8F9FA",
+          "dark": {
+            "image": "./assets/brand/splash-icon.png",
+            "backgroundColor": "#000000"
+          }
+        }
+      ]
     ],
-    "backgroundColor": "#000000"
+    "backgroundColor": "#000000",
+    "web": {
+      "favicon": "./assets/brand/favicon.png"
+    }
   }
 }

@@ -86,8 +86,8 @@ export function RootNavigator() {
       <Tab.Navigator tabBar={(props) => <TabBar {...props} />} screenOptions={{ headerShown: false, animation: 'fade' }}>
         <Tab.Screen name="HomeTab" component={HomeStack} />
         <Tab.Screen name="LibraryTab" component={LibraryStack} />
-        <Tab.Screen name="PlaylistsTab" component={PlaylistsStack} />
         <Tab.Screen name="SearchTab" component={SearchStack} />
+        <Tab.Screen name="PlaylistsTab" component={PlaylistsStack} />
         <Tab.Screen name="SettingsTab" component={SettingsStack} />
       </Tab.Navigator>
     </NavigationContainer>

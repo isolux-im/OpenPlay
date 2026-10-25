@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { Pressable, ScrollView, StyleSheet, View, type ScrollViewInstance } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View, type ScrollViewInstance } from 'react-native';
 
+import { isAiLyrics } from '../../lyrics/transcription';
+import { useTranscription } from '../../store/transcription';
 import { useUi } from '../../store/ui';
+import { useUser } from '../../store/user';
 import type { Track } from '../../types';
 import { Text } from '../../ui/Text';
 import { activeLineIndex } from '../lrc';
@@ -12,6 +15,11 @@ type Props = { track: Track; position: number; onSeek: (sec: number) => void; te
 export function LyricsPanel({ track, position, onSeek, textColor, dimColor }: Props) {
   const { lyrics, loading } = useLyrics(track);
   const showToast = useUi((s) => s.showToast);
+  const job = useTranscription((s) => s.jobs[track.id]);
+  const { start, cancel, clearError } = useTranscription.getState();
+  const raw = useUser((s) => s.lyrics[track.id]);
+  const fromAi = isAiLyrics(raw);
+  const setLyrics = useUser((s) => s.setLyrics);
   const scroll = useRef<ScrollViewInstance>(null);
   const offsets = useRef<number[]>([]);
   const active = useMemo(() => (lyrics?.synced ? activeLineIndex(lyrics.lines, position + 0.25) : -1), [lyrics, position]);
@@ -30,6 +38,29 @@ export function LyricsPanel({ track, position, onSeek, textColor, dimColor }: Pr
     }
   };
 
+  const transcribe = async () => {
+    if (await start(track)) showToast('Paroles transcrites');
+  };
+
+  if (job?.status === 'running') {
+    return (
+      <View style={styles.empty}>
+        <ActivityIndicator color={textColor} />
+        <Text variant="title3" color={textColor} style={styles.center}>
+          Transcription en cours…
+        </Text>
+        <Text variant="subhead" color={dimColor} style={styles.center}>
+          Envoi du morceau puis analyse par l’IA. Vous pouvez quitter cet écran.
+        </Text>
+        <Pressable onPress={() => cancel(track.id)} style={[styles.button, { borderColor: dimColor }]} accessibilityRole="button">
+          <Text variant="headline" color={textColor}>
+            Annuler
+          </Text>
+        </Pressable>
+      </View>
+    );
+  }
+
   if (!lyrics || lyrics.lines.length === 0) {
     return (
       <View style={styles.empty}>
@@ -38,9 +69,22 @@ export function LyricsPanel({ track, position, onSeek, textColor, dimColor }: Pr
         </Text>
         {!loading ? (
           <>
-            <Text variant="subhead" color={dimColor} style={styles.center}>
-              Placez un fichier .lrc portant le même nom que le morceau, ou importez-le.
-            </Text>
+            {job?.status === 'error' ? (
+              <Pressable onPress={() => clearError(track.id)} accessibilityRole="button" accessibilityLabel="Masquer l'erreur">
+                <Text variant="subhead" color={textColor} style={[styles.center, styles.error]}>
+                  {job.message}
+                </Text>
+              </Pressable>
+            ) : (
+              <Text variant="subhead" color={dimColor} style={styles.center}>
+                Faites transcrire le morceau par l’IA (Internet requis), ou importez un fichier .lrc.
+              </Text>
+            )}
+            <Pressable onPress={transcribe} style={[styles.button, styles.primary, { backgroundColor: textColor }]} accessibilityRole="button">
+              <Text variant="headline" color="#000000">
+                ✦ Transcrire avec l’IA
+              </Text>
+            </Pressable>
             <Pressable onPress={importFile} style={[styles.button, { borderColor: dimColor }]} accessibilityRole="button">
               <Text variant="headline" color={textColor}>
                 Importer un fichier .lrc
@@ -53,6 +97,24 @@ export function LyricsPanel({ track, position, onSeek, textColor, dimColor }: Pr
   }
 
   return (
+    <View style={styles.fill}>
+      {fromAi ? (
+        <View style={styles.aiBar}>
+          <Text variant="footnote" color={dimColor} style={{ flex: 1 }}>
+            ✦ Transcription automatique — à vérifier
+          </Text>
+          <Pressable onPress={transcribe} hitSlop={8} accessibilityRole="button">
+            <Text variant="footnote" weight="semibold" color={textColor}>
+              Refaire
+            </Text>
+          </Pressable>
+          <Pressable onPress={() => setLyrics(track.id, null)} hitSlop={8} accessibilityRole="button">
+            <Text variant="footnote" weight="semibold" color={textColor}>
+              Effacer
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
     <ScrollView ref={scroll} style={styles.fill} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       {lyrics.lines.map((line, i) => {
         const isActive = i === active;
@@ -74,6 +136,7 @@ export function LyricsPanel({ track, position, onSeek, textColor, dimColor }: Pr
         );
       })}
     </ScrollView>
+    </View>
   );
 }
 
@@ -84,4 +147,7 @@ const styles = StyleSheet.create({
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingHorizontal: 12 },
   center: { textAlign: 'center' },
   button: { marginTop: 8, borderWidth: 1, borderRadius: 999, paddingHorizontal: 20, paddingVertical: 10 },
+  primary: { borderWidth: 0 },
+  error: { fontWeight: '600' },
+  aiBar: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingTop: 8 },
 });

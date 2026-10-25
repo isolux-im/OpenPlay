@@ -16,8 +16,8 @@ import { useTheme } from '../ui/theme';
 const TABS: Record<string, { label: string; icon: IconName; activeIcon: IconName }> = {
   HomeTab: { label: 'Accueil', icon: 'home-outline', activeIcon: 'home' },
   LibraryTab: { label: 'Bibliothèque', icon: 'library-outline', activeIcon: 'library' },
-  PlaylistsTab: { label: 'Playlists', icon: 'musical-notes-outline', activeIcon: 'musical-notes' },
   SearchTab: { label: 'Recherche', icon: 'search-outline', activeIcon: 'search' },
+  PlaylistsTab: { label: 'Playlists', icon: 'list-outline', activeIcon: 'list' },
   SettingsTab: { label: 'Paramètres', icon: 'settings-outline', activeIcon: 'settings' },
 };
 
@@ -43,12 +43,11 @@ export function MiniPlayer() {
 
   if (!track) return null;
   return (
-    <Animated.View entering={FadeInDown.springify().damping(18)} exiting={FadeOutDown} style={[styles.miniWrap, { shadowColor: colors.shadow }]}>
-      <PressableScale scaleTo={0.98} onPress={() => setExpanded(true)} style={styles.mini} accessibilityRole="button" accessibilityLabel={`Ouvrir le lecteur : ${track.title}, ${track.artist}`}>
-        <Chrome radius={14} />
-        <Artwork track={track} size={42} rounded={7} />
+    <Animated.View entering={FadeInDown.springify().damping(18)} exiting={FadeOutDown} style={styles.miniWrap}>
+      <PressableScale scaleTo={0.98} onPress={() => setExpanded(true)} style={[styles.mini, { backgroundColor: colors.card, borderColor: colors.separator }]} accessibilityRole="button" accessibilityLabel={`Ouvrir le lecteur : ${track.title}, ${track.artist}`}>
+        <Artwork track={track} size={44} rounded={10} />
         <View style={styles.miniText}>
-          <Text variant="subhead" weight="medium" numberOfLines={1}>
+          <Text variant="subhead" weight="semibold" numberOfLines={1}>
             {track.title}
           </Text>
           <Text variant="footnote" tone="secondary" numberOfLines={1}>
@@ -60,17 +59,17 @@ export function MiniPlayer() {
             tap();
             toggle();
           }}
-          hitSlop={8}
-          style={styles.miniButton}
+          hitSlop={6}
+          style={[styles.miniPlay, { backgroundColor: colors.accent }]}
           accessibilityRole="button"
           accessibilityLabel={isPlaying ? 'Pause' : 'Lecture'}>
-          <Icon name={isPlaying ? 'pause' : 'play'} size={26} />
+          <Icon name={isPlaying ? 'pause' : 'play'} size={18} color={colors.onAccent} />
         </Pressable>
         <Pressable onPress={next} hitSlop={8} style={styles.miniButton} accessibilityRole="button" accessibilityLabel="Suivant">
-          <Icon name="play-forward" size={24} />
+          <Icon name="play-forward" size={22} />
         </Pressable>
-        <View style={[styles.miniProgressTrack, { backgroundColor: colors.separator }]}>
-          <Animated.View style={[styles.miniProgress, { backgroundColor: colors.accent }, progressStyle]} />
+        <View style={[styles.miniProgressTrack, { backgroundColor: colors.fill }]}>
+          <Animated.View style={[styles.miniProgress, { backgroundColor: colors.text }, progressStyle]} />
         </View>
       </PressableScale>
     </Animated.View>
@@ -89,7 +88,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
         {state.routes.map((route, i) => {
           const focused = state.index === i;
           const meta = TABS[route.name];
-          const color = focused ? colors.accent : colors.secondaryText;
+          const color = focused ? colors.text : colors.secondaryText;
           return (
             <Pressable
               key={route.key}
@@ -105,8 +104,8 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
               accessibilityRole="tab"
               accessibilityState={{ selected: focused }}
               accessibilityLabel={meta?.label ?? route.name}>
-              <Icon name={focused ? meta.activeIcon : meta.icon} size={25} color={color} />
-              <Text variant="caption" color={color} style={styles.tabLabel}>
+              <Icon name={focused ? meta.activeIcon : meta.icon} size={23} color={color} />
+              <Text variant="caption" weight={focused ? 'bold' : 'medium'} color={color} style={styles.tabLabel}>
                 {meta?.label}
               </Text>
             </Pressable>
@@ -119,14 +118,15 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
 
 const styles = StyleSheet.create({
   container: { position: 'absolute', left: 0, right: 0, bottom: 0 },
-  bar: { flexDirection: 'row', paddingTop: 6 },
+  bar: { flexDirection: 'row', paddingTop: 8 },
   hairline: { position: 'absolute', top: 0, left: 0, right: 0, height: StyleSheet.hairlineWidth },
   tab: { flex: 1, alignItems: 'center', gap: 2 },
-  tabLabel: { fontSize: 10.5 },
-  miniWrap: { marginHorizontal: 10, marginBottom: 8, borderRadius: 14, shadowOpacity: 0.16, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 10 },
-  mini: { flexDirection: 'row', alignItems: 'center', height: 60, paddingHorizontal: 9, borderRadius: 14, overflow: 'hidden' },
-  miniText: { flex: 1, marginHorizontal: 11 },
+  tabLabel: { fontSize: 10.5, marginTop: 1 },
+  miniWrap: { marginHorizontal: 12, marginBottom: 10, borderRadius: 20, boxShadow: '0px 8px 24px rgba(0,0,0,0.14)' },
+  mini: { flexDirection: 'row', alignItems: 'center', height: 64, paddingLeft: 10, paddingRight: 8, borderRadius: 20, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth },
+  miniText: { flex: 1, marginHorizontal: 12 },
+  miniPlay: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', marginRight: 4 },
   miniButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  miniProgressTrack: { position: 'absolute', left: 14, right: 14, bottom: 0, height: 2, borderRadius: 1 },
+  miniProgressTrack: { position: 'absolute', left: 20, right: 20, bottom: 0, height: 2, borderRadius: 1 },
   miniProgress: { height: 2, borderRadius: 1 },
 });

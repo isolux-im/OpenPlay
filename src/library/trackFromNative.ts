@@ -46,5 +46,7 @@ export function trackFromNative(n: NativeTrack): Track {
     addedAt: (n.dateAdded || 0) * 1000,
     folder: folderOf(n.path),
     path: n.path,
+    sizeBytes: n.size || 0,
+    mimeType: n.mimeType || 'audio/mpeg',
   };
 }

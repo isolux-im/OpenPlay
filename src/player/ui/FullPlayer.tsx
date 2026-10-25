@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { BackHandler, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { Easing, interpolate, runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
@@ -14,7 +14,7 @@ import { navigateInCurrentTab } from '../../navigation/ref';
 import { useLibrary } from '../../store/library';
 import { usePlayer } from '../../store/player';
 import { useSettings } from '../../store/settings';
-import { useUi } from '../../store/ui';
+import { useUi, type PlayerMode } from '../../store/ui';
 import { useUser } from '../../store/user';
 import { tap } from '../../ui/haptics';
 import { Icon, type IconName } from '../../ui/Icon';
@@ -24,7 +24,7 @@ import { LyricsPanel } from './LyricsPanel';
 import { QueuePanel } from './QueuePanel';
 import { Scrubber } from './Scrubber';
 
-type Mode = 'artwork' | 'lyrics' | 'queue';
+type Mode = PlayerMode;
 
 /** Lecteur plein écran : feuille qui monte depuis le mini-lecteur et se ferme d'un glissement vers le bas. */
 export function FullPlayer() {
@@ -37,7 +37,8 @@ export function FullPlayer() {
   const track = useLibrary((s) => (trackId ? s.index.byId[trackId] : undefined));
   const mounted = usePlayer((s) => s.playerMounted);
   const onPlayerClosed = usePlayer((s) => s.onPlayerClosed);
-  const [mode, setMode] = useState<Mode>('artwork');
+  const mode = useUi((s) => s.playerMode);
+  const setMode = useUi((s) => s.setPlayerMode);
 
   const translate = useSharedValue(height);
 
@@ -124,24 +125,25 @@ function PlayerContent({ track, mode, setMode, onClose, width, topInset, bottomI
   const duration = usePlayer((s) => s.durationSec || track.durationSec);
   const shuffle = usePlayer((s) => s.shuffle);
   const repeat = usePlayer((s) => s.repeat);
-  const sleep = usePlayer((s) => s.sleep);
+  const sourceLabel = usePlayer((s) => s.sourceLabel);
   const { toggle, next, previous, seek, toggleShuffle, cycleRepeat } = usePlayer.getState();
   const favorite = useUser((s) => s.favorites.includes(track.id));
   const toggleFavorite = useUser((s) => s.toggleFavorite);
   const openMenu = useUi((s) => s.openTrackMenu);
-  const openSleep = useUi((s) => s.openSleepSheet);
+  const openOptions = useUi((s) => s.openPlayerOptions);
 
   const palette = art?.colors ?? fallbackColors(track.albumId || track.id);
-  const onColor = colored || themeDark;
-  const text = onColor ? '#FFFFFF' : '#0B0B0D';
-  const dim = onColor ? 'rgba(255,255,255,0.62)' : 'rgba(60,60,67,0.62)';
-  const chip = onColor ? 'rgba(255,255,255,0.16)' : 'rgba(118,118,128,0.14)';
-  const trackColor = onColor ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.12)';
+  // Fond gris flouté (maquette) ; teintes de la pochette si l'option est activée.
+  const onDark = colored || themeDark;
+  const text = onDark ? '#FFFFFF' : '#111113';
+  const dim = onDark ? 'rgba(255,255,255,0.62)' : 'rgba(60,60,67,0.62)';
+  const chip = onDark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.06)';
+  const trackColor = onDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.10)';
 
   const artSize = Math.min(width - 56, 420);
-  const artScale = useSharedValue(isPlaying ? 1 : 0.84);
+  const artScale = useSharedValue(isPlaying ? 1 : 0.86);
   useEffect(() => {
-    artScale.set(withSpring(isPlaying ? 1 : 0.84, { damping: 15, stiffness: 140 }));
+    artScale.set(withSpring(isPlaying ? 1 : 0.86, { damping: 15, stiffness: 140 }));
   }, [isPlaying, artScale]);
   const artStyle = useAnimatedStyle(() => ({ transform: [{ scale: artScale.get() }] }));
 
@@ -156,53 +158,71 @@ function PlayerContent({ track, mode, setMode, onClose, width, topInset, bottomI
     </PressableScale>
   );
 
-  const bottomTab = (icon: IconName, activeIcon: IconName, label: string, target: Mode | 'sleep', badge = false) => {
-    const isActive = target === mode || (target === 'sleep' && badge);
+  const bottomTab = (icon: IconName, activeIcon: IconName, label: string, target: Mode) => {
+    const isActive = target === mode;
     return (
       <Pressable
         onPress={() => {
           tap('selection');
-          if (target === 'sleep') openSleep();
-          else setMode(mode === target ? 'artwork' : target);
+          setMode(mode === target ? 'artwork' : target);
         }}
         style={[styles.bottomTab, isActive && { backgroundColor: chip }]}
         accessibilityRole="button"
         accessibilityState={{ selected: isActive }}
         accessibilityLabel={label}>
-        <Icon name={isActive ? activeIcon : icon} size={22} color={isActive ? text : dim} />
+        <Icon name={isActive ? activeIcon : icon} size={21} color={isActive ? text : dim} />
       </Pressable>
     );
   };
 
   return (
-    <View style={[styles.fill, { backgroundColor: onColor ? palette.darkMuted : themeBackground }]}>
-      <StatusBar style={onColor ? 'light' : 'dark'} />
+    <View style={[styles.fill, { backgroundColor: colored ? palette.darkMuted : themeBackground }]}>
+      <StatusBar style={onDark ? 'light' : 'dark'} />
+      {art?.uri ? <Image source={{ uri: art.uri }} style={StyleSheet.absoluteFill} blurRadius={70} contentFit="cover" /> : null}
       {colored ? (
-        <>
-          {art?.uri ? <Image source={{ uri: art.uri }} style={StyleSheet.absoluteFill} blurRadius={60} contentFit="cover" /> : null}
-          <LinearGradient
-            colors={[`${palette.vibrant}CC`, `${palette.dominant}D9`, `${palette.darkMuted}F2`]}
-            locations={[0, 0.45, 1]}
-            style={StyleSheet.absoluteFill}
-          />
-        </>
-      ) : null}
+        <LinearGradient colors={[`${palette.vibrant}CC`, `${palette.dominant}D9`, `${palette.darkMuted}F2`]} locations={[0, 0.45, 1]} style={StyleSheet.absoluteFill} />
+      ) : (
+        <LinearGradient
+          colors={themeDark ? ['rgba(28,28,30,0.78)', 'rgba(12,12,13,0.92)'] : ['rgba(236,236,238,0.80)', 'rgba(246,246,247,0.94)']}
+          style={StyleSheet.absoluteFill}
+        />
+      )}
 
       <GestureDetector gesture={drag}>
-        <View style={[styles.fill, { paddingTop: topInset + 6, paddingBottom: bottomInset + 12 }]}>
-          <Pressable onPress={onClose} style={styles.grabberHit} accessibilityRole="button" accessibilityLabel="Réduire le lecteur">
-            <View style={[styles.grabber, { backgroundColor: dim }]} />
-          </Pressable>
+        <View style={[styles.fill, { paddingTop: topInset + 4, paddingBottom: bottomInset + 12 }]}>
+          <View style={styles.topBar}>
+            <Pressable onPress={onClose} hitSlop={10} style={[styles.topButton, { backgroundColor: chip }]} accessibilityRole="button" accessibilityLabel="Réduire le lecteur">
+              <Icon name="chevron-down" size={22} color={text} />
+            </Pressable>
+            <View style={styles.topCenter}>
+              <Text variant="caption" color={dim} numberOfLines={1}>
+                {sourceLabel ? 'LECTURE DEPUIS' : 'LECTURE EN COURS'}
+              </Text>
+              {sourceLabel ? (
+                <Text variant="footnote" weight="semibold" color={text} numberOfLines={1}>
+                  {sourceLabel}
+                </Text>
+              ) : null}
+            </View>
+            <Pressable
+              onPress={(e) => openMenu(track.id, {}, { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY })}
+              hitSlop={10}
+              style={[styles.topButton, { backgroundColor: chip }]}
+              accessibilityRole="button"
+              accessibilityLabel="Options du morceau">
+              <Icon name="ellipsis-horizontal" size={20} color={text} />
+            </Pressable>
+          </View>
 
           {mode === 'artwork' ? (
             <View style={styles.artArea}>
               <Animated.View style={artStyle}>
-                <Artwork track={track} size={artSize} rounded={14} shadow />
+                <Artwork track={track} size={artSize} rounded={22} shadow />
               </Animated.View>
             </View>
           ) : (
             <View style={styles.compactHeader}>
-              <Artwork track={track} size={60} rounded={8} />
+              <Artwork track={track} size={60} rounded={12} />
               <View style={{ flex: 1 }}>
                 <Text variant="headline" color={text} numberOfLines={1}>
                   {track.title}
@@ -229,7 +249,7 @@ function PlayerContent({ track, mode, setMode, onClose, width, topInset, bottomI
                     {track.title}
                   </Text>
                   <Pressable onPress={openArtist} accessibilityRole="link" accessibilityLabel={`Voir ${track.artist}`}>
-                    <Text variant="title3" weight="regular" color={dim} numberOfLines={1}>
+                    <Text variant="body" color={dim} numberOfLines={1}>
                       {track.artist}
                     </Text>
                   </Pressable>
@@ -239,14 +259,11 @@ function PlayerContent({ track, mode, setMode, onClose, width, topInset, bottomI
                     tap('success');
                     toggleFavorite(track.id);
                   }}
-                  hitSlop={8}
-                  style={[styles.roundButton, { backgroundColor: chip }]}
+                  hitSlop={10}
+                  style={styles.heart}
                   accessibilityRole="button"
                   accessibilityLabel={favorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}>
-                  <Icon name={favorite ? 'heart' : 'heart-outline'} size={20} color={text} />
-                </Pressable>
-                <Pressable onPress={() => openMenu(track.id)} hitSlop={8} style={[styles.roundButton, { backgroundColor: chip }]} accessibilityRole="button" accessibilityLabel="Plus d'options">
-                  <Icon name="ellipsis-horizontal" size={20} color={text} />
+                  <Icon name={favorite ? 'heart' : 'heart-outline'} size={26} color={text} />
                 </Pressable>
               </View>
             ) : null}
@@ -254,36 +271,39 @@ function PlayerContent({ track, mode, setMode, onClose, width, topInset, bottomI
             <Scrubber position={position} duration={duration} onSeek={seek} color={text} trackColor={trackColor} textColor={dim} />
 
             <View style={styles.transport}>
-              {mode === 'artwork' ? (
-                <Pressable onPress={toggleShuffle} style={styles.side} accessibilityRole="switch" accessibilityState={{ checked: shuffle }} accessibilityLabel="Lecture aléatoire">
-                  <Icon name="shuffle" size={22} color={shuffle ? text : dim} />
-                  {shuffle ? <View style={[styles.dot, { backgroundColor: text }]} /> : null}
-                </Pressable>
-              ) : (
-                <View style={styles.side} />
-              )}
-              {control('play-back', 'Précédent', previous, 40)}
-              {control(isPlaying ? 'pause' : 'play', isPlaying ? 'Pause' : 'Lecture', toggle, 56)}
-              {control('play-forward', 'Suivant', next, 40)}
-              {mode === 'artwork' ? (
-                <Pressable onPress={cycleRepeat} style={styles.side} accessibilityRole="button" accessibilityLabel={repeat === 'one' ? 'Répéter le morceau' : repeat === 'all' ? 'Répéter tout' : 'Répétition désactivée'}>
-                  <Icon name="repeat" size={22} color={repeat !== 'off' ? text : dim} />
-                  {repeat === 'one' ? (
-                    <Text variant="caption" weight="bold" color={text} style={styles.repeatBadge}>
-                      1
-                    </Text>
-                  ) : null}
-                  {repeat !== 'off' ? <View style={[styles.dot, { backgroundColor: text }]} /> : null}
-                </Pressable>
-              ) : (
-                <View style={styles.side} />
-              )}
+              <Pressable onPress={toggleShuffle} style={styles.side} accessibilityRole="switch" accessibilityState={{ checked: shuffle }} accessibilityLabel="Lecture aléatoire">
+                <Icon name="shuffle-outline" size={22} color={shuffle ? text : dim} />
+                {shuffle ? <View style={[styles.dot, { backgroundColor: text }]} /> : null}
+              </Pressable>
+              {control('play-back', 'Précédent', previous, 34)}
+              <PressableScale haptic scaleTo={0.9} onPress={toggle} style={[styles.playButton, { borderColor: text }]} accessibilityRole="button" accessibilityLabel={isPlaying ? 'Pause' : 'Lecture'}>
+                <Icon name={isPlaying ? 'pause' : 'play'} size={34} color={text} />
+              </PressableScale>
+              {control('play-forward', 'Suivant', next, 34)}
+              <Pressable onPress={cycleRepeat} style={styles.side} accessibilityRole="button" accessibilityLabel={repeat === 'one' ? 'Répéter le morceau' : repeat === 'all' ? 'Répéter tout' : 'Répétition désactivée'}>
+                <Icon name="repeat-outline" size={22} color={repeat !== 'off' ? text : dim} />
+                {repeat === 'one' ? (
+                  <Text variant="caption" weight="bold" color={text} style={styles.repeatBadge}>
+                    1
+                  </Text>
+                ) : null}
+                {repeat !== 'off' ? <View style={[styles.dot, { backgroundColor: text }]} /> : null}
+              </Pressable>
             </View>
 
             <View style={styles.bottomRow}>
               {bottomTab('chatbubble-ellipses-outline', 'chatbubble-ellipses', 'Paroles', 'lyrics')}
-              {bottomTab('moon-outline', 'moon', 'Minuterie de sommeil', 'sleep', !!(sleep.endsAt || sleep.atTrackEnd))}
               {bottomTab('list-outline', 'list', "File d'attente", 'queue')}
+              <Pressable
+                onPress={() => {
+                  tap('selection');
+                  openOptions();
+                }}
+                style={styles.bottomTab}
+                accessibilityRole="button"
+                accessibilityLabel="Plus d'options de lecture">
+                <Icon name="ellipsis-horizontal" size={22} color={dim} />
+              </Pressable>
             </View>
           </View>
         </View>
@@ -295,19 +315,21 @@ function PlayerContent({ track, mode, setMode, onClose, width, topInset, bottomI
 const styles = StyleSheet.create({
   sheet: { overflow: 'hidden', zIndex: 100, elevation: 30 },
   fill: { flex: 1 },
-  grabberHit: { alignSelf: 'center', paddingVertical: 8, paddingHorizontal: 24 },
-  grabber: { width: 40, height: 5, borderRadius: 3 },
+  topBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 6, gap: 12 },
+  topButton: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  topCenter: { flex: 1, alignItems: 'center' },
   artArea: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   compactHeader: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 28, paddingTop: 12, paddingBottom: 8 },
   panelArea: { flex: 1, paddingHorizontal: 28, paddingBottom: 12 },
   controlsArea: { paddingHorizontal: 28, gap: 10 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 6 },
-  roundButton: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  heart: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', marginRight: -6 },
+  playButton: { width: 76, height: 76, borderRadius: 38, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
   transport: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },
-  control: { width: 76, height: 76, alignItems: 'center', justifyContent: 'center' },
+  control: { width: 64, height: 64, alignItems: 'center', justifyContent: 'center' },
   side: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   dot: { position: 'absolute', bottom: 2, width: 4, height: 4, borderRadius: 2 },
   repeatBadge: { position: 'absolute', top: 6, right: 6, fontSize: 9 },
-  bottomRow: { flexDirection: 'row', justifyContent: 'space-around', marginTop: 8 },
-  bottomTab: { width: 52, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  bottomRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, paddingHorizontal: 12 },
+  bottomTab: { width: 52, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
 });

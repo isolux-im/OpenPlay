@@ -5,7 +5,7 @@ import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { fallbackColors, useArtwork } from '../library/artwork';
 import type { Track } from '../types';
 import { Icon, type IconName } from '../ui/Icon';
-import { radius as R } from '../ui/theme';
+import { radius as R, useTheme } from '../ui/theme';
 
 type Props = {
   track?: Pick<Track, 'id' | 'albumId'> | null;
@@ -20,6 +20,7 @@ type Props = {
 /** Pochette carrée (ou ronde pour les artistes) ; dégradé coloré quand le fichier n'en contient pas. */
 export function Artwork({ track, size, rounded = R.md, circle = false, placeholderIcon = 'musical-notes', style, shadow = false }: Props) {
   const info = useArtwork(track ?? null);
+  const { dark } = useTheme();
   const dim = size ? { width: size, height: size } : { width: '100%' as const, aspectRatio: 1 };
   const r = circle ? 9999 : rounded;
   const colors = info?.colors ?? fallbackColors(track?.albumId || track?.id || 'openplay');
@@ -28,11 +29,19 @@ export function Artwork({ track, size, rounded = R.md, circle = false, placehold
   return (
     <View style={[dim, { borderRadius: r }, shadow && styles.shadow, style]}>
       <View style={[StyleSheet.absoluteFill, { borderRadius: r, overflow: 'hidden' }]}>
-        {info?.uri ? (
+        {info?.uri && isSquareish(info.aspect) ? (
           <Image source={{ uri: info.uri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={180} recyclingKey={info.uri} />
+        ) : info?.uri ? (
+          <>
+            {/* Image non carrée (vignette vidéo) : affichée en entier sur un fond flouté d'elle-même. */}
+            <Image source={{ uri: info.uri }} style={StyleSheet.absoluteFill} contentFit="cover" blurRadius={24} recyclingKey={`${info.uri}#bg`} />
+            <View style={[StyleSheet.absoluteFill, styles.dim]} />
+            <Image source={{ uri: info.uri }} style={StyleSheet.absoluteFill} contentFit="contain" transition={180} recyclingKey={info.uri} />
+          </>
         ) : (
-          <LinearGradient colors={[colors.vibrant, colors.dominant]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.center}>
-            <Icon name={placeholderIcon} size={iconSize} color="rgba(255,255,255,0.82)" />
+          // Sans pochette : dégradé gris neutre, légèrement varié d'un album à l'autre.
+          <LinearGradient colors={neutral(colors.dominant, dark)} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.center}>
+            <Icon name={placeholderIcon} size={iconSize} color={dark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.32)'} />
           </LinearGradient>
         )}
         <View style={[StyleSheet.absoluteFill, styles.hairline, { borderRadius: r }]} pointerEvents="none" />
@@ -56,14 +65,31 @@ export function Mosaic({ tracks, size, rounded = R.md, style }: { tracks: Pick<T
     <View style={[dim, { borderRadius: rounded, overflow: 'hidden', flexDirection: 'row', flexWrap: 'wrap' }, style]}>
       {distinct.map((t) => (
         <View key={t.albumId} style={{ width: '50%', height: '50%' }}>
-          <Artwork track={t} rounded={0} style={{ width: '100%', height: '100%' }} />
+          <Artwork track={t} rounded={0} size={size ? size / 2 : undefined} style={{ width: '100%', height: '100%' }} />
         </View>
       ))}
     </View>
   );
 }
 
+/** Deux gris proches dont la clarté dépend (faiblement) de la teinte de repli de l'album. */
+function neutral(seedColor: string, dark: boolean): [string, string] {
+  const n = parseInt(seedColor.replace('#', '').slice(0, 2), 16) || 0;
+  const shift = Math.round((n / 255) * 14);
+  const g = (v: number) => {
+    const h = Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0');
+    return `#${h}${h}${h}`;
+  };
+  return dark ? [g(52 + shift), g(30 + shift)] : [g(232 - shift), g(204 - shift)];
+}
+
+/** Tolérance de 8 % : au-delà, l'image est montrée entière plutôt que recadrée. */
+function isSquareish(aspect: number) {
+  return Math.abs(aspect - 1) <= 0.08;
+}
+
 const styles = StyleSheet.create({
+  dim: { backgroundColor: 'rgba(0,0,0,0.18)' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   hairline: { borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(128,128,128,0.25)' },
   shadow: {

@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { ActivityIndicator, Linking, View } from 'react-native';
 
 import { EmptyState } from '../components/Blocks';
+import { BrandLogo } from '../components/BrandLogo';
 import { useLibrary } from '../store/library';
 import { useSettings } from '../store/settings';
 import { useTheme } from '../ui/theme';
@@ -24,12 +25,15 @@ export function LibraryGate({ children, emptyHint = true }: { children: ReactNod
   }
   if (status === 'needs-permission') {
     return (
+      <View style={{ paddingTop: 24 }}>
+        <BrandLogo width={170} />
       <EmptyState
         icon="musical-notes"
         title="Votre musique, hors ligne"
         message="OpenPlay lit les fichiers audio de ce téléphone. Rien ne quitte votre appareil."
         action={{ label: "Autoriser l'accès à la musique", onPress: () => requestPermission(minDuration) }}
       />
+      </View>
     );
   }
   if (status === 'denied') {

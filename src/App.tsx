@@ -6,10 +6,13 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { OpenPlayMedia } from '../modules/openplay-media';
+import { ContextMenuHost } from './components/ContextMenu';
+import { GlassTarget } from './components/Glass';
 import { SheetHost } from './components/Sheets';
 import { RootNavigator } from './navigation/RootNavigator';
 import { ExpoPlaylistEngine, SimulatedEngine, type PlaybackEngine } from './player/PlaybackEngine';
 import { FullPlayer } from './player/ui/FullPlayer';
+import { PlayerOptionsHost } from './player/ui/PlayerOptions';
 import { useLibrary } from './store/library';
 import { connectPlayer, disconnectPlayer, usePlayer } from './store/player';
 import { useSettings } from './store/settings';
@@ -54,9 +57,18 @@ function Shell({ engineFactory }: { engineFactory: () => PlaybackEngine }) {
   return (
     <View style={[styles.fill, { backgroundColor: colors.background }]}>
       <StatusBar style={dark ? 'light' : 'dark'} />
-      <RootNavigator />
-      <FullPlayer />
-      <SheetHost />
+      {/* Les menus vitrés sont rendus hors de la cible de flou, qu'ils floutent. */}
+      <GlassTarget
+        overlay={
+          <>
+            <PlayerOptionsHost />
+            <ContextMenuHost />
+            <SheetHost />
+          </>
+        }>
+        <RootNavigator />
+        <FullPlayer />
+      </GlassTarget>
     </View>
   );
 }

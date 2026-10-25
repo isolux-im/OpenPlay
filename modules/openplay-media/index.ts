@@ -24,12 +24,16 @@ export type NativeArtwork = {
   dominant: string;
   vibrant: string;
   darkMuted: string;
+  width: number;
+  height: number;
 };
 
 type OpenPlayMediaModule = {
   queryTracksAsync(minDurationMs: number): Promise<NativeTrack[]>;
   getArtworkAsync(trackId: string, albumId: string, size: number): Promise<NativeArtwork | null>;
   readLyricsAsync(path: string): Promise<string | null>;
+  /** Ouvre la feuille de partage Android avec le fichier audio (URI MediaStore). Absent des anciennes versions. */
+  shareAudioAsync?(trackId: string, mimeType: string, title: string): Promise<void>;
 };
 
 /** null hors Android (web, tests) : l'application bascule alors sur une bibliothèque de démonstration. */

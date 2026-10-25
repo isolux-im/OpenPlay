@@ -37,6 +37,8 @@ export function demoTracks(now = Date.UTC(2026, 9, 24)): Track[] {
         addedAt: now - (albumIndex * 5 + i) * 86_400_000,
         folder: `Music/${a.genre}`,
         path: `/storage/emulated/0/Music/${a.genre}/${title}.mp3`,
+        sizeBytes: 6_000_000,
+        mimeType: 'audio/mpeg',
       });
     });
   });

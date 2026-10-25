@@ -4,9 +4,11 @@ import { OpenPlayMedia } from '../../modules/openplay-media';
 import type { Track } from '../types';
 
 export type ArtworkColors = { dominant: string; vibrant: string; darkMuted: string };
-export type ArtworkInfo = { uri: string | null; colors: ArtworkColors };
+/** `aspect` = largeur / hauteur de l'image (1 pour une pochette carrée). */
+export type ArtworkInfo = { uri: string | null; colors: ArtworkColors; aspect: number };
 
-export const ARTWORK_SIZE = 800;
+/** Côté le plus long en pixels : couvre la pochette du lecteur plein écran sur les écrans courants. */
+export const ARTWORK_SIZE = 1200;
 
 const cache = new Map<string, ArtworkInfo>();
 const pending = new Map<string, Promise<ArtworkInfo>>();
@@ -63,11 +65,15 @@ export function loadArtwork(track: Pick<Track, 'id' | 'albumId'>): Promise<Artwo
   const inflight = pending.get(key);
   if (inflight) return inflight;
 
-  const fallback: ArtworkInfo = { uri: null, colors: fallbackColors(key) };
+  const fallback: ArtworkInfo = { uri: null, colors: fallbackColors(key), aspect: 1 };
   const p = (OpenPlayMedia ? OpenPlayMedia.getArtworkAsync(track.id, track.albumId, ARTWORK_SIZE) : Promise.resolve(null))
     .then((native) =>
       native
-        ? { uri: native.uri, colors: { dominant: native.dominant, vibrant: native.vibrant, darkMuted: native.darkMuted } }
+        ? {
+            uri: native.uri,
+            colors: { dominant: native.dominant, vibrant: native.vibrant, darkMuted: native.darkMuted },
+            aspect: native.width > 0 && native.height > 0 ? native.width / native.height : 1,
+          }
         : fallback,
     )
     .catch(() => fallback)

@@ -5,11 +5,12 @@ import { EmptyState, PlayShuffleButtons } from '../components/Blocks';
 import { ListScreen } from '../components/Screen';
 import { TRACK_ROW_HEIGHT, TrackRow } from '../components/TrackRow';
 import { formatTotalDuration, pluralize } from '../library/text';
+import { useUi } from '../store/ui';
 import type { Track } from '../types';
 import type { IconName } from '../ui/Icon';
 import { Text } from '../ui/Text';
 import { GUTTER } from '../ui/theme';
-import { usePlayList } from './common';
+import { collectionMeta, usePlayList } from './common';
 
 type Props = {
   title: string;
@@ -29,8 +30,9 @@ type Props = {
 export function TrackCollectionScreen({ title, tracks, label, backLabel, subtitle, headerExtra, right, emptyIcon = 'musical-notes', emptyTitle = 'Aucun morceau', emptyMessage, rowSubtitle }: Props) {
   const { playAt, play, shuffle } = usePlayList(tracks, label ?? title);
   const total = tracks.reduce((s, t) => s + t.durationSec, 0);
+  const openPicker = useUi((s) => s.openPlaylistPicker);
   const renderItem = useCallback(
-    ({ item, index }: { item: Track; index: number }) => <TrackRow track={item} onPress={() => playAt(index)} subtitle={rowSubtitle?.(item)} />,
+    ({ item, index }: { item: Track; index: number }) => <TrackRow track={item} number={index + 1} artwork showDuration onPress={() => playAt(index)} subtitle={rowSubtitle?.(item)} />,
     [playAt, rowSubtitle],
   );
 
@@ -40,7 +42,7 @@ export function TrackCollectionScreen({ title, tracks, label, backLabel, subtitl
       back
       backLabel={backLabel}
       right={right}
-      subtitle={subtitle ?? (tracks.length ? `${pluralize(tracks.length, 'morceau', 'morceaux')} · ${formatTotalDuration(total)}` : undefined)}
+      subtitle={subtitle ?? (tracks.length ? collectionMeta(tracks) : undefined)}
       data={tracks}
       keyExtractor={(t) => t.id}
       renderItem={renderItem}
@@ -50,7 +52,7 @@ export function TrackCollectionScreen({ title, tracks, label, backLabel, subtitl
       header={
         <View>
           {headerExtra}
-          {tracks.length ? <PlayShuffleButtons onPlay={play} onShuffle={shuffle} /> : null}
+          {tracks.length ? <PlayShuffleButtons onPlay={play} onShuffle={shuffle} onAdd={() => openPicker(tracks.map((t) => t.id))} /> : null}
         </View>
       }
       ListEmptyComponent={<EmptyState icon={emptyIcon} title={emptyTitle} message={emptyMessage} />}

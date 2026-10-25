@@ -19,6 +19,21 @@ export function recentlyPlayed(history: HistoryEntry[], byId: Record<string, Tra
   return out;
 }
 
+/** Albums des derniers morceaux écoutés, du plus récent au plus ancien, sans doublon. */
+export function recentlyPlayedAlbums(history: HistoryEntry[], index: LibraryIndex, limit = 12): Album[] {
+  const out: Album[] = [];
+  const seen = new Set<string>();
+  for (const h of history) {
+    const albumId = index.byId[h.trackId]?.albumId;
+    if (!albumId || seen.has(albumId)) continue;
+    seen.add(albumId);
+    const album = index.albumsById[albumId];
+    if (album) out.push(album);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 export function recentlyAddedAlbums(index: LibraryIndex, limit = 20): Album[] {
   return [...index.albums].sort((a, b) => b.addedAt - a.addedAt).slice(0, limit);
 }

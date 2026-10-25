@@ -38,6 +38,8 @@ type UserState = {
   removeFromPlaylist: (id: string, index: number) => void;
   movePlaylistTrack: (id: string, from: number, to: number) => void;
   setPlaylistTracks: (id: string, trackIds: string[]) => void;
+  /** Oublie des morceaux supprimés de l'appareil (favoris, playlists, historique, paroles). */
+  forgetTracks: (ids: string[]) => void;
 
   recordPlay: (trackId: string, at?: number) => void;
   clearHistory: () => void;
@@ -98,6 +100,23 @@ export const useUser = create<UserState>()(
           }),
         })),
       setPlaylistTracks: (id, trackIds) => set((s) => ({ playlists: updatePlaylist(s.playlists, id, () => ({ trackIds })) })),
+      forgetTracks: (ids) =>
+        set((s) => {
+          const gone = new Set(ids);
+          const playCounts = { ...s.playCounts };
+          const lyrics = { ...s.lyrics };
+          for (const id of ids) {
+            delete playCounts[id];
+            delete lyrics[id];
+          }
+          return {
+            favorites: s.favorites.filter((id) => !gone.has(id)),
+            playlists: s.playlists.map((p) => (p.trackIds.some((id) => gone.has(id)) ? { ...p, trackIds: p.trackIds.filter((id) => !gone.has(id)), updatedAt: Date.now() } : p)),
+            history: s.history.filter((h) => !gone.has(h.trackId)),
+            playCounts,
+            lyrics,
+          };
+        }),
 
       recordPlay: (trackId, at = Date.now()) =>
         set((s) => ({

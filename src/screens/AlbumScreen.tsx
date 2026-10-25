@@ -5,14 +5,14 @@ import { Artwork } from '../components/Artwork';
 import { Carousel, EmptyState, MediaCard, PlayShuffleButtons, SectionHeader } from '../components/Blocks';
 import { HeaderButton, ScrollScreen } from '../components/Screen';
 import { TrackRow } from '../components/TrackRow';
-import { formatTotalDuration, pluralize } from '../library/text';
+import { UNKNOWN_GENRE } from '../library/trackFromNative';
 import { useAppNavigation } from '../navigation/ref';
 import type { SharedStackParams } from '../navigation/types';
 import { useLibrary } from '../store/library';
 import { useUi } from '../store/ui';
 import { Text } from '../ui/Text';
 import { GUTTER } from '../ui/theme';
-import { ArtworkGlow, usePlayList } from './common';
+import { ArtworkGlow, CollectionHeader, collectionMeta, usePlayList } from './common';
 
 export function AlbumScreen() {
   const { params } = useRoute<RouteProp<SharedStackParams, 'Album'>>();
@@ -20,13 +20,14 @@ export function AlbumScreen() {
   const album = useLibrary((s) => s.index.albumsById[params.id]);
   const index = useLibrary((s) => s.index);
   const openPicker = useUi((s) => s.openPlaylistPicker);
+  const openAlbumMenu = useUi((s) => s.openAlbumMenu);
   const tracks = album ? album.trackIds.map((id) => index.byId[id]).filter(Boolean) : [];
   const { playAt, play, shuffle } = usePlayList(tracks, album?.title ?? null);
 
   if (!album) return <ScrollScreen title="Album" back largeTitle={false}><EmptyState icon="albums-outline" title="Album introuvable" /></ScrollScreen>;
 
   const artistId = album.artist.toLowerCase();
-  const genre = tracks[0]?.genre;
+  const genre = tracks[0]?.genre === UNKNOWN_GENRE ? undefined : tracks[0]?.genre;
   const more = (index.artistsById[artistId]?.albumIds ?? []).filter((id) => id !== album.id).map((id) => index.albumsById[id]).filter(Boolean);
   const multiDisc = new Set(tracks.map((t) => t.discNumber)).size > 1;
 
@@ -36,24 +37,22 @@ export function AlbumScreen() {
       back
       largeTitle={false}
       fullBleed
-      titleThreshold={330}
-      right={<HeaderButton icon="add-circle-outline" label="Ajouter à une playlist" onPress={() => openPicker(album.trackIds)} />}>
-      <ArtworkGlow track={tracks[0]}>
-        <View style={styles.hero}>
-          <Artwork track={tracks[0]} size={250} rounded={12} shadow />
-          <Text variant="title2" style={styles.center} numberOfLines={2}>
-            {album.title}
-          </Text>
-          <Pressable onPress={() => navigation.navigate('Artist', { id: artistId })} accessibilityRole="link">
-            <Text variant="title3" weight="regular" tone="accent" style={styles.center}>
-              {album.artist}
-            </Text>
-          </Pressable>
-          <Text variant="footnote" tone="secondary" style={styles.center}>
-            {[genre?.toUpperCase(), album.year].filter(Boolean).join(' · ')}
-          </Text>
-        </View>
-        <PlayShuffleButtons onPlay={play} onShuffle={shuffle} />
+      titleThreshold={170}
+      right={<HeaderButton icon="ellipsis-horizontal" label="Options de l'album" onPress={() => openAlbumMenu(album.id)} />}>
+      <ArtworkGlow track={tracks[0]} height={360}>
+        <CollectionHeader
+          art={<Artwork track={tracks[0]} size={124} rounded={16} />}
+          title={album.title}
+          byline={
+            <Pressable onPress={() => navigation.navigate('Artist', { id: artistId })} accessibilityRole="link" style={{ marginTop: 2 }}>
+              <Text variant="subhead" weight="medium" numberOfLines={1}>
+                {album.artist}
+              </Text>
+            </Pressable>
+          }
+          meta={[genre, album.year, collectionMeta(tracks)].filter(Boolean).join(' · ')}>
+          <PlayShuffleButtons onPlay={play} onShuffle={shuffle} onAdd={() => openPicker(album.trackIds)} />
+        </CollectionHeader>
       </ArtworkGlow>
       {tracks.map((t, i) => (
         <View key={t.id}>
@@ -62,12 +61,9 @@ export function AlbumScreen() {
               DISQUE {t.discNumber}
             </Text>
           ) : null}
-          <TrackRow track={t} number={t.trackNumber || i + 1} onPress={() => playAt(i)} subtitle={t.artist !== album.artist ? t.artist : ''} />
+          <TrackRow track={t} number={t.trackNumber || i + 1} onPress={() => playAt(i)} subtitle={t.artist !== album.artist ? t.artist : ''} showDuration />
         </View>
       ))}
-      <Text variant="footnote" tone="secondary" style={styles.footer}>
-        {pluralize(tracks.length, 'morceau', 'morceaux')}, {formatTotalDuration(album.durationSec)}
-      </Text>
       {more.length ? (
         <>
           <SectionHeader title={`Plus de ${album.artist}`} onPress={() => navigation.navigate('Artist', { id: artistId })} />
@@ -83,8 +79,5 @@ export function AlbumScreen() {
 }
 
 const styles = StyleSheet.create({
-  hero: { alignItems: 'center', gap: 4, paddingTop: 12, paddingHorizontal: GUTTER },
-  center: { textAlign: 'center', marginTop: 2 },
   disc: { paddingHorizontal: GUTTER, paddingTop: 16, paddingBottom: 4 },
-  footer: { paddingHorizontal: GUTTER, paddingTop: 14 },
 });
