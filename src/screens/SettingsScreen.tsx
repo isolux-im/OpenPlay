@@ -2,6 +2,7 @@ import Constants from 'expo-constants';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Alert, Linking, Pressable, StyleSheet, Switch, View } from 'react-native';
 
+import { BrandLogo } from '../components/BrandLogo';
 import { ScrollScreen } from '../components/Screen';
 import { formatTotalDuration } from '../library/text';
 import { deleteApiKey, getApiKey, setApiKey } from '../lyrics/apiKeys';
@@ -203,6 +204,10 @@ export function SettingsScreen() {
           }
         />
       </Group>
+
+      <View style={{ marginTop: 32 }}>
+        <BrandLogo width={120} />
+      </View>
 
       <Group title="Informations" footer="OpenPlay fonctionne entièrement hors ligne : aucune donnée ne quitte l'appareil.">
         <Row icon="information-circle" iconColor="#8E8E93" label="Version" detail={Constants.expoConfig?.version ?? '—'} />
