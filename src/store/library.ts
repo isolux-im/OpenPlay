@@ -6,13 +6,19 @@ import { OpenPlayMedia } from '../../modules/openplay-media';
 import { demoTracks } from '../library/demoLibrary';
 import { EMPTY_INDEX, buildIndex } from '../library/indexLibrary';
 import { trackFromNative } from '../library/trackFromNative';
-import type { LibraryIndex } from '../types';
+import { withoutExcluded } from '../library/exclusions';
+import { applyEdits } from '../library/trackEdits';
+import type { LibraryIndex, Track } from '../types';
+import { useSettings } from './settings';
+import { useUser } from './user';
 
 export type LibraryStatus = 'checking' | 'needs-permission' | 'denied' | 'loading' | 'ready' | 'error';
 
 type LibraryState = {
   status: LibraryStatus;
   index: LibraryIndex;
+  /** Morceaux trouvés par l'analyse, dossiers exclus compris (l'index, lui, les masque). */
+  allTracks: Track[];
   error: string | null;
   scannedAt: number | null;
   isDemo: boolean;
@@ -21,7 +27,14 @@ type LibraryState = {
   scan: (minDurationSec: number) => Promise<void>;
   /** Retire des morceaux de l'index (après suppression du fichier), sans nouvelle analyse. */
   removeTracks: (ids: string[]) => void;
+  /** Reconstruit l'index (dossiers masqués, infos corrigées) sans nouvelle analyse. */
+  refreshIndex: () => void;
 };
+
+/** Index affiché : dossiers masqués retirés, corrections de l'utilisateur appliquées. */
+function indexFor(tracks: Track[]): LibraryIndex {
+  return buildIndex(applyEdits(withoutExcluded(tracks, useSettings.getState().excludedFolders), useUser.getState().trackEdits));
+}
 
 /** Sans module natif (web, tests), la bibliothèque de démonstration remplace MediaStore. */
 const isDemoMode = () => !OpenPlayMedia;
@@ -37,6 +50,7 @@ async function permissionStatus(request: boolean): Promise<'granted' | 'denied' 
 export const useLibrary = create<LibraryState>()((set, get) => ({
   status: 'checking',
   index: EMPTY_INDEX,
+  allTracks: [],
   error: null,
   scannedAt: null,
   isDemo: isDemoMode(),
@@ -63,7 +77,7 @@ export const useLibrary = create<LibraryState>()((set, get) => ({
       const tracks = OpenPlayMedia
         ? (await OpenPlayMedia.queryTracksAsync(minDurationSec * 1000)).map(trackFromNative)
         : demoTracks().filter((t) => t.durationSec >= minDurationSec);
-      set({ index: buildIndex(tracks), status: 'ready', scannedAt: Date.now(), isDemo: isDemoMode() });
+      set({ allTracks: tracks, index: indexFor(tracks), status: 'ready', scannedAt: Date.now(), isDemo: isDemoMode() });
     } catch {
       set({ status: 'error', error: 'Impossible de lire la bibliothèque musicale.' });
     }
@@ -71,6 +85,10 @@ export const useLibrary = create<LibraryState>()((set, get) => ({
 
   removeTracks: (ids) => {
     const gone = new Set(ids);
-    set((s) => ({ index: buildIndex(s.index.tracks.filter((t) => !gone.has(t.id))) }));
+    set((s) => ({ allTracks: s.allTracks.filter((t) => !gone.has(t.id)), index: buildIndex(s.index.tracks.filter((t) => !gone.has(t.id))) }));
+  },
+
+  refreshIndex: () => {
+    set((s) => ({ index: indexFor(s.allTracks) }));
   },
 }));

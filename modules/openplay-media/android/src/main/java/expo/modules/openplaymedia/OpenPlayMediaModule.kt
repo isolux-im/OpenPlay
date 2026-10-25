@@ -1,5 +1,7 @@
 package expo.modules.openplaymedia
 
+import android.app.ActivityManager
+import android.app.ApplicationExitInfo
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
@@ -7,9 +9,12 @@ import android.database.Cursor
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import android.util.Log
 import android.util.Size
 import androidx.palette.graphics.Palette
 import expo.modules.kotlin.exception.Exceptions
@@ -18,9 +23,22 @@ import expo.modules.kotlin.functions.Queues
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
+import java.net.ConnectException
+import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
+import java.net.URL
+import java.net.UnknownHostException
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
+import javax.net.ssl.SSLException
 
 /**
  * Lecture des métadonnées audio depuis MediaStore (titre, artiste, album, genre, dossier),
@@ -31,24 +49,162 @@ class OpenPlayMediaModule : Module() {
   private val context: Context
     get() = appContext.reactContext ?: throw Exceptions.ReactContextLost()
 
+  /** Pochettes décodées en parallèle : borné pour éviter la saturation mémoire sur les grandes bibliothèques. */
+  private val artworkPermits = Semaphore(3)
+
   override fun definition() = ModuleDefinition {
     Name("OpenPlayMedia")
 
+    OnCreate {
+      appContext.reactContext?.let { CrashRecorder.install(it.applicationContext) }
+    }
+
     AsyncFunction("queryTracksAsync") Coroutine { minDurationMs: Double ->
+      // Filet de sécurité si le contexte n'était pas encore prêt à la création du module.
+      CrashRecorder.install(context.applicationContext)
       withContext(Dispatchers.IO) { queryTracks(minDurationMs.toLong()) }
     }
 
     AsyncFunction("getArtworkAsync") Coroutine { trackId: String, albumId: String, size: Int ->
-      withContext(Dispatchers.IO) { getArtwork(trackId, albumId, size) }
+      artworkPermits.withPermit {
+        withContext(Dispatchers.IO) {
+          try {
+            getArtwork(trackId, albumId, size)
+          } catch (e: OutOfMemoryError) {
+            // Image intégrée démesurée : pas de pochette plutôt qu'une fermeture de l'application.
+            CrashRecorder.append(context, "Pochette ignorée (mémoire insuffisante)", "trackId=$trackId")
+            null
+          }
+        }
+      }
     }
 
     AsyncFunction("readLyricsAsync") Coroutine { path: String ->
       withContext(Dispatchers.IO) { readSiblingLyrics(path) }
     }
 
+    AsyncFunction("getCrashReportsAsync") Coroutine { ->
+      withContext(Dispatchers.IO) {
+        mapOf("log" to CrashRecorder.read(context), "exits" to exitReasons())
+      }
+    }
+
+    AsyncFunction("clearCrashReportsAsync") Coroutine { ->
+      withContext(Dispatchers.IO) { CrashRecorder.clear(context) }
+    }
+
+    Function("recordDiagnostic") { kind: String, details: String ->
+      CrashRecorder.append(context, kind, details)
+    }
+
+    AsyncFunction("diagnoseNetworkAsync") Coroutine { url: String, timeoutMs: Int ->
+      withContext(Dispatchers.IO) { mapOf("network" to networkState(), "probe" to probe(url, timeoutMs)) }
+    }
+
     AsyncFunction("shareAudioAsync") { trackId: String, mimeType: String, title: String ->
       shareAudio(trackId, mimeType, title)
     }.runOnQueue(Queues.MAIN)
+  }
+
+  /** Dernières fins anormales du processus enregistrées par Android 11+ (y compris plantages natifs et ANR). */
+  private fun exitReasons(): List<Map<String, Any?>> {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return emptyList()
+    val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return emptyList()
+    val kept = mapOf(
+      ApplicationExitInfo.REASON_CRASH to "crash",
+      ApplicationExitInfo.REASON_CRASH_NATIVE to "crash-native",
+      ApplicationExitInfo.REASON_ANR to "anr",
+      ApplicationExitInfo.REASON_LOW_MEMORY to "low-memory",
+      ApplicationExitInfo.REASON_INITIALIZATION_FAILURE to "init-failure"
+    )
+    val clearedAt = CrashRecorder.clearedAt(context)
+    return try {
+      am.getHistoricalProcessExitReasons(context.packageName, 0, 10).mapNotNull { info ->
+        val reason = kept[info.reason] ?: return@mapNotNull null
+        if (info.timestamp <= clearedAt) return@mapNotNull null
+        mapOf(
+          "timestamp" to info.timestamp.toDouble(),
+          "reason" to reason,
+          "description" to info.description,
+          // Seule la trace d'un ANR est du texte (celle d'un plantage natif est un protobuf).
+          "trace" to if (info.reason == ApplicationExitInfo.REASON_ANR) readText(info.traceInputStream, 12_000) else null
+        )
+      }
+    } catch (e: Exception) {
+      emptyList()
+    }
+  }
+
+  private fun readText(stream: java.io.InputStream?, max: Int): String? =
+    try {
+      stream?.use { s ->
+        val buffer = ByteArray(max)
+        var total = 0
+        while (total < max) {
+          val n = s.read(buffer, total, max - total)
+          if (n <= 0) break
+          total += n
+        }
+        String(buffer, 0, total, Charsets.UTF_8)
+      }
+    } catch (e: IOException) {
+      null
+    }
+
+  /** Réseau actif et validation par Android (accès Internet réellement vérifié par le système). */
+  private fun networkState(): Map<String, Any?> {
+    val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+      ?: return mapOf("connected" to false, "validated" to false, "transport" to "none")
+    return try {
+      val caps = cm.getNetworkCapabilities(cm.activeNetwork)
+        ?: return mapOf("connected" to false, "validated" to false, "transport" to "none")
+      val transport = when {
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> "vpn"
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+        else -> "other"
+      }
+      mapOf(
+        "connected" to caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET),
+        "validated" to caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED),
+        "transport" to transport
+      )
+    } catch (e: SecurityException) {
+      mapOf("connected" to null, "validated" to null, "transport" to "unknown")
+    }
+  }
+
+  /** Requête de test vers un service : distingue DNS, TLS, délai dépassé et serveur injoignable. */
+  private fun probe(url: String, timeoutMs: Int): Map<String, Any?> {
+    val started = System.currentTimeMillis()
+    var connection: HttpURLConnection? = null
+    fun failure(kind: String, e: Exception) =
+      mapOf("ok" to false, "status" to null, "error" to kind, "message" to "${e.javaClass.simpleName}: ${e.message}", "ms" to (System.currentTimeMillis() - started).toDouble())
+    return try {
+      connection = (URL(url).openConnection() as HttpURLConnection).apply {
+        connectTimeout = timeoutMs
+        readTimeout = timeoutMs
+        instanceFollowRedirects = false
+        setRequestProperty("User-Agent", "OpenPlay (diagnostic réseau)")
+      }
+      val status = connection.responseCode
+      mapOf("ok" to true, "status" to status, "error" to null, "message" to null, "ms" to (System.currentTimeMillis() - started).toDouble())
+    } catch (e: UnknownHostException) {
+      failure("dns", e)
+    } catch (e: SSLException) {
+      failure("tls", e)
+    } catch (e: SocketTimeoutException) {
+      failure("timeout", e)
+    } catch (e: ConnectException) {
+      failure("unreachable", e)
+    } catch (e: IOException) {
+      failure("io", e)
+    } catch (e: Exception) {
+      failure("other", e)
+    } finally {
+      connection?.disconnect()
+    }
   }
 
   /** Feuille de partage système avec le fichier audio ; la lecture est accordée au destinataire. */
@@ -190,8 +346,12 @@ class OpenPlayMediaModule : Module() {
     val bitmap: Bitmap = if (file.exists() && file.length() > 0) {
       BitmapFactory.decodeFile(file.absolutePath) ?: return null
     } else {
-      val loaded = loadArtworkBitmap(trackId.toLong(), albumId.toLongOrNull() ?: 0L, size)?.let { trimLetterbox(it) } ?: return null
-      FileOutputStream(file).use { loaded.compress(Bitmap.CompressFormat.JPEG, 94, it) }
+      val id = trackId.toLongOrNull() ?: return null
+      val loaded = loadArtworkBitmap(id, albumId.toLongOrNull() ?: 0L, size)?.let { trimLetterbox(it) } ?: return null
+      // Écriture dans un fichier temporaire puis renommage : jamais de fichier à moitié écrit en cache.
+      val tmp = File(file.parentFile, "${file.name}.${Thread.currentThread().id}.tmp")
+      FileOutputStream(tmp).use { loaded.compress(Bitmap.CompressFormat.JPEG, 94, it) }
+      if (!tmp.renameTo(file)) tmp.delete()
       loaded
     }
     val palette = Palette.from(bitmap).maximumColorCount(16).generate()
@@ -335,4 +495,58 @@ class OpenPlayMediaModule : Module() {
 
   private fun Cursor.getStringOrNull(index: Int): String? =
     if (index < 0 || isNull(index)) null else getString(index)
+}
+
+/**
+ * Journal de diagnostic local (fichiers privés de l'application) : exceptions Java/Kotlin non
+ * interceptées — dont les erreurs JavaScript fatales, relayées par React Native — et incidents notables.
+ * Rien n'est envoyé : l'utilisateur peut partager le rapport depuis Paramètres.
+ */
+object CrashRecorder {
+  private const val FILE = "openplay-diagnostics.txt"
+  private const val MAX_BYTES = 64 * 1024
+  private const val MAX_ENTRY = 12_000
+  private const val PREFS = "openplay-diagnostics"
+  private const val CLEARED_AT = "clearedAt"
+  private const val SEPARATOR = "\n=====\n"
+
+  @Volatile private var installed = false
+
+  fun install(context: Context) {
+    if (installed) return
+    installed = true
+    val previous = Thread.getDefaultUncaughtExceptionHandler()
+    Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+      try {
+        append(context, "Plantage (fil « ${thread.name} »)", Log.getStackTraceString(error))
+      } catch (ignored: Throwable) {
+        // Le journal ne doit jamais empêcher le rapport standard d'Android.
+      }
+      previous?.uncaughtException(thread, error)
+    }
+  }
+
+  @Synchronized
+  fun append(context: Context, kind: String, details: String) {
+    val file = File(context.filesDir, FILE)
+    val stamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.ROOT).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date())
+    val entry = "$stamp · $kind · Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) · ${Build.MANUFACTURER} ${Build.MODEL}\n${details.take(MAX_ENTRY)}"
+    val previous = if (file.exists()) file.readText() else ""
+    var content = if (previous.isEmpty()) entry else previous + SEPARATOR + entry
+    // On garde les entrées les plus récentes.
+    while (content.length > MAX_BYTES && content.contains(SEPARATOR)) content = content.substringAfter(SEPARATOR)
+    file.writeText(content)
+  }
+
+  @Synchronized
+  fun read(context: Context): String? = File(context.filesDir, FILE).takeIf { it.exists() }?.readText()
+
+  /** Les fins anormales vues par Android ne s'effacent pas : on mémorise la date du dernier effacement. */
+  @Synchronized
+  fun clear(context: Context) {
+    File(context.filesDir, FILE).delete()
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putLong(CLEARED_AT, System.currentTimeMillis()).apply()
+  }
+
+  fun clearedAt(context: Context): Long = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong(CLEARED_AT, 0L)
 }

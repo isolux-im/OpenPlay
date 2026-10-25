@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { deleteTracksFromDevice, shareAlbum, sharePlaylist, shareTrack } from '../library/actions';
 import { formatDuration, formatTotalDuration, pluralize } from '../library/text';
 import { navigateInCurrentTab } from '../navigation/ref';
+import type { SharedStackParams } from '../navigation/types';
 import { useLibrary } from '../store/library';
 import { usePlayer } from '../store/player';
 import { useUi, type ContextTarget, type MenuAnchor } from '../store/ui';
@@ -22,6 +23,12 @@ type Item = { icon: IconName; label: string; onPress: () => void; destructive?: 
 type Model = { header: ReactNode; groups: Item[][] };
 
 const MENU_WIDTH = 288;
+
+/** Ouvre un écran de la bibliothèque ; depuis le lecteur plein écran, le réduit d'abord pour le montrer. */
+function goTo<K extends keyof SharedStackParams>(screen: K, params: SharedStackParams[K]) {
+  usePlayer.getState().setExpanded(false);
+  navigateInCurrentTab(screen, params);
+}
 const EDGE = 14;
 
 function MenuHeader({ art, title, subtitle }: { art: ReactNode; title: string; subtitle: string }) {
@@ -92,8 +99,9 @@ function useMenuModel(target: ContextTarget): Model | null {
           { icon: 'share-outline', label: 'Partager', onPress: () => void shareTrack(track) },
         ],
         [
-          { icon: 'albums-outline', label: "Afficher l'album", onPress: () => navigateInCurrentTab('Album', { id: track.albumId }) },
-          { icon: 'person-outline', label: "Afficher l'artiste", onPress: () => navigateInCurrentTab('Artist', { id: track.albumArtist.toLowerCase() }) },
+          { icon: 'albums-outline', label: "Afficher l'album", onPress: () => goTo('Album', { id: track.albumId }) },
+          { icon: 'person-outline', label: "Afficher l'artiste", onPress: () => goTo('Artist', { id: track.albumArtist.toLowerCase() }) },
+          { icon: 'create-outline', label: 'Modifier les infos', onPress: () => goTo('EditTrack', { id: track.id }) },
         ],
         removal,
       ],
@@ -113,7 +121,7 @@ function useMenuModel(target: ContextTarget): Model | null {
           favoriteItem(album.trackIds, favorites, toggleFavorite, showToast),
           { icon: 'share-outline', label: 'Partager', onPress: () => void shareAlbum(album) },
         ],
-        [{ icon: 'person-outline', label: "Afficher l'artiste", onPress: () => navigateInCurrentTab('Artist', { id: album.artist.toLowerCase() }) }],
+        [{ icon: 'person-outline', label: "Afficher l'artiste", onPress: () => goTo('Artist', { id: album.artist.toLowerCase() }) }],
         [{ icon: 'trash-outline', label: "Supprimer l'album", destructive: true, onPress: () => void deleteTracksFromDevice(tracks, `l'album « ${album.title} »`) }],
       ],
     };

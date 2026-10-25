@@ -1,5 +1,5 @@
 import { parseFilename } from '../library/filename';
-import { compareText, formatDuration, formatTotalDuration, indexLetter, normalizeText, pluralize, sortKey } from '../library/text';
+import { alphabetIndex, compareText, formatDuration, formatTotalDuration, indexLetter, normalizeText, pluralize, sortKey } from '../library/text';
 
 describe('parseFilename', () => {
   it.each([
@@ -44,5 +44,12 @@ describe('texte', () => {
   it('accorde le pluriel', () => {
     expect(pluralize(1, 'morceau', 'morceaux')).toBe('1 morceau');
     expect(pluralize(3, 'album')).toBe('3 albums');
+  });
+
+  it('construit l’index A–Z d’une liste triée', () => {
+    const keys = ['2Pac', 'Aube', 'The Abba', 'Écho', 'Élan', 'Zèbre'];
+    const { letters, first } = alphabetIndex(keys);
+    expect(letters).toEqual(['#', 'A', 'E', 'Z']);
+    expect(first).toEqual({ '#': 0, A: 1, E: 3, Z: 5 });
   });
 });

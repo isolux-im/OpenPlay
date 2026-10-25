@@ -113,9 +113,27 @@ describe('transcribeTrack', () => {
       throw new TypeError('Network request failed');
     }) as unknown as typeof fetch;
     await expect(transcribeTrack({ track, provider: 'groq', apiKey: 'k', language: 'auto', fetchImpl: network })).rejects.toMatchObject({ code: 'network' });
-    const aborted = (async () => {
-      throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+    const controller = new AbortController();
+    const aborted = ((_url: string, init: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+        controller.abort();
+      })) as unknown as typeof fetch;
+    await expect(transcribeTrack({ track, provider: 'groq', apiKey: 'k', language: 'auto', fetchImpl: aborted, signal: controller.signal })).rejects.toMatchObject({ code: 'cancelled' });
+  });
+
+  it('précise la cause d’un échec réseau grâce au diagnostic', async () => {
+    const network = (async () => {
+      throw new TypeError('Network request failed');
     }) as unknown as typeof fetch;
-    await expect(transcribeTrack({ track, provider: 'groq', apiKey: 'k', language: 'auto', fetchImpl: aborted })).rejects.toMatchObject({ code: 'cancelled' });
+    const noInternet = async () => ({ kind: 'no-internet' as const, detail: 'réseau=cellular validé=false' });
+    const err = await transcribeTrack({ track, provider: 'groq', apiKey: 'k', language: 'auto', fetchImpl: network, diagnoseImpl: noInternet }).catch((e) => e);
+    expect(err).toMatchObject({ code: 'network' });
+    expect(err.message).toContain("pas d'accès à Internet");
+    expect(err.detail).toContain('validé=false');
+    // Service joignable mais envoi interrompu : ce n'est pas « pas d'Internet ».
+    const upload = async () => ({ kind: 'upload' as const, detail: 'HTTP 401' });
+    const err2 = await transcribeTrack({ track, provider: 'groq', apiKey: 'k', language: 'auto', fetchImpl: network, diagnoseImpl: upload }).catch((e) => e);
+    expect(err2.message).toContain("l'envoi a été interrompu");
   });
 });

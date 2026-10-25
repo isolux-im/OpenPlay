@@ -4,6 +4,7 @@ import App from '../App';
 import { SimulatedEngine } from '../player/PlaybackEngine';
 import { useLibrary } from '../store/library';
 import { usePlayer } from '../store/player';
+import { useSettings } from '../store/settings';
 import { useUi } from '../store/ui';
 import { useUser } from '../store/user';
 
@@ -93,5 +94,37 @@ describe('application', () => {
     await fireEvent.press(await screen.findByRole('menuitem', { name: 'Qualité audio' }));
     expect(await screen.findByText('MP3')).toBeTruthy();
     expect(screen.getByText(/^≈ \d+ kbit\/s$/)).toBeTruthy();
+  });
+
+  it('ouvre « À découvrir » depuis la bibliothèque', async () => {
+    useUser.setState({ playCounts: {}, lastPlayed: {}, history: [] });
+    await renderApp();
+    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    await fireEvent.press((await screen.findAllByRole('button', { name: /^À découvrir, \d+$/ }))[0]);
+    expect(await screen.findByRole('radio', { name: 'Oubliés' })).toBeTruthy();
+    expect(screen.getAllByText('Jamais écouté dans OpenPlay').length).toBeGreaterThan(0);
+  });
+
+  it('affiche le bouton « Transcrire » sans icône dans les paroles', async () => {
+    useSettings.setState({ onlineLyrics: false });
+    await renderApp();
+    const t = useLibrary.getState().index.tracks[0];
+    await act(async () => usePlayer.getState().playTracks([t.id], 0));
+    await fireEvent.press(await screen.findByRole('button', { name: /^Ouvrir le lecteur/ }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Paroles' }));
+    const button = await screen.findByRole('button', { name: 'Transcrire' });
+    expect(screen.getByText('Transcrire')).toBeTruthy();
+    expect(screen.queryByText(/✦/)).toBeNull();
+    expect(button).toBeTruthy();
+    useSettings.setState({ onlineLyrics: true });
+  });
+
+  it('affiche l’index A–Z sur la liste des titres et y saute', async () => {
+    await renderApp();
+    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    await fireEvent.press((await screen.findAllByRole('button', { name: /^Titres, \d+$/ }))[0]);
+    const strip = await screen.findByRole('adjustable', { name: 'Index alphabétique' });
+    await fireEvent(strip, 'accessibilityAction', { nativeEvent: { actionName: 'increment' } });
+    expect(strip).toBeTruthy();
   });
 });

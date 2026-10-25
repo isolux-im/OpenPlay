@@ -120,14 +120,37 @@ describe('store du lecteur', () => {
     expect(nativeOrder()).toEqual([ids[1]]);
   });
 
-  it('compte une écoute après 30 s, une seule fois par lecture', () => {
+  it('compte une écoute après 30 s de lecture effective, une seule fois par lecture', () => {
     state().playTracks(ids, 0);
-    engine.seekTo(10);
+    engine.advance(10);
+    // Un saut dans le morceau n'est pas de l'écoute.
+    engine.seekTo(100);
     expect(useUser.getState().playCounts[ids[0]]).toBeUndefined();
-    engine.seekTo(31);
-    engine.seekTo(60);
+    engine.advance(21);
+    expect(useUser.getState().playCounts[ids[0]]).toBe(1);
+    engine.advance(40);
     expect(useUser.getState().playCounts[ids[0]]).toBe(1);
     expect(useUser.getState().history[0].trackId).toBe(ids[0]);
+    expect(useUser.getState().lastPlayed[ids[0]]).toBe(clock);
+  });
+
+  it('passe au morceau suivant sur un fichier illisible', () => {
+    state().playTracks(ids, 0);
+    engine.fail('Source error');
+    expect(state().index).toBe(1);
+    expect(engine.index).toBe(1);
+    expect(engine.playing).toBe(true);
+    expect(nativeOrder()).toEqual(state().queue);
+  });
+
+  it('s’arrête proprement après plusieurs fichiers illisibles d’affilée', () => {
+    state().playTracks(ids, 0);
+    engine.fail();
+    engine.fail();
+    engine.fail();
+    expect(state().isPlaying).toBe(false);
+    expect(engine.playing).toBe(false);
+    expect(nativeOrder()).toEqual(state().queue);
   });
 
   it('met en pause à l’échéance de la minuterie', () => {

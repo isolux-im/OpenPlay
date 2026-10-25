@@ -8,6 +8,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { OpenPlayMedia } from '../modules/openplay-media';
 import { ContextMenuHost } from './components/ContextMenu';
 import { GlassTarget } from './components/Glass';
+import { installJsErrorRecorder } from './diagnostics/crashReports';
+import { ErrorBoundary } from './diagnostics/ErrorBoundary';
 import { SheetHost } from './components/Sheets';
 import { RootNavigator } from './navigation/RootNavigator';
 import { ExpoPlaylistEngine, SimulatedEngine, type PlaybackEngine } from './player/PlaybackEngine';
@@ -18,6 +20,8 @@ import { connectPlayer, disconnectPlayer, usePlayer } from './store/player';
 import { useSettings } from './store/settings';
 import { useUser } from './store/user';
 import { ThemeProvider, useTheme } from './ui/theme';
+
+installJsErrorRecorder();
 
 /** Sur Android, le vrai moteur ; ailleurs (aperçu web), un moteur simulé silencieux. */
 export function createEngine(): PlaybackEngine {
@@ -36,6 +40,13 @@ function useBootstrap(engineFactory: () => PlaybackEngine) {
     if (useSettings.persist.hasHydrated()) start();
     else return useSettings.persist.onFinishHydration(start);
   }, []);
+
+  // Dossiers masqués ou infos corrigées : l'index est recalculé sans nouvelle analyse.
+  const excludedFolders = useSettings((s) => s.excludedFolders);
+  const trackEdits = useUser((s) => s.trackEdits);
+  useEffect(() => {
+    useLibrary.getState().refreshIndex();
+  }, [excludedFolders, trackEdits]);
 
   const status = useLibrary((s) => s.status);
   useEffect(() => {
@@ -66,8 +77,12 @@ function Shell({ engineFactory }: { engineFactory: () => PlaybackEngine }) {
             <SheetHost />
           </>
         }>
-        <RootNavigator />
-        <FullPlayer />
+        <ErrorBoundary>
+          <RootNavigator />
+        </ErrorBoundary>
+        <ErrorBoundary overlay fallbackTitle="Le lecteur n’a pas pu s’afficher" onClose={{ label: 'Fermer le lecteur', run: () => usePlayer.getState().setExpanded(false) }}>
+          <FullPlayer />
+        </ErrorBoundary>
       </GlassTarget>
     </View>
   );

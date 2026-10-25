@@ -1,9 +1,14 @@
 import { create } from 'zustand';
 
+import { recordDiagnostic } from '../diagnostics/crashReports';
 import { loadArtwork, peekArtwork } from '../library/artwork';
 import type { EngineItem, PlaybackEngine } from '../player/PlaybackEngine';
 import { indexAfterMove, moveItem, nextRepeat, shouldRestart, shuffleAround } from '../player/queue';
 import type { RepeatMode, Track } from '../types';
+import { formatDuration } from '../library/text';
+import { useSettings } from './settings';
+import { useStats } from './stats';
+import { useUi } from './ui';
 import { useUser, type Session } from './user';
 
 export type SleepTimer = { endsAt: number | null; atTrackEnd: boolean };
@@ -44,18 +49,64 @@ export type PlayerState = {
   setExpanded: (expanded: boolean) => void;
   onPlayerClosed: () => void;
   restoreSession: (session: Session, exists: (id: string) => boolean) => void;
+  setRate: (rate: number) => void;
 };
 
-/** Un morceau compte comme écouté après 30 s ou la moitié de sa durée. */
+/**
+ * Une écoute est validée après 30 s de lecture effective (sauts dans le morceau exclus),
+ * ou la moitié de la durée pour un morceau de moins d'une minute ; une seule fois par lecture.
+ */
 export const PLAY_COUNT_THRESHOLD_SEC = 30;
+/** Écart maximal entre deux mises à jour de position compté comme de la lecture continue. */
+const MAX_LISTEN_STEP_SEC = 2.5;
+/** Au-delà de ce nombre d'échecs consécutifs, on arrête plutôt que d'enchaîner les fichiers illisibles. */
+const MAX_CONSECUTIVE_ERRORS = 3;
 const SESSION_SAVE_INTERVAL_MS = 5000;
+/** Fichiers longs (livres audio, cours, podcasts) : la position est retenue d'une écoute à l'autre. */
+export const LONG_TRACK_SEC = 20 * 60;
+/** Pas de reprise dans la première ni la dernière demi-minute. */
+const RESUME_MARGIN_SEC = 30;
+export const PLAYBACK_RATES = [0.75, 1, 1.25, 1.5, 2] as const;
 
 let engine: PlaybackEngine | null = null;
 let resolveTrack: (id: string) => Track | undefined = () => undefined;
 let unsubscribers: (() => void)[] = [];
 let countedCurrent = false;
+let listenedSec = 0;
+let lastPositionSec = 0;
+let consecutiveErrors = 0;
+/** Temps d'écoute pas encore versé au bilan (écrit par paquets, pas à chaque mise à jour). */
+let pendingListenSec = 0;
+const LISTEN_FLUSH_SEC = 30;
 let lastSessionSave = 0;
 let now: () => number = () => Date.now();
+
+/** Position où reprendre `id`, ou 0. */
+function resumeFor(id: string | undefined): number {
+  if (!id || !useSettings.getState().resumeLongTracks) return 0;
+  const track = resolveTrack(id);
+  const saved = useUser.getState().resumePositions[id];
+  if (!track || track.durationSec < LONG_TRACK_SEC || !saved) return 0;
+  return saved > RESUME_MARGIN_SEC && saved < track.durationSec - RESUME_MARGIN_SEC ? saved : 0;
+}
+
+/** Retient la position d'un fichier long ; l'oublie quand il a été écouté jusqu'au bout. */
+function rememberPosition(id: string | undefined, positionSec: number) {
+  if (!id || !useSettings.getState().resumeLongTracks) return;
+  const track = resolveTrack(id);
+  if (!track || track.durationSec < LONG_TRACK_SEC) return;
+  if (positionSec >= track.durationSec - RESUME_MARGIN_SEC) useUser.getState().setResumePosition(id, null);
+  else if (positionSec > RESUME_MARGIN_SEC) useUser.getState().setResumePosition(id, positionSec);
+}
+
+function flushListening() {
+  if (pendingListenSec > 0) useStats.getState().addListening(now(), pendingListenSec);
+  pendingListenSec = 0;
+}
+
+function announceResume(sec: number) {
+  if (sec > 0) useUi.getState().showToast(`Reprise à ${formatDuration(sec)}`);
+}
 
 function toItem(t: Track): EngineItem {
   return { id: t.id, uri: t.uri, title: t.title, artist: t.artist, album: t.album };
@@ -134,17 +185,23 @@ export const usePlayer = create<PlayerState>()((set, get) => {
       const pivot = requested >= 0 ? requested : shuffle ? Math.floor(Math.random() * valid.length) : 0;
       const queue = shuffle ? shuffleAround(valid, pivot) : valid;
       const index = shuffle ? 0 : pivot;
+      const previous = get();
+      rememberPosition(previous.queue[previous.index], previous.positionSec);
       countedCurrent = false;
+      listenedSec = 0;
+      lastPositionSec = 0;
+      const resumeAt = resumeFor(queue[index]);
       set({
         queue,
         originalQueue: valid,
         index,
         shuffle,
-        positionSec: 0,
+        positionSec: resumeAt,
         durationSec: resolveTrack(queue[index])?.durationSec ?? 0,
         sourceLabel: options.label ?? null,
       });
-      engine.load(itemsFor(queue), index, 0, true);
+      engine.load(itemsFor(queue), index, resumeAt, true);
+      announceResume(resumeAt);
       announceNowPlaying();
       persistSession();
     },
@@ -156,6 +213,8 @@ export const usePlayer = create<PlayerState>()((set, get) => {
       set({ isPlaying: true });
     },
     pause: () => {
+      rememberPosition(get().queue[get().index], get().positionSec);
+      flushListening();
       engine?.pause();
       set({ isPlaying: false });
       persistSession();
@@ -179,6 +238,10 @@ export const usePlayer = create<PlayerState>()((set, get) => {
       engine?.skipTo(i);
       engine?.play();
       set({ isPlaying: true });
+    },
+    setRate: (rate) => {
+      useSettings.getState().update({ playbackRate: rate });
+      engine?.setRate(rate);
     },
 
     toggleShuffle: () => {
@@ -292,6 +355,7 @@ export function connectPlayer(
   disconnectPlayer();
   engine = e;
   resolveTrack = resolver;
+  e.setRate(useSettings.getState().playbackRate);
   if (options.clock) now = options.clock;
   const store = usePlayer;
 
@@ -305,10 +369,26 @@ export function connectPlayer(
         durationSec: s.durationSec > 0 ? s.durationSec : state.durationSec,
       });
       const currentId = state.queue[state.index];
-      const threshold = Math.min(PLAY_COUNT_THRESHOLD_SEC, (s.durationSec || Infinity) / 2);
-      if (currentId && !countedCurrent && s.positionSec >= threshold) {
+      const step = s.positionSec - lastPositionSec;
+      const duration = s.durationSec || state.durationSec;
+      // Répétition d'un morceau : retour au début depuis la fin = nouvelle lecture.
+      if (step < -5 && s.positionSec < 2 && duration > 0 && lastPositionSec >= duration - 3) {
+        countedCurrent = false;
+        listenedSec = 0;
+      }
+      if (s.playing && step > 0 && step <= MAX_LISTEN_STEP_SEC) {
+        listenedSec += step;
+        if (listenedSec >= 1) consecutiveErrors = 0;
+        // Temps réel : à 2×, une seconde de morceau dure une demi-seconde.
+        pendingListenSec += step / (useSettings.getState().playbackRate || 1);
+        if (pendingListenSec >= LISTEN_FLUSH_SEC) flushListening();
+      }
+      lastPositionSec = s.positionSec;
+      const threshold = Math.min(PLAY_COUNT_THRESHOLD_SEC, (duration || Infinity) / 2);
+      if (currentId && !countedCurrent && listenedSec >= threshold) {
         countedCurrent = true;
         useUser.getState().recordPlay(currentId, now());
+        useStats.getState().addPlay(currentId, now());
       }
       const { endsAt } = state.sleep;
       if (endsAt && now() >= endsAt) {
@@ -317,6 +397,7 @@ export function connectPlayer(
       }
       if (now() - lastSessionSave > SESSION_SAVE_INTERVAL_MS && state.queue.length) {
         lastSessionSave = now();
+        if (s.playing) rememberPosition(currentId, s.positionSec);
         const cur = store.getState();
         useUser.getState().saveSession({
           queue: cur.queue,
@@ -332,8 +413,18 @@ export function connectPlayer(
     e.onTrackChanged((i) => {
       const state = store.getState();
       if (i < 0 || i >= state.queue.length) return;
+      if (i !== state.index) rememberPosition(state.queue[state.index], state.positionSec);
+      flushListening();
       countedCurrent = false;
-      store.setState({ index: i, positionSec: 0, durationSec: resolveTrack(state.queue[i])?.durationSec ?? 0 });
+      listenedSec = 0;
+      lastPositionSec = 0;
+      const resumeAt = i !== state.index ? resumeFor(state.queue[i]) : 0;
+      store.setState({ index: i, positionSec: resumeAt, durationSec: resolveTrack(state.queue[i])?.durationSec ?? 0 });
+      if (resumeAt > 0) {
+        e.seekTo(resumeAt);
+        lastPositionSec = resumeAt;
+        announceResume(resumeAt);
+      }
       if (state.sleep.atTrackEnd) {
         store.setState({ sleep: { endsAt: null, atTrackEnd: false } });
         state.pause();
@@ -345,15 +436,43 @@ export function connectPlayer(
         if (!peekArtwork(track)) loadArtwork(track).then((info) => info.uri && store.getState().queue[store.getState().index] === track.id && e.setNowPlaying(item, info.uri));
       }
     }),
+    e.onError(({ index, message }) => {
+      const state = store.getState();
+      const at = index >= 0 && index < state.queue.length ? index : state.index;
+      const track = resolveTrack(state.queue[at]);
+      const title = track?.title ?? 'Ce morceau';
+      recordDiagnostic('Fichier audio illisible', `${title} (${track?.mimeType ?? 'type inconnu'}) : ${message}`);
+      consecutiveErrors += 1;
+      const nextIndex = at < state.queue.length - 1 ? at + 1 : state.repeat === 'all' ? 0 : -1;
+      if (nextIndex >= 0 && nextIndex !== at && consecutiveErrors < MAX_CONSECUTIVE_ERRORS) {
+        useUi.getState().showToast(`« ${title} » est illisible : morceau suivant`);
+        store.setState({ index: nextIndex, positionSec: 0, durationSec: resolveTrack(state.queue[nextIndex])?.durationSec ?? 0, isPlaying: true });
+        // Le moteur repart d'un lecteur neuf, positionné sur le morceau suivant.
+        e.skipTo(nextIndex);
+        e.play();
+      } else {
+        // On s'arrête : le lecteur neuf ne sera créé qu'à la prochaine demande de lecture (pas de boucle d'échecs).
+        useUi.getState().showToast(`Lecture impossible : « ${title} » est absent ou illisible`);
+        store.setState({ isPlaying: false, positionSec: 0 });
+        consecutiveErrors = 0;
+      }
+      countedCurrent = false;
+      listenedSec = 0;
+      lastPositionSec = 0;
+    }),
   );
 }
 
 export function disconnectPlayer() {
+  flushListening();
   unsubscribers.forEach((u) => u());
   unsubscribers = [];
   engine?.release();
   engine = null;
   countedCurrent = false;
+  listenedSec = 0;
+  lastPositionSec = 0;
+  consecutiveErrors = 0;
   lastSessionSave = 0;
   now = () => Date.now();
 }

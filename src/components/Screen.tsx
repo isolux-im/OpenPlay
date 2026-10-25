@@ -1,13 +1,15 @@
 import { BlurView } from 'expo-blur';
-import type { ReactNode } from 'react';
-import { Platform, Pressable, StyleSheet, View, type FlatListProps, type ScrollViewProps } from 'react-native';
+import { useMemo, useRef, type ReactNode } from 'react';
+import { Platform, Pressable, StyleSheet, View, type FlatList, type FlatListProps, type ScrollViewProps } from 'react-native';
 import Animated, { interpolate, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { alphabetIndex } from '../library/text';
 import { useAppNavigation } from '../navigation/ref';
 import { Icon } from '../ui/Icon';
 import { Text } from '../ui/Text';
 import { BOTTOM_INSET, GUTTER, useTheme } from '../ui/theme';
+import { AlphabetIndex } from './AlphabetIndex';
 
 export const NAV_BAR_HEIGHT = 48;
 
@@ -123,30 +125,49 @@ type ListScreenProps<T> = HeaderProps &
     subtitle?: string;
     titleRight?: ReactNode;
     header?: ReactNode;
+    /** Index A–Z : clé de tri de chaque élément (même ordre que `data`) et hauteur fixe des lignes. */
+    alphabet?: { keys: string[]; rowHeight: number };
   };
 
-export function ListScreen<T>({ title, back, backLabel, right, titleThreshold, largeTitle = true, subtitle, titleRight, header, contentContainerStyle, data, ...rest }: ListScreenProps<T>) {
+/** En dessous, l'index A–Z n'apporte rien. */
+const ALPHABET_MIN_ITEMS = 20;
+
+export function ListScreen<T>({ title, back, backLabel, right, titleThreshold, largeTitle = true, subtitle, titleRight, header, alphabet, contentContainerStyle, data, ...rest }: ListScreenProps<T>) {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const y = useSharedValue(0);
   const onScroll = useAnimatedScrollHandler((e) => {
     y.set(e.contentOffset.y);
   });
+  const list = useRef<FlatList<T>>(null);
+  // Bas de l'en-tête dans le contenu : la première ligne commence là.
+  const headerEnd = useRef(0);
+  const index = useMemo(() => (alphabet && alphabet.keys.length >= ALPHABET_MIN_ITEMS ? alphabetIndex(alphabet.keys) : null), [alphabet]);
+  const barHeight = insets.top + NAV_BAR_HEIGHT;
+  const showIndex = !!index && index.letters.length >= 3;
+  const jump = (letter: string) => {
+    const i = index?.first[letter];
+    if (i === undefined || !alphabet) return;
+    list.current?.scrollToOffset({ offset: Math.max(0, headerEnd.current + i * alphabet.rowHeight - barHeight), animated: false });
+  };
   return (
     <View style={[styles.fill, { backgroundColor: colors.background }]}>
       <Animated.FlatList
         {...rest}
+        ref={list}
         data={data}
         onScroll={onScroll}
         scrollEventThrottle={16}
-        contentContainerStyle={[{ paddingTop: insets.top + NAV_BAR_HEIGHT, paddingBottom: BOTTOM_INSET }, contentContainerStyle]}
+        // Place pour l'index A–Z : il ne doit pas recouvrir les boutons en bout de ligne.
+        contentContainerStyle={[{ paddingTop: insets.top + NAV_BAR_HEIGHT, paddingBottom: BOTTOM_INSET }, showIndex && { paddingRight: 16 }, contentContainerStyle]}
         ListHeaderComponent={
-          <>
+          <View onLayout={(e) => (headerEnd.current = e.nativeEvent.layout.y + e.nativeEvent.layout.height)}>
             {largeTitle ? <LargeTitle title={title} subtitle={subtitle} right={titleRight} /> : null}
             {header}
-          </>
+          </View>
         }
       />
+      {showIndex && index ? <AlphabetIndex letters={index.letters} topOffset={barHeight} onSelect={jump} /> : null}
       <TopBar y={y} title={title} back={back} backLabel={backLabel} right={right} titleThreshold={titleThreshold ?? (largeTitle ? 44 : 0)} />
     </View>
   );

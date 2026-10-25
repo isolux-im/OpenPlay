@@ -6,7 +6,7 @@ import { Artwork, Mosaic } from '../components/Artwork';
 import { Carousel, MediaCard, SectionHeader } from '../components/Blocks';
 import { PressableScale } from '../components/PressableScale';
 import { HeaderButton, ScrollScreen } from '../components/Screen';
-import { favoriteGenre, greeting, mostPlayed, recentlyAddedAlbums, recentlyPlayed, rediscover } from '../library/selectors';
+import { favoriteGenre, greeting, mostPlayed, recentlyAddedAlbums, recentlyPlayed, uniqueDiscover } from '../library/selectors';
 import { formatDuration, pluralize } from '../library/text';
 import { goToTab, useAppNavigation } from '../navigation/ref';
 import { useLibrary } from '../store/library';
@@ -18,6 +18,7 @@ import { Icon, type IconName } from '../ui/Icon';
 import { Text } from '../ui/Text';
 import { GUTTER, radius, useTheme } from '../ui/theme';
 import { useNow } from '../ui/useNow';
+import { useDiscover } from './DiscoverScreen';
 import { LibraryGate } from './LibraryGate';
 import { shuffled } from '../player/queue';
 
@@ -96,6 +97,7 @@ export function HomeScreen() {
   const current = currentId ? index.byId[currentId] : undefined;
   const { openAlbumMenu, openPlaylistMenu, openTrackMenu } = useUi.getState();
   const now = useNow();
+  const discover = useDiscover();
 
   const recent = useMemo(() => recentlyPlayed(history, index.byId, 15), [history, index.byId]);
   const added = useMemo(() => recentlyAddedAlbums(index, 15), [index]);
@@ -110,11 +112,12 @@ export function HomeScreen() {
       const g = index.genresById[genre.toLowerCase()];
       if (g) out.push({ key: `genre-${genre}`, title: `Mix ${genre}`, subtitle: pluralize(g.trackIds.length, 'morceau', 'morceaux'), icon: 'radio-outline', tracks: shuffled(g.trackIds.map((id) => index.byId[id])) });
     }
-    const re = rediscover(index, history, now, 30, 60);
-    if (re.length >= 3) out.push({ key: 'rediscover', title: 'À redécouvrir', subtitle: 'Pas écoutés depuis 30 jours', icon: 'refresh-outline', tracks: shuffled(re) });
+    const u = uniqueDiscover(discover);
+    const re = [...u.never, ...u.forgotten, ...u.rare].map((i) => i.track).slice(0, 60);
+    if (re.length >= 3) out.push({ key: 'rediscover', title: 'À découvrir', subtitle: 'Jamais ou peu écoutés', icon: 'sparkles-outline', tracks: shuffled(re) });
     if (index.tracks.length) out.push({ key: 'shuffle', title: 'Mix aléatoire', subtitle: 'Toute la bibliothèque', icon: 'shuffle-outline', tracks: shuffled(index.tracks).slice(0, 100) });
     return out;
-  }, [index, playCounts, history, now]);
+  }, [index, playCounts, discover]);
 
   return (
     <ScrollScreen title="Accueil" subtitle={greeting(now)} titleRight={<HeaderButton icon="person-outline" label="Paramètres" onPress={() => goToTab('SettingsTab')} />}>

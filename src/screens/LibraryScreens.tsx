@@ -1,13 +1,13 @@
 import { useRoute, type RouteProp } from '@react-navigation/native';
 import { useCallback, useMemo } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, View } from 'react-native';
 
 import { Artwork } from '../components/Artwork';
 import { Carousel, Chips, EmptyState, Grid, MediaCard, MenuRow, QuickTile, SectionHeader } from '../components/Blocks';
 import { PressableScale } from '../components/PressableScale';
 import { HeaderButton, ListScreen, ScrollScreen } from '../components/Screen';
 import { TrackRow } from '../components/TrackRow';
-import { groupHistory, mostPlayed, recentlyAddedAlbums, recentlyPlayedAlbums, recentlyAddedTracks, rediscover, sortTracks } from '../library/selectors';
+import { groupHistory, mostPlayed, recentlyAddedAlbums, recentlyPlayedAlbums, recentlyAddedTracks, sortTracks, uniqueDiscover } from '../library/selectors';
 import { pluralize } from '../library/text';
 import { goToTab, useAppNavigation } from '../navigation/ref';
 import type { SharedStackParams, SmartPlaylistKind } from '../navigation/types';
@@ -16,13 +16,14 @@ import { usePlayer } from '../store/player';
 import { useSettings, type SongSort } from '../store/settings';
 import { useUi } from '../store/ui';
 import { useUser } from '../store/user';
-import type { Album, Artist, Folder, Genre } from '../types';
+import type { Album, Artist, Folder, Genre, Track } from '../types';
 import { tap } from '../ui/haptics';
 import { Icon } from '../ui/Icon';
 import { Text } from '../ui/Text';
 import { GUTTER, radius, useTheme } from '../ui/theme';
 import { TrackCollectionScreen } from './TrackCollectionScreen';
 import { useNow } from '../ui/useNow';
+import { useDiscover } from './DiscoverScreen';
 import { LibraryGate } from './LibraryGate';
 
 export function LibraryScreen() {
@@ -38,6 +39,11 @@ export function LibraryScreen() {
   const recentAlbums = played.length ? played : added;
   const recentCount = useMemo(() => new Set(history.map((h) => h.trackId)).size, [history]);
   const smart: SmartPlaylistKind[] = ['mostPlayed', 'recentlyAdded', 'rediscover'];
+  const discover = useDiscover();
+  const discoverCount = useMemo(() => {
+    const u = uniqueDiscover(discover);
+    return u.never.length + u.forgotten.length + u.rare.length;
+  }, [discover]);
   const { colors } = useTheme();
 
   return (
@@ -58,6 +64,10 @@ export function LibraryScreen() {
           <View style={styles.quickRow}>
             <QuickTile icon="list-outline" label="Playlists" count={playlists.length} onPress={() => goToTab('PlaylistsTab')} />
             <QuickTile icon="musical-notes-outline" label="Titres" count={index.tracks.length} onPress={() => navigation.navigate('Songs')} />
+          </View>
+          <View style={styles.quickRow}>
+            <QuickTile icon="sparkles-outline" label="À découvrir" count={discoverCount} onPress={() => navigation.navigate('Discover')} />
+            <QuickTile icon="stats-chart-outline" label="Bilan" onPress={() => navigation.navigate('Stats')} />
           </View>
         </View>
 
@@ -117,7 +127,7 @@ export function SmartCard({ kind, width = 150 }: { kind: SmartPlaylistKind; widt
   const navigation = useAppNavigation();
   const tracks = useSmartPlaylist(kind);
   const meta = SMART_PLAYLISTS[kind];
-  return <MediaCard title={meta.title} subtitle={`Automatique · ${pluralize(tracks.length, 'titre')}`} mosaic={tracks} width={width} onPress={() => navigation.navigate('SmartPlaylist', { kind })} />;
+  return <MediaCard title={meta.title} subtitle={`Automatique · ${pluralize(tracks.length, 'titre')}`} mosaic={tracks} width={width} onPress={() => (kind === 'rediscover' ? navigation.navigate('Discover') : navigation.navigate('SmartPlaylist', { kind }))} />;
 }
 
 export function AlbumGridCard({ album }: { album: Album }) {
@@ -146,6 +156,9 @@ export function AlbumGridCard({ album }: { album: Album }) {
   );
 }
 
+const alphabetByTitle = (t: Track) => t.title;
+const alphabetByArtist = (t: Track) => t.artist;
+
 const SORT_LABELS: Record<SongSort, string> = { title: 'Titre', artist: 'Artiste', album: 'Album', added: 'Date d’ajout' };
 
 export function SongsScreen() {
@@ -159,11 +172,14 @@ export function SongsScreen() {
       title="Titres"
       backLabel="Bibliothèque"
       tracks={sorted}
+      alphabetKey={sort === 'title' ? alphabetByTitle : sort === 'artist' ? alphabetByArtist : undefined}
       label="Tous les titres"
       headerExtra={<Chips options={order.map((o) => ({ key: o, label: SORT_LABELS[o] }))} value={sort} onChange={(o) => update({ songSort: o })} />}
     />
   );
 }
+
+const ARTIST_ROW_HEIGHT = 68;
 
 export function ArtistsScreen() {
   const navigation = useAppNavigation();
@@ -188,7 +204,20 @@ export function ArtistsScreen() {
     ),
     [navigation, index, colors],
   );
-  return <ListScreen title="Artistes" back backLabel="Bibliothèque" data={index.artists} keyExtractor={(a) => a.id} renderItem={renderItem} ListEmptyComponent={<EmptyState icon="mic-outline" title="Aucun artiste" />} />;
+  const alphabet = useMemo(() => ({ keys: index.artists.map((a) => a.name), rowHeight: ARTIST_ROW_HEIGHT }), [index.artists]);
+  return (
+    <ListScreen
+      title="Artistes"
+      back
+      backLabel="Bibliothèque"
+      data={index.artists}
+      alphabet={alphabet}
+      keyExtractor={(a) => a.id}
+      renderItem={renderItem}
+      getItemLayout={(_, i) => ({ length: ARTIST_ROW_HEIGHT, offset: ARTIST_ROW_HEIGHT * i, index: i })}
+      ListEmptyComponent={<EmptyState icon="mic-outline" title="Aucun artiste" />}
+    />
+  );
 }
 
 export function AlbumsScreen() {
@@ -265,10 +294,32 @@ export function FoldersScreen() {
 
 export function FolderScreen() {
   const { params } = useRoute<RouteProp<SharedStackParams, 'Folder'>>();
+  const navigation = useAppNavigation();
   const index = useLibrary((s) => s.index);
   const folder = index.foldersById[params.id];
   const tracks = folder ? folder.trackIds.map((id) => index.byId[id]).filter(Boolean) : [];
-  return <TrackCollectionScreen title={folder?.name ?? 'Dossier'} subtitle={folder?.path} tracks={tracks} backLabel="Dossiers" />;
+  const hide = () =>
+    folder &&
+    Alert.alert('Masquer ce dossier ?', `« ${folder.path} » et ses sous-dossiers n'apparaîtront plus dans la bibliothèque. Aucun fichier n'est supprimé ; vous pourrez le réafficher dans Paramètres › Dossiers masqués.`, [
+      { text: 'Annuler', style: 'cancel' },
+      {
+        text: 'Masquer',
+        onPress: () => {
+          const { excludedFolders, update } = useSettings.getState();
+          if (!excludedFolders.includes(folder.path)) update({ excludedFolders: [...excludedFolders, folder.path] });
+          navigation.goBack();
+        },
+      },
+    ]);
+  return (
+    <TrackCollectionScreen
+      title={folder?.name ?? 'Dossier'}
+      subtitle={folder?.path}
+      tracks={tracks}
+      backLabel="Dossiers"
+      right={folder ? <HeaderButton icon="eye-off-outline" label="Masquer ce dossier" onPress={hide} /> : undefined}
+    />
+  );
 }
 
 export function FavoritesScreen() {
@@ -330,15 +381,14 @@ export const SMART_PLAYLISTS: Record<SmartPlaylistKind, { title: string; icon: '
   favorites: { title: 'Favoris', icon: 'heart' },
   mostPlayed: { title: 'Les plus écoutés', icon: 'flame' },
   recentlyAdded: { title: 'Ajoutés récemment', icon: 'sparkles' },
-  rediscover: { title: 'À redécouvrir', icon: 'refresh' },
+  rediscover: { title: 'À découvrir', icon: 'refresh' },
 };
 
 export function useSmartPlaylist(kind: SmartPlaylistKind) {
   const index = useLibrary((s) => s.index);
   const favorites = useUser((s) => s.favorites);
   const playCounts = useUser((s) => s.playCounts);
-  const history = useUser((s) => s.history);
-  const now = useNow();
+  const discover = useDiscover();
   return useMemo(() => {
     switch (kind) {
       case 'favorites':
@@ -347,10 +397,12 @@ export function useSmartPlaylist(kind: SmartPlaylistKind) {
         return mostPlayed(playCounts, index.byId, 50);
       case 'recentlyAdded':
         return recentlyAddedTracks(index, 50);
-      case 'rediscover':
-        return rediscover(index, history, now, 30, 50);
+      case 'rediscover': {
+        const u = uniqueDiscover(discover);
+        return [...u.never, ...u.forgotten, ...u.rare].map((i) => i.track);
+      }
     }
-  }, [kind, index, favorites, playCounts, history, now]);
+  }, [kind, index, favorites, playCounts, discover]);
 }
 
 export function SmartPlaylistScreen() {
@@ -370,7 +422,7 @@ const styles = StyleSheet.create({
   quickGrid: { paddingHorizontal: GUTTER, gap: 12, marginTop: 4 },
   quickRow: { flexDirection: 'row', gap: 12 },
   browse: { marginHorizontal: GUTTER, borderRadius: radius.lg, overflow: 'hidden' },
-  listRow: { flexDirection: 'row', alignItems: 'center', paddingLeft: GUTTER, height: 68 },
+  listRow: { flexDirection: 'row', alignItems: 'center', paddingLeft: GUTTER, height: ARTIST_ROW_HEIGHT },
   listText: { flex: 1, flexDirection: 'row', alignItems: 'center', marginLeft: 14, height: '100%', borderBottomWidth: StyleSheet.hairlineWidth, paddingRight: GUTTER },
   folderIcon: { width: 52, height: 52, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   tiles: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: GUTTER - 6 },

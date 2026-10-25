@@ -70,3 +70,20 @@ export function audioQuality(mimeType: string, sizeBytes: number, durationSec: n
   const kbps = sizeBytes > 0 && durationSec > 0 ? Math.round((sizeBytes * 8) / durationSec / 1000) : null;
   return { format, size, bitrate: kbps ? `≈ ${kbps} kbit/s` : 'Inconnu' };
 }
+
+/**
+ * Lettres présentes dans une liste déjà triée et position de la première entrée de chacune
+ * (même règle que le tri : accents, casse et articles initiaux ignorés).
+ */
+export function alphabetIndex(keys: string[]): { letters: string[]; first: Record<string, number> } {
+  const letters: string[] = [];
+  const first: Record<string, number> = {};
+  keys.forEach((k, i) => {
+    const l = indexLetter(k);
+    if (first[l] === undefined) {
+      first[l] = i;
+      letters.push(l);
+    }
+  });
+  return { letters, first };
+}
