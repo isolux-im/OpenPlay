@@ -120,7 +120,7 @@ export function MiniPlayer() {
         style={[styles.mini, { backgroundColor: colors.card, borderColor: colors.separator }]}
         accessibilityRole="button"
         accessibilityLabel={`Ouvrir le lecteur : ${track.title}, ${track.artist}`}
-        accessibilityHint="Glisser à gauche ou à droite pour changer de morceau"
+        accessibilityHint="Glisser à gauche pour le morceau précédent, à droite pour le suivant"
         accessibilityActions={[
           { name: 'activate', label: 'Ouvrir le lecteur' },
           { name: 'nextTrack', label: 'Morceau suivant' },
