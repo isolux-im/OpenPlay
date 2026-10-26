@@ -6,6 +6,7 @@ import { useLibrary } from '../store/library';
 import { usePlayer } from '../store/player';
 import { useSettings } from '../store/settings';
 import { useUi } from '../store/ui';
+import { usePlaybackPosition, usePlaybackSession } from '../store/session';
 import { useUser } from '../store/user';
 import { useVideoPlayer } from '../store/videoPlayer';
 
@@ -216,6 +217,8 @@ describe('application', () => {
 
   it('n’affiche le mini-lecteur que dans Accueil et Bibliothèque › Musique, en lecture comme en pause', async () => {
     useUser.setState({ session: null });
+    usePlaybackSession.setState({ session: null, saved: true });
+    usePlaybackPosition.setState({ trackId: null, positionSec: 0 });
     await renderApp();
     const mini = () => screen.queryByRole('button', { name: /^Ouvrir le lecteur/ });
     expect(mini()).toBeNull(); // aucun morceau chargé
@@ -242,5 +245,16 @@ describe('application', () => {
     expect(mini()).toBeTruthy();
     // Masquer l'interface n'arrête rien : morceau, file et position conservés.
     expect(usePlayer.getState().queue[usePlayer.getState().index]).toBe(t.id);
+  });
+
+  it('lance l’historique (Récents) avec toute la liste, pour enchaîner les morceaux', async () => {
+    await renderApp();
+    const tracks = useLibrary.getState().index.tracks.slice(0, 3);
+    useUser.setState({ history: tracks.map((t, i) => ({ trackId: t.id, at: Date.now() - i * 60_000 })) });
+    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    await fireEvent.press((await screen.findAllByRole('button', { name: /^Récents/ }))[0]);
+    await fireEvent.press((await screen.findAllByRole('button', { name: new RegExp(`^Lire ${tracks[1].title}`) }))[0]);
+    expect(usePlayer.getState().queue).toEqual(tracks.map((t) => t.id));
+    expect(usePlayer.getState().index).toBe(1);
   });
 });

@@ -11,6 +11,18 @@ export const MAX_INTRO_SEC = 180;
 
 const running = new Set<string>();
 
+/** À partir de « modéré » (THERMAL_STATUS_MODERATE = 2), l'analyse sonore attend la prochaine ouverture. */
+const THERMAL_MODERATE = 2;
+
+/** Téléphone chaud selon Android : les traitements facultatifs sont reportés. */
+export function deviceIsHot(): boolean {
+  try {
+    return (OpenPlayMedia?.getThermalStatus?.() ?? -1) >= THERMAL_MODERATE;
+  } catch {
+    return false;
+  }
+}
+
 export function canDetectIntro(): boolean {
   return !!OpenPlayMedia?.findCommonIntroAsync;
 }
@@ -35,7 +47,7 @@ export function inIntro(info: IntroInfo | undefined, positionSec: number): info 
 export async function detectIntro(series: Series, video: Video): Promise<void> {
   if (!canDetectIntro() || useIntros.getState().byVideo[video.id]) return;
   const partner = nextEpisode(series, video.id) ?? previousEpisode(series, video.id);
-  if (!partner || running.has(video.id)) return;
+  if (!partner || running.has(video.id) || deviceIsHot()) return;
   running.add(video.id);
   try {
     const m = await OpenPlayMedia!.findCommonIntroAsync!(video.id, `${video.id}-${video.sizeBytes}`, partner.id, `${partner.id}-${partner.sizeBytes}`, INTRO_WINDOW_SEC);

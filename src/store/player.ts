@@ -1,3 +1,4 @@
+import { AppState } from 'react-native';
 import { create } from 'zustand';
 
 import { recordDiagnostic } from '../diagnostics/crashReports';
@@ -10,6 +11,7 @@ import { formatDuration } from '../library/text';
 import { useSettings } from './settings';
 import { useStats } from './stats';
 import { useUi } from './ui';
+import { usePlaybackPosition, usePlaybackSession } from './session';
 import { useUser, type Session } from './user';
 
 export type SleepTimer = { endsAt: number | null; atTrackEnd: boolean };
@@ -62,7 +64,15 @@ export const PLAY_COUNT_THRESHOLD_SEC = 30;
 const MAX_LISTEN_STEP_SEC = 2.5;
 /** Au-delà de ce nombre d'échecs consécutifs, on arrête plutôt que d'enchaîner les fichiers illisibles. */
 const MAX_CONSECUTIVE_ERRORS = 3;
-const SESSION_SAVE_INTERVAL_MS = 5000;
+/** Position de lecture retenue toutes les 15 s (petite écriture) ; la file, seulement quand elle change. */
+const SESSION_SAVE_INTERVAL_MS = 15_000;
+/** Fichiers longs : position de reprise retenue chaque minute (et à la pause, au changement de piste). */
+const RESUME_SAVE_INTERVAL_MS = 60_000;
+/**
+ * Au-delà, l'aléatoire recharge la file en un appel (lecteur neuf, même position) plutôt que de
+ * retirer et réinsérer chaque morceau un par un dans le lecteur natif.
+ */
+const INCREMENTAL_REORDER_LIMIT = 30;
 /** Fichiers longs (livres audio, cours, podcasts) : la position est retenue d'une écoute à l'autre. */
 export const LONG_TRACK_SEC = 20 * 60;
 /** Pas de reprise dans la première ni la dernière demi-minute. */
@@ -76,10 +86,16 @@ let countedCurrent = false;
 let listenedSec = 0;
 let lastPositionSec = 0;
 let consecutiveErrors = 0;
+/**
+ * Rechargement de file (aléatoire) : le changement de piste que le lecteur neuf annonce, de façon
+ * asynchrone, n'est pas une nouvelle écoute. Valable 2 s au plus.
+ */
+let reloadUntil = 0;
 /** Temps d'écoute pas encore versé au bilan (écrit par paquets, pas à chaque mise à jour). */
 let pendingListenSec = 0;
-const LISTEN_FLUSH_SEC = 30;
+const LISTEN_FLUSH_SEC = 120;
 let lastSessionSave = 0;
+let lastResumeSave = 0;
 let now: () => number = () => Date.now();
 
 /** Position où reprendre `id`, ou 0. */
@@ -121,7 +137,8 @@ export const usePlayer = create<PlayerState>()((set, get) => {
   function persistSession() {
     const s = get();
     lastSessionSave = now();
-    useUser.getState().saveSession(
+    usePlaybackPosition.getState().save(s.queue[s.index] ?? null, s.positionSec);
+    usePlaybackSession.getState().save(
       s.queue.length
         ? {
             queue: s.queue,
@@ -151,8 +168,7 @@ export const usePlayer = create<PlayerState>()((set, get) => {
   }
 
   /** Réordonne la file native autour de la piste courante, sans interrompre la lecture. */
-  function rebuildAround(newQueue: string[], newIndex: number) {
-    const { queue, index } = get();
+  function rebuildAround(queue: string[], index: number, newQueue: string[], newIndex: number) {
     if (!engine) return;
     for (let i = queue.length - 1; i >= 0; i--) if (i !== index) engine.remove(i);
     newQueue.forEach((id, j) => {
@@ -257,8 +273,14 @@ export const usePlayer = create<PlayerState>()((set, get) => {
       const currentId = queue[index];
       const newQueue = shuffle ? originalQueue : shuffleAround(queue, index);
       const newIndex = Math.max(0, newQueue.indexOf(currentId));
-      rebuildAround(newQueue, newIndex);
       set({ shuffle: !shuffle, queue: newQueue, index: newIndex });
+      if (queue.length <= INCREMENTAL_REORDER_LIMIT) rebuildAround(queue, index, newQueue, newIndex);
+      else if (engine) {
+        const { positionSec, isPlaying } = get();
+        reloadUntil = Date.now() + 2000;
+        engine.load(itemsFor(newQueue), newIndex, positionSec, isPlaying);
+        announceNowPlaying();
+      }
       persistSession();
     },
     cycleRepeat: () => {
@@ -363,15 +385,32 @@ export function connectPlayer(
   if (options.clock) now = options.clock;
   const store = usePlayer;
 
+  // Passage en arrière-plan : bilan et positions écrits tout de suite (les écritures sont espacées).
+  const appState = AppState.addEventListener('change', (next) => {
+    if (next === 'active') return;
+    const cur = store.getState();
+    flushListening();
+    if (cur.queue.length) {
+      usePlaybackPosition.getState().save(cur.queue[cur.index] ?? null, cur.positionSec);
+      rememberPosition(cur.queue[cur.index], cur.positionSec);
+    }
+  });
+  unsubscribers.push(() => appState.remove());
+
   unsubscribers.push(
     e.onStatus((s) => {
       const state = store.getState();
-      store.setState({
-        isPlaying: s.playing,
-        isBuffering: s.isBuffering,
-        positionSec: s.positionSec,
-        durationSec: s.durationSec > 0 ? s.durationSec : state.durationSec,
-      });
+      // En arrière-plan, la position affichée n'est rafraîchie que toutes les 10 s (moins de rendus) ;
+      // le comptage des écoutes, lui, continue à chaque mise à jour.
+      const background = AppState.currentState === 'background';
+      if (!background || s.playing !== state.isPlaying || s.isBuffering !== state.isBuffering || Math.abs(s.positionSec - state.positionSec) >= 10) {
+        store.setState({
+          isPlaying: s.playing,
+          isBuffering: s.isBuffering,
+          positionSec: s.positionSec,
+          durationSec: s.durationSec > 0 ? s.durationSec : state.durationSec,
+        });
+      }
       const currentId = state.queue[state.index];
       const step = s.positionSec - lastPositionSec;
       const duration = s.durationSec || state.durationSec;
@@ -401,22 +440,20 @@ export function connectPlayer(
       }
       if (now() - lastSessionSave > SESSION_SAVE_INTERVAL_MS && state.queue.length) {
         lastSessionSave = now();
-        if (s.playing) rememberPosition(currentId, s.positionSec);
-        const cur = store.getState();
-        useUser.getState().saveSession({
-          queue: cur.queue,
-          originalQueue: cur.originalQueue,
-          index: cur.index,
-          positionSec: cur.positionSec,
-          shuffle: cur.shuffle,
-          repeat: cur.repeat,
-          sourceLabel: cur.sourceLabel,
-        });
+        usePlaybackPosition.getState().save(currentId ?? null, s.positionSec);
+      }
+      if (s.playing && now() - lastResumeSave > RESUME_SAVE_INTERVAL_MS) {
+        lastResumeSave = now();
+        rememberPosition(currentId, s.positionSec);
       }
     }),
     e.onTrackChanged((i) => {
       const state = store.getState();
       if (i < 0 || i >= state.queue.length) return;
+      if (i === state.index && Date.now() < reloadUntil) {
+        reloadUntil = 0;
+        return;
+      }
       if (i !== state.index) rememberPosition(state.queue[state.index], state.positionSec);
       flushListening();
       countedCurrent = false;
@@ -424,6 +461,7 @@ export function connectPlayer(
       lastPositionSec = 0;
       const resumeAt = i !== state.index ? resumeFor(state.queue[i]) : 0;
       store.setState({ index: i, positionSec: resumeAt, durationSec: resolveTrack(state.queue[i])?.durationSec ?? 0 });
+      usePlaybackPosition.getState().save(state.queue[i], resumeAt);
       if (resumeAt > 0) {
         e.seekTo(resumeAt);
         lastPositionSec = resumeAt;
@@ -478,6 +516,8 @@ export function disconnectPlayer() {
   lastPositionSec = 0;
   consecutiveErrors = 0;
   lastSessionSave = 0;
+  lastResumeSave = 0;
+  reloadUntil = 0;
   now = () => Date.now();
 }
 

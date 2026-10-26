@@ -344,6 +344,8 @@ export function HistoryScreen() {
   const byId = useLibrary((s) => s.index.byId);
   const now = useNow();
   const groups = useMemo(() => groupHistory(history, byId, now), [history, byId, now]);
+  // File de lecture : les morceaux de l'historique dans l'ordre affiché (une fois chacun), pour enchaîner.
+  const queue = useMemo(() => [...new Set(groups.flatMap((g) => g.entries.map((e) => e.trackId)))], [groups]);
   return (
     <ScrollScreen
       title="Historique"
@@ -369,7 +371,7 @@ export function HistoryScreen() {
               key={`${e.trackId}-${e.at}`}
               track={e.track}
               subtitle={`${e.track.artist} · ${new Date(e.at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`}
-              onPress={() => usePlayer.getState().playTracks([e.trackId], 0, { label: 'Historique' })}
+              onPress={() => usePlayer.getState().playTracks(queue, queue.indexOf(e.trackId), { label: 'Historique' })}
             />
           ))}
         </View>

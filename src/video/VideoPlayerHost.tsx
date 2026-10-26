@@ -38,7 +38,8 @@ export const VIDEO_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2] as const;
 const HIDE_CONTROLS_MS = 3500;
 const DOUBLE_TAP_MS = 280;
 const SEEK_STEP = 10;
-const SAVE_EVERY_MS = 5000;
+/** Position vidéo retenue toutes les 15 s (et à la pause, à la fin, à la fermeture). */
+const SAVE_EVERY_MS = 15_000;
 const RESUME_HINT_MS = 6000;
 /** Marges où un glissement appartient au système (barre d'état, navigation, retour). */
 const EDGE = 40;
@@ -49,7 +50,7 @@ type Orientation = 'landscape' | 'portrait' | 'sensor';
 let carriedOrientation: Orientation | null = null;
 const ORIENTATION_LABELS: Record<Orientation, string> = { sensor: 'Rotation automatique', landscape: 'Paysage verrouillé', portrait: 'Portrait verrouillé' };
 /** Temps de visionnage écrit par paquets (évite une écriture du stockage à chaque seconde). */
-const WATCH_FLUSH_SEC = 30;
+const WATCH_FLUSH_SEC = 120;
 
 /** Lecteur vidéo plein écran, au-dessus de l'application ; une nouvelle ouverture recrée le lecteur. */
 export function VideoPlayerHost() {
@@ -66,6 +67,10 @@ function setTime(player: VideoPlayer, sec: number) {
 
 function setPlaybackRate(player: VideoPlayer, rate: number) {
   player.playbackRate = rate;
+}
+
+function setTimeUpdateInterval(player: VideoPlayer, sec: number) {
+  player.timeUpdateEventInterval = sec;
 }
 
 function setVolume(player: VideoPlayer, volume: number) {
@@ -201,8 +206,8 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   const index = list.indexOf(video.id);
 
   const player = useNativeVideoPlayer(video.uri ? { uri: video.uri } : null, (p) => {
-    // 0,25 s : précision suffisante pour l'affichage des sous-titres importés.
-    p.timeUpdateEventInterval = 0.25;
+    // 0,5 s par défaut ; 0,25 s seulement quand des sous-titres importés sont affichés (voir plus bas).
+    p.timeUpdateEventInterval = 0.5;
     p.keepScreenOnWhilePlaying = true;
     // Une seule notification de lecture : celle de la musique. La vidéo ne joue pas en arrière-plan hors PiP.
     p.showNowPlayingNotification = false;
@@ -249,6 +254,12 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   useEffect(() => {
     if (orientation) void OpenPlayMedia?.setScreenOrientationAsync?.(orientation).catch(() => {});
   }, [orientation]);
+
+  // Mises à jour de position plus serrées seulement quand des sous-titres importés doivent suivre l'image.
+  const fineTiming = subtitleChoice.kind === 'external' && external.status === 'ready';
+  useEffect(() => {
+    setTimeUpdateInterval(player, fineTiming ? 0.25 : 0.5);
+  }, [player, fineTiming]);
 
   // Une seule lecture à la fois : la musique met la vidéo en pause, et inversement.
   useEffect(() => {

@@ -3,6 +3,7 @@ import { buildIndex } from '../library/indexLibrary';
 import { SimulatedEngine } from '../player/PlaybackEngine';
 import { connectPlayer, disconnectPlayer, usePlayer } from '../store/player';
 import { useUser } from '../store/user';
+import { sessionToRestore } from '../store/session';
 
 const index = buildIndex(demoTracks());
 const ids = index.albums.find((a) => a.title === 'Racines')!.trackIds;
@@ -177,7 +178,9 @@ describe('store du lecteur', () => {
     state().playTracks(ids, 2, { label: 'Racines' });
     engine.seekTo(42);
     state().pause();
-    const session = useUser.getState().session!;
+    // File et position rangées à part des données utilisateur ; reprise sur la dernière position connue.
+    expect(useUser.getState().session).toBeNull();
+    const session = sessionToRestore()!;
     expect(session).toMatchObject({ index: 2, positionSec: 42, sourceLabel: 'Racines' });
 
     disconnectPlayer();

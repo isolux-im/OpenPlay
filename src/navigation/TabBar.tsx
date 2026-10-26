@@ -2,7 +2,7 @@ import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { BlurView } from 'expo-blur';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { FadeInDown, FadeOutDown, runOnJS, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import Animated, { FadeInDown, FadeOutDown, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Artwork } from '../components/Artwork';
@@ -50,6 +50,17 @@ function Chrome({ radius = 0 }: { radius?: number }) {
   );
 }
 
+/** Dernier glissement du mini-lecteur : l'appui qui le termine n'ouvre pas le lecteur plein écran. */
+let lastMiniSwipe = 0;
+
+function markMiniSwipe() {
+  lastMiniSwipe = Date.now();
+}
+
+function swipedRecently() {
+  return Date.now() - lastMiniSwipe < 400;
+}
+
 export function MiniPlayer() {
   const { colors } = useTheme();
   const trackId = usePlayer((s) => s.queue[s.index]);
@@ -65,24 +76,38 @@ export function MiniPlayer() {
     const action = miniSwipeAction(tx, ty, vx, vy);
     if (!action) return;
     tap('selection');
-    if (action === 'next') next();
-    else if (action === 'previous') previous();
-    else setExpanded(true);
+    if (action === 'open') return setExpanded(true);
+    // Même règle que les boutons : la file et le mode de répétition réels décident.
+    const { index, queue, repeat } = usePlayer.getState();
+    if (action === 'next') {
+      if (index >= queue.length - 1 && repeat !== 'all') useUi.getState().showToast('Dernier morceau de la file');
+      else next();
+    } else previous();
   };
 
-  // Glisser horizontalement : suivant / précédent ; vers le haut : ouvrir. Un simple appui ouvre toujours le lecteur.
+  const endSwipe = (tx: number, ty: number, vx: number, vy: number) => {
+    markMiniSwipe();
+    finish(tx, ty, vx, vy);
+  };
+
+  // Glisser horizontalement : suivant / précédent ; vers le haut : ouvrir. Un simple appui ouvre le lecteur.
+  // Rappels sur le fil JavaScript : le geste marque le glissement avant que l'appui ne se termine.
   const swipe = Gesture.Pan()
+    .runOnJS(true)
     .activeOffsetX([-12, 12])
     .activeOffsetY([-12, 10_000])
+    .onStart(markMiniSwipe)
     .onUpdate((e) => {
       dragX.set(Math.abs(e.translationX) > Math.abs(e.translationY) ? e.translationX * 0.6 : 0);
     })
-    .onEnd((e) => {
-      runOnJS(finish)(e.translationX, e.translationY, e.velocityX, e.velocityY);
-    })
+    .onEnd((e) => endSwipe(e.translationX, e.translationY, e.velocityX, e.velocityY))
     .onFinalize(() => {
       dragX.set(withSpring(0, { damping: 18, stiffness: 220 }));
     });
+
+  const openPlayer = () => {
+    if (!swipedRecently()) setExpanded(true);
+  };
 
   if (!track) return null;
   return (
@@ -91,7 +116,7 @@ export function MiniPlayer() {
       <Animated.View style={dragStyle}>
       <PressableScale
         scaleTo={0.98}
-        onPress={() => setExpanded(true)}
+        onPress={openPlayer}
         style={[styles.mini, { backgroundColor: colors.card, borderColor: colors.separator }]}
         accessibilityRole="button"
         accessibilityLabel={`Ouvrir le lecteur : ${track.title}, ${track.artist}`}

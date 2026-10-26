@@ -18,6 +18,7 @@ import { PlayerOptionsHost } from './player/ui/PlayerOptions';
 import { useLibrary } from './store/library';
 import { connectPlayer, disconnectPlayer, usePlayer } from './store/player';
 import { useSettings } from './store/settings';
+import { sessionToRestore, whenSessionStoresReady } from './store/session';
 import { useUser } from './store/user';
 import { useVideos } from './store/videos';
 import { MediaOnboardingHost } from './onboarding/MediaOnboarding';
@@ -60,14 +61,12 @@ function useBootstrap(engineFactory: () => PlaybackEngine) {
   const status = useLibrary((s) => s.status);
   useEffect(() => {
     if (status !== 'ready') return;
-    const restore = () => {
-      const session = useUser.getState().session;
+    return whenSessionStoresReady(() => {
+      const session = sessionToRestore();
       if (!session || !useSettings.getState().resumeOnLaunch) return;
       const byId = useLibrary.getState().index.byId;
       usePlayer.getState().restoreSession(session, (id) => !!byId[id]);
-    };
-    if (useUser.persist.hasHydrated()) restore();
-    else return useUser.persist.onFinishHydration(restore);
+    });
   }, [status]);
 }
 

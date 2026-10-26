@@ -73,6 +73,8 @@ type OpenPlayMediaModule = {
    * `cacheA` / `cacheB`) : positions en secondes dans chacune, ou null.
    */
   findCommonIntroAsync?(idA: string, cacheA: string, idB: string, cacheB: string, maxSeconds: number): Promise<{ startA: number; endA: number; startB: number; endB: number; density: number } | null>;
+  /** État thermique Android 10+ : 0 normal … 2 modéré, 3 sévère … 6 arrêt ; -1 inconnu. */
+  getThermalStatus?(): number;
   /** Volume média (0 à 1, `volumeSteps` crans) et luminosité de la fenêtre (0 à 1). */
   getVideoControlsStateAsync?(): Promise<{ volume: number; volumeSteps: number; brightness: number }>;
   setMediaVolumeAsync?(fraction: number): Promise<void>;

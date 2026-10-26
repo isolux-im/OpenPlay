@@ -16,6 +16,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.provider.Settings
@@ -170,6 +171,15 @@ class OpenPlayMediaModule : Module() {
       }
       startChooser(view, title)
     }.runOnQueue(Queues.MAIN)
+
+    // État thermique d'Android 10+ (PowerManager.THERMAL_STATUS_*), -1 si inconnu : les traitements facultatifs s'effacent.
+    Function("getThermalStatus") {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        (context.getSystemService(Context.POWER_SERVICE) as? PowerManager)?.currentThermalStatus ?: -1
+      } else {
+        -1
+      }
+    }
 
     // Générique de début commun à deux épisodes : positions (s) dans chacun, ou null.
     AsyncFunction("findCommonIntroAsync") Coroutine { idA: String, cacheA: String, idB: String, cacheB: String, maxSeconds: Int ->
