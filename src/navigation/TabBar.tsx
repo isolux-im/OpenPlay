@@ -10,6 +10,7 @@ import { PressableScale } from '../components/PressableScale';
 import { miniSwipeAction } from '../player/gestures';
 import { useLibrary } from '../store/library';
 import { usePlayer } from '../store/player';
+import { useUi } from '../store/ui';
 import { tap } from '../ui/haptics';
 import { Icon, type IconName } from '../ui/Icon';
 import { Text } from '../ui/Text';
@@ -22,6 +23,21 @@ const TABS: Record<string, { label: string; icon: IconName; activeIcon: IconName
   PlaylistsTab: { label: 'Playlists', icon: 'list-outline', activeIcon: 'list' },
   SettingsTab: { label: 'Paramètres', icon: 'settings-outline', activeIcon: 'settings' },
 };
+
+/** Écrans vidéo enregistrés dans toutes les piles : jamais de mini-lecteur musical. */
+const VIDEO_ROUTES = new Set(['VideoFolder', 'VideoSeries', 'VideoStats']);
+
+/**
+ * Le mini-lecteur musical n'apparaît que dans Accueil et Bibliothèque › Musique (sous-écrans compris),
+ * qu'un morceau soit en lecture ou en pause. Ailleurs, seule son interface est masquée : la lecture continue.
+ */
+export function miniPlayerVisible(tab: string | undefined, screen: string | undefined, librarySection: 'music' | 'videos'): boolean {
+  if (screen && VIDEO_ROUTES.has(screen)) return false;
+  if (tab === 'HomeTab') return true;
+  if (tab !== 'LibraryTab') return false;
+  // Racine de la Bibliothèque : dépend du sélecteur Musique | Vidéos ; sous-écrans musicaux : visibles.
+  return !screen || screen === 'Library' ? librarySection === 'music' : true;
+}
 
 function Chrome({ radius = 0 }: { radius?: number }) {
   const { colors, dark } = useTheme();
@@ -126,9 +142,14 @@ export function MiniPlayer() {
 export function TabBar({ state, navigation }: BottomTabBarProps) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const librarySection = useUi((s) => s.librarySection);
+  const tab = state.routes[state.index];
+  const stack = tab?.state;
+  const screen = stack && typeof stack.index === 'number' ? stack.routes[stack.index]?.name : undefined;
+  const showMini = miniPlayerVisible(tab?.name, screen, librarySection);
   return (
     <View style={styles.container} pointerEvents="box-none">
-      <MiniPlayer />
+      {showMini ? <MiniPlayer /> : null}
       <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
         <Chrome />
         <View style={[styles.hairline, { backgroundColor: colors.separator }]} />

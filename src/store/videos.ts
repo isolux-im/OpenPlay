@@ -26,16 +26,22 @@ type State = {
 
 const isDemo = () => !OpenPlayMedia?.queryVideosAsync;
 
-async function permission(request: boolean): Promise<{ status: 'granted' | 'denied' | 'undetermined'; limited: boolean }> {
+/**
+ * Accès « Vidéos » (READ_MEDIA_VIDEO ; accès partiel READ_MEDIA_VISUAL_USER_SELECTED sur Android 14+ ;
+ * READ_EXTERNAL_STORAGE avant Android 13). `denied` seulement quand Android ne peut plus le redemander.
+ */
+export async function videoAccess(request: boolean): Promise<{ status: 'granted' | 'denied' | 'undetermined'; limited: boolean }> {
   if (isDemo() || Platform.OS !== 'android') return { status: 'granted', limited: false };
   const res = request ? await MediaLibrary.requestPermissionsAsync(false, ['video']) : await MediaLibrary.getPermissionsAsync(false, ['video']);
-  const status = res.status === 'granted' ? 'granted' : res.status === 'denied' ? 'denied' : 'undetermined';
+  const status = res.status === 'granted' ? 'granted' : res.status === 'denied' && !res.canAskAgain ? 'denied' : 'undetermined';
   return { status, limited: res.accessPrivileges === 'limited' };
 }
 
+const permission = videoAccess;
+
 /**
- * Vidéothèque locale (MediaStore.Video). L'autorisation n'est demandée qu'à l'ouverture de
- * l'onglet Vidéos, pas au lancement : la musique n'en dépend pas.
+ * Vidéothèque locale (MediaStore.Video). Au lancement, `init` vérifie l'autorisation sans la demander
+ * et indexe si elle est accordée ; la demande passe par l'accueil des autorisations ou par la section Vidéos.
  */
 export const useVideos = create<State>()((set, get) => ({
   status: 'idle',
@@ -81,16 +87,27 @@ export const useVideos = create<State>()((set, get) => ({
     }
   },
 
-  scan: async () => {
-    set((s) => ({ status: s.status === 'ready' ? 'ready' : 'loading' }));
-    try {
-      const videos = OpenPlayMedia?.queryVideosAsync ? (await OpenPlayMedia.queryVideosAsync()).map(videoFromNative) : demoVideos();
-      const byId: Record<string, Video> = {};
-      for (const v of videos) byId[v.id] = v;
-      set({ videos, byId, status: 'ready', isDemo: isDemo() });
-    } catch (e) {
-      recordDiagnostic('Indexation des vidéos en échec', describeError(e));
-      set({ status: 'error' });
-    }
+  scan: () => {
+    // Une seule indexation à la fois (lancement et accueil des autorisations peuvent se croiser).
+    scanning ??= runScan().finally(() => {
+      scanning = null;
+    });
+    return scanning;
   },
 }));
+
+let scanning: Promise<void> | null = null;
+
+async function runScan() {
+  const set = useVideos.setState;
+  set((s) => ({ status: s.status === 'ready' ? 'ready' : 'loading' }));
+  try {
+    const videos = OpenPlayMedia?.queryVideosAsync ? (await OpenPlayMedia.queryVideosAsync()).map(videoFromNative) : demoVideos();
+    const byId: Record<string, Video> = {};
+    for (const v of videos) byId[v.id] = v;
+    set({ videos, byId, status: 'ready', isDemo: isDemo() });
+  } catch (e) {
+    recordDiagnostic('Indexation des vidéos en échec', describeError(e));
+    set({ status: 'error' });
+  }
+}

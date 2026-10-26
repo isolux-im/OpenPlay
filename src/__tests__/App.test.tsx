@@ -213,4 +213,34 @@ describe('application', () => {
     expect(screen.queryByText(/^Orientation : « Auto »/)).toBeNull();
     for (const g of ['Lecture', 'À découvrir', 'Paroles en ligne', 'Informations']) expect(screen.getByRole('button', { name: `En savoir plus : ${g}` })).toBeTruthy();
   });
+
+  it('n’affiche le mini-lecteur que dans Accueil et Bibliothèque › Musique, en lecture comme en pause', async () => {
+    useUser.setState({ session: null });
+    await renderApp();
+    const mini = () => screen.queryByRole('button', { name: /^Ouvrir le lecteur/ });
+    expect(mini()).toBeNull(); // aucun morceau chargé
+    const t = useLibrary.getState().index.tracks[0];
+    await act(async () => usePlayer.getState().playTracks([t.id], 0));
+    expect(mini()).toBeTruthy(); // Accueil
+    await act(async () => usePlayer.getState().pause());
+    expect(usePlayer.getState().isPlaying).toBe(false);
+    expect(mini()).toBeTruthy(); // en pause, toujours visible
+    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    expect(mini()).toBeTruthy(); // Bibliothèque › Musique
+    await fireEvent.press(await screen.findByRole('radio', { name: 'Vidéos' }));
+    expect(mini()).toBeNull(); // Bibliothèque › Vidéos
+    for (const tab of ['Recherche', 'Playlists', 'Paramètres']) {
+      await fireEvent.press(screen.getByRole('tab', { name: tab }));
+      expect(mini()).toBeNull();
+    }
+    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    expect(mini()).toBeNull(); // la section Vidéos est restée choisie
+    await fireEvent.press(screen.getByRole('radio', { name: 'Musique' }));
+    expect(mini()).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Lecture' })).toBeTruthy(); // toujours en pause
+    await fireEvent.press(screen.getByRole('tab', { name: 'Accueil' }));
+    expect(mini()).toBeTruthy();
+    // Masquer l'interface n'arrête rien : morceau, file et position conservés.
+    expect(usePlayer.getState().queue[usePlayer.getState().index]).toBe(t.id);
+  });
 });

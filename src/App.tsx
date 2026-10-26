@@ -19,6 +19,8 @@ import { useLibrary } from './store/library';
 import { connectPlayer, disconnectPlayer, usePlayer } from './store/player';
 import { useSettings } from './store/settings';
 import { useUser } from './store/user';
+import { useVideos } from './store/videos';
+import { MediaOnboardingHost } from './onboarding/MediaOnboarding';
 import { useVideoPlayer } from './store/videoPlayer';
 import { VideoPlayerHost } from './video/VideoPlayerHost';
 import { ThemeProvider, useTheme } from './ui/theme';
@@ -36,6 +38,11 @@ function useBootstrap(engineFactory: () => PlaybackEngine) {
     connectPlayer(engineFactory(), (id) => useLibrary.getState().index.byId[id]);
     return () => disconnectPlayer();
   }, [engineFactory]);
+
+  // Vidéothèque indexée dès le lancement si l'accès vidéo est déjà accordé (aucune demande ici).
+  useEffect(() => {
+    void useVideos.getState().init();
+  }, []);
 
   useEffect(() => {
     const start = () => useLibrary.getState().init(useSettings.getState().minDurationSec);
@@ -88,6 +95,7 @@ function Shell({ engineFactory }: { engineFactory: () => PlaybackEngine }) {
         <ErrorBoundary overlay fallbackTitle="La vidéo n’a pas pu s’afficher" onClose={{ label: 'Fermer la vidéo', run: () => useVideoPlayer.getState().close() }}>
           <VideoPlayerHost />
         </ErrorBoundary>
+        <MediaOnboardingHost />
       </GlassTarget>
     </View>
   );

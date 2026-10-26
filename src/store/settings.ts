@@ -51,6 +51,8 @@ export type Settings = {
    * `landscape` : toujours en paysage ; `video` : selon la vidéo.
    */
   videoOrientation: 'keep' | 'video' | 'landscape' | 'sensor';
+  /** Accueil des autorisations audio + vidéo déjà présenté (une seule fois, réponse ou « Plus tard »). */
+  mediaOnboarded: boolean;
   /** Vidéo : format d'affichage (conservé d'une vidéo à l'autre, comme dans VLC). */
   videoFit: VideoFitMode;
   videoSort: VideoSort;
@@ -79,6 +81,7 @@ export const DEFAULT_SETTINGS: Settings = {
   videoDoubleTap: true,
   videoSwipe: true,
   videoFit: 'best',
+  mediaOnboarded: false,
   videoOrientation: 'sensor',
   videoSeekSwipe: true,
   videoAutoNext: true,
@@ -113,7 +116,8 @@ export const useSettings = create<SettingsState>()(
     (set) => ({
       ...DEFAULT_SETTINGS,
       update: (patch) => set(patch),
-      reset: () => set(DEFAULT_SETTINGS),
+      // L'accueil des autorisations n'est pas représenté après une remise à zéro des réglages.
+      reset: () => set((s) => ({ ...DEFAULT_SETTINGS, mediaOnboarded: s.mediaOnboarded })),
     }),
     {
       name: 'openplay.settings.v1',
