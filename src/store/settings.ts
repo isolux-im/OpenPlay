@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 
 import type { LanguageCode, ProviderId } from '../lyrics/transcription';
+import type { VideoFitMode } from '../video/display';
+import type { SubtitleContrast, SubtitleSize } from '../video/subtitles';
+import type { VideoSort } from '../video/types';
 import { persist } from 'zustand/middleware';
 
 import { persistStorage } from './storage';
@@ -29,6 +32,34 @@ export type Settings = {
   playbackRate: number;
   /** Reprise automatique des fichiers longs (livres audio, cours, podcasts). */
   resumeLongTracks: boolean;
+  /** Vidéo : passage en fenêtre flottante (PiP) en quittant OpenPlay pendant la lecture. */
+  videoPip: boolean;
+  /** Vidéo : double appui à gauche / à droite pour reculer / avancer de 10 s. */
+  videoDoubleTap: boolean;
+  /** Vidéo : glissement vertical à gauche pour la luminosité, à droite pour le volume. */
+  videoSwipe: boolean;
+  /** Vidéo : glissement horizontal pour avancer / reculer dans la vidéo (comme VLC). */
+  videoSeekSwipe: boolean;
+  /** Vidéo : épisode suivant d'une série lancé après un compte à rebours. */
+  videoAutoNext: boolean;
+  /** Vidéo : repérage du générique de début des séries (analyse du son sur l'appareil). */
+  videoIntroDetect: boolean;
+  /** Vidéo : générique repéré passé sans appui. */
+  videoIntroAutoSkip: boolean;
+  /**
+   * Vidéo : orientation pendant la lecture. `sensor` (comme VLC) : suit la position du téléphone ; `keep` : portrait ;
+   * `landscape` : toujours en paysage ; `video` : selon la vidéo.
+   */
+  videoOrientation: 'keep' | 'video' | 'landscape' | 'sensor';
+  /** Accueil des autorisations audio + vidéo déjà présenté (une seule fois, réponse ou « Plus tard »). */
+  mediaOnboarded: boolean;
+  /** Vidéo : format d'affichage (conservé d'une vidéo à l'autre, comme dans VLC). */
+  videoFit: VideoFitMode;
+  videoSort: VideoSort;
+  videoLayout: 'grid' | 'list';
+  /** Sous-titres importés (SRT / WebVTT) : taille et contraste d'affichage. */
+  subtitleSize: SubtitleSize;
+  subtitleContrast: SubtitleContrast;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -46,6 +77,20 @@ export const DEFAULT_SETTINGS: Settings = {
   excludedFolders: [],
   playbackRate: 1,
   resumeLongTracks: true,
+  videoPip: true,
+  videoDoubleTap: true,
+  videoSwipe: true,
+  videoFit: 'best',
+  mediaOnboarded: false,
+  videoOrientation: 'sensor',
+  videoSeekSwipe: true,
+  videoAutoNext: true,
+  videoIntroDetect: true,
+  videoIntroAutoSkip: false,
+  videoSort: 'date',
+  videoLayout: 'grid',
+  subtitleSize: 'medium',
+  subtitleContrast: 'shadow',
 };
 
 /**
@@ -71,7 +116,8 @@ export const useSettings = create<SettingsState>()(
     (set) => ({
       ...DEFAULT_SETTINGS,
       update: (patch) => set(patch),
-      reset: () => set(DEFAULT_SETTINGS),
+      // L'accueil des autorisations n'est pas représenté après une remise à zéro des réglages.
+      reset: () => set((s) => ({ ...DEFAULT_SETTINGS, mediaOnboarded: s.mediaOnboarded })),
     }),
     {
       name: 'openplay.settings.v1',

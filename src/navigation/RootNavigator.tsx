@@ -10,6 +10,7 @@ import { DiscoverScreen } from '../screens/DiscoverScreen';
 import { EditTrackScreen } from '../screens/EditTrackScreen';
 import { ExcludedFoldersScreen } from '../screens/ExcludedFoldersScreen';
 import { HomeScreen } from '../screens/HomeScreen';
+import { LibraryHome } from '../screens/LibraryHome';
 import {
   AlbumsScreen,
   ArtistsScreen,
@@ -19,7 +20,6 @@ import {
   GenreScreen,
   GenresScreen,
   HistoryScreen,
-  LibraryScreen,
   SmartPlaylistScreen,
   SongsScreen,
 } from '../screens/LibraryScreens';
@@ -28,6 +28,9 @@ import { PlaylistsScreen } from '../screens/PlaylistsScreen';
 import { SearchScreen } from '../screens/SearchScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { StatsScreen } from '../screens/StatsScreen';
+import { VideoSeriesScreen } from '../screens/VideoSeriesScreen';
+import { VideoStatsScreen } from '../screens/VideoStatsScreen';
+import { VideoFolderScreen } from '../screens/VideosScreen';
 import { useTheme } from '../ui/theme';
 import { navigationRef } from './ref';
 import { TabBar } from './TabBar';
@@ -54,6 +57,9 @@ const SHARED: { name: keyof AnyStackParams; component: ComponentType }[] = [
   { name: 'ExcludedFolders', component: ExcludedFoldersScreen },
   { name: 'Stats', component: StatsScreen },
   { name: 'EditTrack', component: EditTrackScreen },
+  { name: 'VideoFolder', component: VideoFolderScreen },
+  { name: 'VideoSeries', component: VideoSeriesScreen },
+  { name: 'VideoStats', component: VideoStatsScreen },
 ];
 
 /** Une pile par onglet, avec le même jeu d'écrans de détail : la barre d'onglets reste visible. */
@@ -77,7 +83,8 @@ function makeStack(rootName: 'Home' | 'Library' | 'Playlists' | 'Search' | 'Sett
 }
 
 const HomeStack = makeStack('Home', HomeScreen);
-const LibraryStack = makeStack('Library', LibraryScreen);
+// Bibliothèque : Musique et Vidéos réunies derrière le sélecteur Musique | Vidéos.
+const LibraryStack = makeStack('Library', LibraryHome);
 const PlaylistsStack = makeStack('Playlists', PlaylistsScreen);
 const SearchStack = makeStack('Search', SearchScreen);
 const SettingsStack = makeStack('Settings', SettingsScreen);

@@ -1,5 +1,5 @@
 import { useRoute, type RouteProp } from '@react-navigation/native';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, type ReactNode } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
 
 import { Artwork } from '../components/Artwork';
@@ -26,7 +26,7 @@ import { useNow } from '../ui/useNow';
 import { useDiscover } from './DiscoverScreen';
 import { LibraryGate } from './LibraryGate';
 
-export function LibraryScreen() {
+export function LibraryScreen({ switcher }: { switcher?: ReactNode } = {}) {
   const navigation = useAppNavigation();
   const index = useLibrary((s) => s.index);
   const favorites = useUser((s) => s.favorites.length);
@@ -55,6 +55,7 @@ export function LibraryScreen() {
           <HeaderButton icon="person-outline" label="Paramètres" onPress={() => goToTab('SettingsTab')} />
         </>
       }>
+      {switcher}
       <LibraryGate>
         <View style={styles.quickGrid}>
           <View style={styles.quickRow}>
@@ -343,6 +344,8 @@ export function HistoryScreen() {
   const byId = useLibrary((s) => s.index.byId);
   const now = useNow();
   const groups = useMemo(() => groupHistory(history, byId, now), [history, byId, now]);
+  // File de lecture : les morceaux de l'historique dans l'ordre affiché (une fois chacun), pour enchaîner.
+  const queue = useMemo(() => [...new Set(groups.flatMap((g) => g.entries.map((e) => e.trackId)))], [groups]);
   return (
     <ScrollScreen
       title="Historique"
@@ -368,7 +371,7 @@ export function HistoryScreen() {
               key={`${e.trackId}-${e.at}`}
               track={e.track}
               subtitle={`${e.track.artist} · ${new Date(e.at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`}
-              onPress={() => usePlayer.getState().playTracks([e.trackId], 0, { label: 'Historique' })}
+              onPress={() => usePlayer.getState().playTracks(queue, queue.indexOf(e.trackId), { label: 'Historique' })}
             />
           ))}
         </View>

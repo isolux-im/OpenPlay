@@ -1,22 +1,34 @@
 package expo.modules.openplaymedia
 
+import android.app.Activity
 import android.app.ActivityManager
 import android.app.ApplicationExitInfo
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.database.Cursor
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.AudioManager
 import android.media.MediaMetadataRetriever
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
 import android.provider.MediaStore
+import android.provider.OpenableColumns
+import android.provider.Settings
 import android.util.Log
 import android.util.Size
+import android.view.View
+import android.view.WindowInsets
+import android.view.WindowInsetsController
+import android.view.WindowManager
 import androidx.palette.graphics.Palette
+import expo.modules.kotlin.Promise
+import expo.modules.kotlin.exception.CodedException
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.functions.Coroutine
 import expo.modules.kotlin.functions.Queues
@@ -34,11 +46,20 @@ import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
 import java.net.URL
 import java.net.UnknownHostException
+import java.nio.ByteBuffer
+import java.nio.charset.CharacterCodingException
+import java.nio.charset.Charset
+import java.nio.charset.CodingErrorAction
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import javax.net.ssl.SSLException
+
+private const val PICK_SUBTITLE_REQUEST = 0x5354
+
+/** Un fichier de sous-titres dépasse rarement quelques centaines de Ko. */
+private const val MAX_SUBTITLE_BYTES = 4 * 1024 * 1024
 
 /**
  * Lecture des métadonnées audio depuis MediaStore (titre, artiste, album, genre, dossier),
@@ -51,6 +72,15 @@ class OpenPlayMediaModule : Module() {
 
   /** Pochettes décodées en parallèle : borné pour éviter la saturation mémoire sur les grandes bibliothèques. */
   private val artworkPermits = Semaphore(3)
+
+  /** Analyse sonore (générique) : une à la fois, pour ne pas gêner la lecture. */
+  private val introPermits = Semaphore(1)
+
+  /** Sélection de fichier de sous-titres en attente du retour du sélecteur Android. */
+  private var pendingSubtitlePick: Promise? = null
+
+  /** Orientation de l'activité avant l'ouverture du lecteur vidéo (rétablie à la fermeture). */
+  private var savedOrientation: Int? = null
 
   override fun definition() = ModuleDefinition {
     Name("OpenPlayMedia")
@@ -83,6 +113,23 @@ class OpenPlayMediaModule : Module() {
       withContext(Dispatchers.IO) { readSiblingLyrics(path) }
     }
 
+    AsyncFunction("queryVideosAsync") Coroutine { ->
+      withContext(Dispatchers.IO) { queryVideos() }
+    }
+
+    AsyncFunction("getVideoThumbnailAsync") Coroutine { videoId: String, size: Int ->
+      artworkPermits.withPermit {
+        withContext(Dispatchers.IO) {
+          try {
+            videoThumbnail(videoId, size)
+          } catch (e: OutOfMemoryError) {
+            CrashRecorder.append(context, "Miniature vidéo ignorée (mémoire insuffisante)", "videoId=$videoId")
+            null
+          }
+        }
+      }
+    }
+
     AsyncFunction("getCrashReportsAsync") Coroutine { ->
       withContext(Dispatchers.IO) {
         mapOf("log" to CrashRecorder.read(context), "exits" to exitReasons())
@@ -104,6 +151,243 @@ class OpenPlayMediaModule : Module() {
     AsyncFunction("shareAudioAsync") { trackId: String, mimeType: String, title: String ->
       shareAudio(trackId, mimeType, title)
     }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("shareVideoAsync") { videoId: String, mimeType: String, title: String ->
+      val uri = ContentUris.withAppendedId(videoCollection(), videoId.toLong())
+      val send = Intent(Intent.ACTION_SEND).apply {
+        type = mimeType.ifBlank { "video/*" }
+        putExtra(Intent.EXTRA_STREAM, uri)
+        putExtra(Intent.EXTRA_TITLE, title)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+      }
+      startChooser(send, title)
+    }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("openVideoWithAsync") { videoId: String, mimeType: String, title: String ->
+      val uri = ContentUris.withAppendedId(videoCollection(), videoId.toLong())
+      val view = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, mimeType.ifBlank { "video/*" })
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+      }
+      startChooser(view, title)
+    }.runOnQueue(Queues.MAIN)
+
+    // État thermique d'Android 10+ (PowerManager.THERMAL_STATUS_*), -1 si inconnu : les traitements facultatifs s'effacent.
+    Function("getThermalStatus") {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        (context.getSystemService(Context.POWER_SERVICE) as? PowerManager)?.currentThermalStatus ?: -1
+      } else {
+        -1
+      }
+    }
+
+    // Générique de début commun à deux épisodes : positions (s) dans chacun, ou null.
+    AsyncFunction("findCommonIntroAsync") Coroutine { idA: String, cacheA: String, idB: String, cacheB: String, maxSeconds: Int ->
+      introPermits.withPermit {
+        withContext(Dispatchers.Default) {
+          val a = IntroDetector.fingerprint(context, ContentUris.withAppendedId(videoCollection(), idA.toLong()), safeName(cacheA), idA.hashCode(), maxSeconds)
+          val b = IntroDetector.fingerprint(context, ContentUris.withAppendedId(videoCollection(), idB.toLong()), safeName(cacheB), idB.hashCode(), maxSeconds)
+          if (a == null || b == null) {
+            null
+          } else {
+            IntroDetector.common(a, b)?.let { m ->
+              mapOf("startA" to m.startA, "endA" to m.endA, "startB" to m.startB, "endB" to m.endB, "density" to m.density)
+            }
+          }
+        }
+      }
+    }
+
+    // Lecteur vidéo : luminosité de la fenêtre et volume média (glissement vertical), orientation, plein écran immersif.
+    AsyncFunction("getVideoControlsStateAsync") { ->
+      val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+      val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+      mapOf(
+        "volume" to audio.getStreamVolume(AudioManager.STREAM_MUSIC).toDouble() / max,
+        "volumeSteps" to max,
+        "brightness" to currentBrightness().toDouble()
+      )
+    }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("setMediaVolumeAsync") { fraction: Double ->
+      val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+      val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+      // Sans drapeau : pas de panneau de volume système, OpenPlay affiche son propre indicateur.
+      audio.setStreamVolume(AudioManager.STREAM_MUSIC, Math.round(fraction.coerceIn(0.0, 1.0) * max).toInt(), 0)
+    }
+
+    AsyncFunction("setWindowBrightnessAsync") { value: Double ->
+      val window = appContext.currentActivity?.window ?: return@AsyncFunction
+      val attributes = window.attributes
+      // Valeur négative : la luminosité du système reprend la main.
+      attributes.screenBrightness = if (value < 0) WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE else value.toFloat().coerceIn(0.01f, 1f)
+      window.attributes = attributes
+    }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("setScreenOrientationAsync") { mode: String ->
+      val activity = appContext.currentActivity ?: return@AsyncFunction
+      if (mode == "default") {
+        savedOrientation?.let { activity.requestedOrientation = it }
+        savedOrientation = null
+        return@AsyncFunction
+      }
+      if (savedOrientation == null) savedOrientation = activity.requestedOrientation
+      activity.requestedOrientation = when (mode) {
+        "landscape" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        "portrait" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+        // Comme VLC : suit la position du téléphone pendant la lecture, même si la rotation automatique d'Android est désactivée.
+        else -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+      }
+    }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("setImmersiveAsync") { enabled: Boolean ->
+      val window = appContext.currentActivity?.window ?: return@AsyncFunction
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        val controller = window.insetsController ?: return@AsyncFunction
+        if (enabled) {
+          // Barres système rappelées d'un glissement depuis le bord, puis masquées de nouveau.
+          controller.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+          controller.hide(WindowInsets.Type.systemBars())
+        } else {
+          controller.show(WindowInsets.Type.systemBars())
+        }
+      } else {
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility =
+          if (enabled) {
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_FULLSCREEN or
+              View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+          } else {
+            View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+          }
+      }
+    }.runOnQueue(Queues.MAIN)
+
+    // Sous-titres : fichier choisi par l'utilisateur dans le sélecteur Android (aucun dossier n'est parcouru).
+    AsyncFunction("pickSubtitleAsync") { promise: Promise ->
+      val activity = appContext.currentActivity ?: throw Exceptions.MissingActivity()
+      pendingSubtitlePick?.resolve(null)
+      pendingSubtitlePick = promise
+      val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+        addCategory(Intent.CATEGORY_OPENABLE)
+        // Les fichiers .srt / .vtt ont rarement un type MIME fiable : le contenu est vérifié à la lecture.
+        type = "*/*"
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+      }
+      try {
+        activity.startActivityForResult(intent, PICK_SUBTITLE_REQUEST)
+      } catch (e: Exception) {
+        pendingSubtitlePick = null
+        promise.reject("ERR_NO_PICKER", "Aucun sélecteur de fichiers disponible", e)
+      }
+    }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("readSubtitleAsync") Coroutine { uri: String ->
+      withContext(Dispatchers.IO) { readSubtitle(Uri.parse(uri)) }
+    }
+
+    AsyncFunction("releaseSubtitleAsync") { uri: String ->
+      try {
+        context.contentResolver.releasePersistableUriPermission(Uri.parse(uri), Intent.FLAG_GRANT_READ_URI_PERMISSION)
+      } catch (e: Exception) {
+        // Accès déjà retiré ou jamais conservé.
+      }
+    }
+
+    OnActivityResult { _, payload ->
+      if (payload.requestCode != PICK_SUBTITLE_REQUEST) return@OnActivityResult
+      val promise = pendingSubtitlePick ?: return@OnActivityResult
+      pendingSubtitlePick = null
+      val uri = payload.data?.data
+      if (payload.resultCode != Activity.RESULT_OK || uri == null) {
+        promise.resolve(null)
+        return@OnActivityResult
+      }
+      try {
+        promise.resolve(pickedFile(uri))
+      } catch (e: Exception) {
+        promise.reject("ERR_SUBTITLE_PICK", e.message, e)
+      }
+    }
+  }
+
+  private fun safeName(value: String): String = value.replace(Regex("[^A-Za-z0-9_-]"), "_").take(80)
+
+  /** Luminosité de la fenêtre si OpenPlay l'a réglée, sinon valeur approchée du réglage système (0 à 1). */
+  private fun currentBrightness(): Float {
+    val own = appContext.currentActivity?.window?.attributes?.screenBrightness ?: -1f
+    if (own >= 0f) return own
+    return try {
+      (Settings.System.getInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS) / 255f).coerceIn(0.05f, 1f)
+    } catch (e: Exception) {
+      0.5f
+    }
+  }
+
+  private fun pickedFile(uri: Uri): Map<String, Any?> {
+    // Accès conservé après redémarrage quand le fournisseur le permet (sinon : pour cette session seulement).
+    val persistent = try {
+      context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+      true
+    } catch (e: Exception) {
+      false
+    }
+    var name: String? = null
+    var size = 0L
+    try {
+      context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { c ->
+        if (c.moveToFirst()) {
+          name = c.getStringOrNull(0)
+          if (!c.isNull(1)) size = c.getLong(1)
+        }
+      }
+    } catch (e: Exception) {
+      // Nom indisponible : le fichier reste utilisable.
+    }
+    return mapOf("uri" to uri.toString(), "name" to (name ?: uri.lastPathSegment ?: "Sous-titres"), "size" to size.toDouble(), "persistent" to persistent)
+  }
+
+  private class SubtitleTooLargeException : CodedException("ERR_SUBTITLE_TOO_LARGE", "Fichier de sous-titres trop volumineux", null)
+
+  private class SubtitleUnreadableException(cause: Throwable?) : CodedException("ERR_SUBTITLE_UNREADABLE", "Fichier de sous-titres inaccessible", cause)
+
+  private fun readSubtitle(uri: Uri): String {
+    val bytes = try {
+      val stream = context.contentResolver.openInputStream(uri) ?: throw IOException("no stream")
+      stream.use { input ->
+        val out = java.io.ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        while (true) {
+          val n = input.read(buffer)
+          if (n < 0) break
+          if (out.size() + n > MAX_SUBTITLE_BYTES) throw SubtitleTooLargeException()
+          out.write(buffer, 0, n)
+        }
+        out.toByteArray()
+      }
+    } catch (e: SubtitleTooLargeException) {
+      throw e
+    } catch (e: Exception) {
+      throw SubtitleUnreadableException(e)
+    }
+    return decodeText(bytes)
+  }
+
+  /** UTF-8 / UTF-16 (avec BOM), sinon UTF-8 strict, sinon Windows-1252 (fréquent pour les .srt anciens). */
+  private fun decodeText(bytes: ByteArray): String {
+    fun starts(vararg b: Int) = bytes.size >= b.size && b.indices.all { bytes[it] == b[it].toByte() }
+    if (starts(0xEF, 0xBB, 0xBF)) return String(bytes, 3, bytes.size - 3, Charsets.UTF_8)
+    if (starts(0xFF, 0xFE)) return String(bytes, 2, bytes.size - 2, Charsets.UTF_16LE)
+    if (starts(0xFE, 0xFF)) return String(bytes, 2, bytes.size - 2, Charsets.UTF_16BE)
+    return try {
+      Charsets.UTF_8.newDecoder()
+        .onMalformedInput(CodingErrorAction.REPORT)
+        .onUnmappableCharacter(CodingErrorAction.REPORT)
+        .decode(ByteBuffer.wrap(bytes))
+        .toString()
+    } catch (e: CharacterCodingException) {
+      String(bytes, Charset.forName("windows-1252"))
+    }
   }
 
   /** Dernières fins anormales du processus enregistrées par Android 11+ (y compris plantages natifs et ANR). */
@@ -207,6 +491,12 @@ class OpenPlayMediaModule : Module() {
     }
   }
 
+  private fun startChooser(intent: Intent, title: String) {
+    val chooser = Intent.createChooser(intent, title)
+    val activity = appContext.currentActivity
+    if (activity != null) activity.startActivity(chooser) else context.startActivity(chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+  }
+
   /** Feuille de partage système avec le fichier audio ; la lecture est accordée au destinataire. */
   private fun shareAudio(trackId: String, mimeType: String, title: String) {
     val uri = ContentUris.withAppendedId(audioCollection(), trackId.toLong())
@@ -222,6 +512,128 @@ class OpenPlayMediaModule : Module() {
       activity.startActivity(chooser)
     } else {
       context.startActivity(chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+  }
+
+  private fun videoCollection(): Uri =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+    } else {
+      MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+    }
+
+  /**
+   * Vidéos visibles par l'application (toutes, ou seulement celles choisies par l'utilisateur
+   * en accès partiel sur Android 14+). Aucune lecture directe du stockage : URI content://.
+   */
+  private fun queryVideos(): List<Map<String, Any?>> {
+    val projection = mutableListOf(
+      MediaStore.Video.Media._ID,
+      MediaStore.Video.Media.TITLE,
+      MediaStore.Video.Media.DISPLAY_NAME,
+      MediaStore.Video.Media.DURATION,
+      MediaStore.Video.Media.SIZE,
+      MediaStore.Video.Media.DATE_ADDED,
+      MediaStore.Video.Media.DATE_MODIFIED,
+      MediaStore.Video.Media.WIDTH,
+      MediaStore.Video.Media.HEIGHT,
+      MediaStore.Video.Media.MIME_TYPE,
+      MediaStore.Video.Media.BUCKET_DISPLAY_NAME,
+      MediaStore.Video.Media.DATA
+    )
+    val hasRelative = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+    if (hasRelative) {
+      projection.add(MediaStore.Video.Media.RELATIVE_PATH)
+      projection.add(MediaStore.Video.Media.ORIENTATION)
+    }
+    val result = ArrayList<Map<String, Any?>>()
+    context.contentResolver.query(videoCollection(), projection.toTypedArray(), null, null, "${MediaStore.Video.Media.DATE_ADDED} DESC")?.use { c ->
+      fun idx(name: String) = c.getColumnIndex(name)
+      val iId = idx(MediaStore.Video.Media._ID)
+      val iTitle = idx(MediaStore.Video.Media.TITLE)
+      val iName = idx(MediaStore.Video.Media.DISPLAY_NAME)
+      val iDuration = idx(MediaStore.Video.Media.DURATION)
+      val iSize = idx(MediaStore.Video.Media.SIZE)
+      val iAdded = idx(MediaStore.Video.Media.DATE_ADDED)
+      val iModified = idx(MediaStore.Video.Media.DATE_MODIFIED)
+      val iWidth = idx(MediaStore.Video.Media.WIDTH)
+      val iHeight = idx(MediaStore.Video.Media.HEIGHT)
+      val iMime = idx(MediaStore.Video.Media.MIME_TYPE)
+      val iBucket = idx(MediaStore.Video.Media.BUCKET_DISPLAY_NAME)
+      val iData = idx(MediaStore.Video.Media.DATA)
+      val iRelative = if (hasRelative) idx(MediaStore.Video.Media.RELATIVE_PATH) else -1
+      val iOrientation = if (hasRelative) idx(MediaStore.Video.Media.ORIENTATION) else -1
+      while (c.moveToNext()) {
+        val id = c.getLong(iId)
+        result.add(
+          mapOf(
+            "id" to id.toString(),
+            "uri" to ContentUris.withAppendedId(videoCollection(), id).toString(),
+            "title" to c.getStringOrNull(iTitle),
+            "filename" to c.getStringOrNull(iName),
+            "durationMs" to if (iDuration >= 0 && !c.isNull(iDuration)) c.getLong(iDuration).toDouble() else 0.0,
+            "size" to if (iSize >= 0 && !c.isNull(iSize)) c.getLong(iSize).toDouble() else 0.0,
+            "dateAdded" to if (iAdded >= 0) c.getLong(iAdded).toDouble() else 0.0,
+            "dateModified" to if (iModified >= 0) c.getLong(iModified).toDouble() else 0.0,
+            "width" to if (iWidth >= 0 && !c.isNull(iWidth)) c.getInt(iWidth) else 0,
+            "height" to if (iHeight >= 0 && !c.isNull(iHeight)) c.getInt(iHeight) else 0,
+            "rotation" to if (iOrientation >= 0 && !c.isNull(iOrientation)) c.getInt(iOrientation) else 0,
+            "mimeType" to c.getStringOrNull(iMime),
+            "folder" to (c.getStringOrNull(iRelative)?.trimEnd('/') ?: c.getStringOrNull(iBucket)),
+            "path" to c.getStringOrNull(iData)
+          )
+        )
+      }
+    }
+    return result
+  }
+
+  /** Miniature d'une vidéo, en cache (JPEG) : vignette système, sinon image extraite du début. */
+  private fun videoThumbnail(videoId: String, size: Int): String? {
+    val id = videoId.toLongOrNull() ?: return null
+    val dir = File(context.cacheDir, "openplay-video-thumbs").apply { mkdirs() }
+    val file = File(dir, "$id-$size.jpg")
+    if (file.exists() && file.length() > 0) return Uri.fromFile(file).toString()
+    val uri = ContentUris.withAppendedId(videoCollection(), id)
+    val system: Bitmap? = try {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        // Cadre carré : une vidéo verticale garde sa pleine définition.
+        context.contentResolver.loadThumbnail(uri, Size(size, size), null)
+      } else {
+        null
+      }
+    } catch (e: Exception) {
+      null
+    }
+    val bitmap: Bitmap = system ?: frameAt(uri, size) ?: return null
+    val tmp = File(dir, "${file.name}.${Thread.currentThread().id}.tmp")
+    FileOutputStream(tmp).use { bitmap.compress(Bitmap.CompressFormat.JPEG, 92, it) }
+    if (!tmp.renameTo(file)) tmp.delete()
+    return Uri.fromFile(file).toString()
+  }
+
+  private fun frameAt(uri: Uri, size: Int): Bitmap? {
+    val retriever = MediaMetadataRetriever()
+    return try {
+      retriever.setDataSource(context, uri)
+      // Image représentative plutôt que la première seconde (souvent noire ou en fondu) : 10 % de la durée, entre 1 s et 60 s.
+      val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+      val atUs = (durationMs / 10).coerceIn(1_000L, 60_000L) * 1000
+      val frame =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+          retriever.getScaledFrameAtTime(atUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, size, size)
+        } else {
+          retriever.getFrameAtTime(atUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+        }
+      frame?.let { scale(it, size) }
+    } catch (e: Exception) {
+      null
+    } finally {
+      try {
+        retriever.release()
+      } catch (e: Exception) {
+        // Libération best effort.
+      }
     }
   }
 

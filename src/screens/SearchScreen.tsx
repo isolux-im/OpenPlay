@@ -95,7 +95,12 @@ export function SearchScreen() {
                   onPress={() => {
                     remember();
                     const top = results.top!;
-                    if (top.kind === 'track') playTracks([top.item.id], 0, { label: 'Recherche' });
+                    if (top.kind === 'track') {
+                      // Le meilleur résultat, puis les autres morceaux trouvés : la lecture continue.
+                      const ids = results.tracks.map((x) => x.id);
+                      const queue = ids.includes(top.item.id) ? ids : [top.item.id, ...ids];
+                      playTracks(queue, queue.indexOf(top.item.id), { label: `Recherche « ${query.trim()} »` });
+                    }
                     else if (top.kind === 'album') navigation.push('Album', { id: top.item.id });
                     else navigation.push('Artist', { id: top.item.id });
                   }}

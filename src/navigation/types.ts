@@ -22,6 +22,9 @@ export type SharedStackParams = {
   ExcludedFolders: undefined;
   Stats: undefined;
   EditTrack: { id: string };
+  VideoFolder: { folder: string };
+  VideoSeries: { key: string };
+  VideoStats: undefined;
 };
 
 export type HomeStackParams = SharedStackParams & { Home: undefined };

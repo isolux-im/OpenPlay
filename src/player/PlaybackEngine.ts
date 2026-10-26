@@ -86,9 +86,12 @@ export class ExpoPlaylistEngine implements PlaybackEngine {
     }).catch((e: unknown) => recordDiagnostic('Mode audio non appliqué', describeError(e)));
   }
 
-  /** Lecteur natif et relais de ses événements vers les écouteurs du moteur (conservés d'un lecteur à l'autre). */
-  private create(): AudioPlaylist {
-    const playlist = createAudioPlaylist({ updateInterval: 500, loop: LOOP[this.repeat] });
+  /**
+   * Lecteur natif, chargé de toute la file en un seul appel, et relais de ses événements vers les
+   * écouteurs du moteur (conservés d'un lecteur à l'autre).
+   */
+  private create(items: EngineItem[] = []): AudioPlaylist {
+    const playlist = createAudioPlaylist({ sources: items.map(source), updateInterval: 500, loop: LOOP[this.repeat] });
     if (this.rate !== 1) {
       const rate = this.rate;
       this.guard('vitesse', () => {
@@ -132,41 +135,36 @@ export class ExpoPlaylistEngine implements PlaybackEngine {
     }
   }
 
-  /** Remplace un lecteur en erreur par un lecteur neuf, positionné sur `index` (sans lancer la lecture). */
+  /**
+   * Remplace le lecteur natif par un lecteur neuf chargé de `this.items`, positionné sur `index`
+   * (sans lancer la lecture). Sert au chargement d'une file et à la reprise après une erreur.
+   * Charger la file à la création évite un appel synchrone au fil principal, un événement d'état et
+   * un recalcul de la file ExoPlayer pour chaque morceau (des milliers pour « Tous les titres »).
+   */
   private rebuild(index: number) {
     this.subscriptions.forEach((sub) => sub.remove());
+    this.subscriptions = [];
     this.guard('remplacement du lecteur', () => this.playlist.destroy());
     this.lockScreenActive = false;
     this.failed = false;
     this.lastError = null;
     try {
-      this.playlist = this.create();
+      this.playlist = this.create(this.items);
     } catch (e) {
       recordDiagnostic('Recréation du lecteur en échec', describeError(e));
       return;
     }
-    this.guard('chargement de la file', () => {
-      for (const item of this.items) this.playlist.add(source(item));
-    });
     const target = Math.max(0, Math.min(index, this.items.length - 1));
     this.current = target;
-    if (this.items.length) this.guard('aller au morceau', () => this.playlist.skipTo(target));
+    if (target > 0) this.guard('aller au morceau', () => this.playlist.skipTo(target));
     const item = this.items[target];
     if (item) this.setNowPlaying(item, this.nowPlaying?.item.id === item.id ? this.nowPlaying.artworkUri : null);
   }
 
   load(items: EngineItem[], startIndex: number, startPositionSec: number, autoplay: boolean) {
     this.items = [...items];
-    if (this.failed) this.rebuild(startIndex);
-    else {
-      this.lastError = null;
-      this.guard('chargement de la file', () => {
-        this.playlist.clear();
-        for (const item of items) this.playlist.add(source(item));
-      });
-    }
+    this.rebuild(startIndex);
     if (items.length === 0) return;
-    this.skipTo(Math.max(0, Math.min(startIndex, items.length - 1)));
     if (startPositionSec > 0) this.seekTo(startPositionSec);
     if (autoplay) this.play();
   }

@@ -6,7 +6,9 @@ import { useLibrary } from '../store/library';
 import { usePlayer } from '../store/player';
 import { useSettings } from '../store/settings';
 import { useUi } from '../store/ui';
+import { usePlaybackPosition, usePlaybackSession } from '../store/session';
 import { useUser } from '../store/user';
+import { useVideoPlayer } from '../store/videoPlayer';
 
 jest.mock('react-native-safe-area-context', () => {
   const { View } = jest.requireActual('react-native');
@@ -25,7 +27,14 @@ const engine = () => new SimulatedEngine(() => 200, 0);
 
 beforeEach(() => {
   usePlayer.setState({ queue: [], originalQueue: [], index: -1, isPlaying: false, expanded: false });
+  useUi.setState({ librarySection: 'music' });
 });
+
+/** Vidéos : onglet Bibliothèque, puis « Vidéos » dans le sélecteur Musique | Vidéos. */
+async function openVideos() {
+  await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+  await fireEvent.press(await screen.findByRole('radio', { name: 'Vidéos' }));
+}
 
 // Le minuteur du toast ne doit pas survivre au test.
 afterEach(() => useUi.getState().hideToast());
@@ -126,5 +135,126 @@ describe('application', () => {
     const strip = await screen.findByRole('adjustable', { name: 'Index alphabétique' });
     await fireEvent(strip, 'accessibilityAction', { nativeEvent: { actionName: 'increment' } });
     expect(strip).toBeTruthy();
+  });
+
+  it('réunit Musique et Vidéos dans la Bibliothèque sans perdre de section', async () => {
+    await renderApp();
+    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    expect(screen.getByRole('radio', { name: 'Musique' }).props.accessibilityState).toEqual({ selected: true });
+    const musicTiles = [/^Récents/, /^Favoris/, /^Playlists/, /^Titres, \d+$/, /^À découvrir, \d+$/, /^Bilan/];
+    for (const name of musicTiles) expect((await screen.findAllByRole('button', { name })).length).toBeGreaterThan(0);
+    // Vidéos : la vidéothèque complète (recherche, sections, séries, bilan de visionnage).
+    await fireEvent.press(screen.getByRole('radio', { name: 'Vidéos' }));
+    expect(await screen.findByLabelText('Rechercher une vidéo')).toBeTruthy();
+    for (const name of ['Toutes', 'Continuer', 'Récentes', 'Favoris', 'Séries', 'Dossiers']) expect(screen.getByRole('radio', { name })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Bilan de visionnage' })).toBeTruthy();
+    // Retour à Musique : « À découvrir » et « Bilan d'écoute » toujours accessibles.
+    await fireEvent.press(screen.getByRole('radio', { name: 'Musique' }));
+    await fireEvent.press((await screen.findAllByRole('button', { name: /^Bilan/ }))[0]);
+    expect((await screen.findAllByText('Bilan d’écoute')).length).toBeGreaterThan(0);
+    await fireEvent.press(screen.getAllByRole('button', { name: 'Retour' }).at(-1)!);
+    await fireEvent.press((await screen.findAllByRole('button', { name: /^À découvrir, \d+$/ }))[0]);
+    expect(await screen.findByRole('radio', { name: 'Oubliés' })).toBeTruthy();
+  });
+
+  it('affiche les vidéos dans la Bibliothèque, ouvre le menu d’une vidéo et le lecteur', async () => {
+    await renderApp();
+    await openVideos();
+    const video = (await screen.findAllByRole('button', { name: /^Lire Concert au Bénin/ }))[0];
+    await fireEvent(video, 'longPress', { nativeEvent: { pageX: 100, pageY: 300 } });
+    for (const label of ['Lire', 'Ajouter aux favoris', 'Informations', 'Partager', 'Ouvrir avec…']) {
+      expect(await screen.findByRole('menuitem', { name: label })).toBeTruthy();
+    }
+    await fireEvent.press(screen.getByRole('menuitem', { name: 'Lire' }));
+    expect(await screen.findByRole('button', { name: 'Fermer la vidéo' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Vitesse 1×' })).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Vitesse 1×' }));
+    expect(screen.getByRole('button', { name: 'Vitesse 1,25×' })).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Verrouiller les commandes et la rotation' }));
+    expect(screen.getByText('Commandes et rotation verrouillées')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Fermer la vidéo' })).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'Déverrouiller les commandes' }));
+    expect(screen.getByRole('button', { name: 'Fermer la vidéo' })).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Sous-titres' }));
+    expect(screen.getByRole('radio', { name: 'Désactivés' }).props.accessibilityState).toEqual({ selected: true });
+    await fireEvent.press(screen.getByRole('radio', { name: 'Grande' }));
+    expect(useSettings.getState().subtitleSize).toBe('large');
+    await fireEvent.press(screen.getByRole('radio', { name: 'Jaune sur noir' }));
+    expect(useSettings.getState().subtitleContrast).toBe('yellow');
+    // Sans module natif (web, tests), pas d'import de fichier.
+    expect(screen.queryByRole('button', { name: /^Importer un fichier/ })).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'Fermer' }));
+    expect(screen.queryByRole('radio', { name: 'Désactivés' })).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'Fermer la vidéo' }));
+    expect(useVideoPlayer.getState().session).toBeNull();
+  });
+
+  it('regroupe les épisodes en série et affiche le bilan de visionnage', async () => {
+    await renderApp();
+    await openVideos();
+    await fireEvent.press(await screen.findByRole('radio', { name: 'Séries' }));
+    await fireEvent.press(await screen.findByRole('button', { name: /^Série Lagune Blues, 3 épisodes/ }));
+    expect(await screen.findByRole('button', { name: 'Commencer : S01E01' })).toBeTruthy();
+    expect(screen.getByText('S01E03')).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Commencer : S01E01' }));
+    expect(useVideoPlayer.getState().session?.list).toEqual(['demo-video-9', 'demo-video-10', 'demo-video-11']);
+    await fireEvent.press(screen.getByRole('button', { name: 'Fermer la vidéo' }));
+    await fireEvent.press(screen.getAllByRole('button', { name: 'Retour' }).at(-1)!);
+    await fireEvent.press(await screen.findByRole('button', { name: 'Bilan de visionnage' }));
+    expect(await screen.findByText('Pas encore de bilan')).toBeTruthy();
+  });
+
+  it('range les descriptions des Paramètres derrière l’icône « ! »', async () => {
+    await renderApp();
+    await fireEvent.press(screen.getByRole('tab', { name: 'Paramètres' }));
+    expect(screen.queryByText(/^Orientation : « Auto »/)).toBeNull();
+    await fireEvent.press(await screen.findByRole('button', { name: 'En savoir plus : Vidéos' }));
+    expect(await screen.findByText(/^Orientation : « Auto »/)).toBeTruthy();
+    await act(async () => useUi.getState().closeAll());
+    expect(screen.queryByText(/^Orientation : « Auto »/)).toBeNull();
+    for (const g of ['Lecture', 'À découvrir', 'Paroles en ligne', 'Informations']) expect(screen.getByRole('button', { name: `En savoir plus : ${g}` })).toBeTruthy();
+  });
+
+  it('n’affiche le mini-lecteur que dans Accueil et Bibliothèque › Musique, en lecture comme en pause', async () => {
+    useUser.setState({ session: null });
+    usePlaybackSession.setState({ session: null, saved: true });
+    usePlaybackPosition.setState({ trackId: null, positionSec: 0 });
+    await renderApp();
+    const mini = () => screen.queryByRole('button', { name: /^Ouvrir le lecteur/ });
+    expect(mini()).toBeNull(); // aucun morceau chargé
+    const t = useLibrary.getState().index.tracks[0];
+    await act(async () => usePlayer.getState().playTracks([t.id], 0));
+    expect(mini()).toBeTruthy(); // Accueil
+    await act(async () => usePlayer.getState().pause());
+    expect(usePlayer.getState().isPlaying).toBe(false);
+    expect(mini()).toBeTruthy(); // en pause, toujours visible
+    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    expect(mini()).toBeTruthy(); // Bibliothèque › Musique
+    await fireEvent.press(await screen.findByRole('radio', { name: 'Vidéos' }));
+    expect(mini()).toBeNull(); // Bibliothèque › Vidéos
+    for (const tab of ['Recherche', 'Playlists', 'Paramètres']) {
+      await fireEvent.press(screen.getByRole('tab', { name: tab }));
+      expect(mini()).toBeNull();
+    }
+    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    expect(mini()).toBeNull(); // la section Vidéos est restée choisie
+    await fireEvent.press(screen.getByRole('radio', { name: 'Musique' }));
+    expect(mini()).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Lecture' })).toBeTruthy(); // toujours en pause
+    await fireEvent.press(screen.getByRole('tab', { name: 'Accueil' }));
+    expect(mini()).toBeTruthy();
+    // Masquer l'interface n'arrête rien : morceau, file et position conservés.
+    expect(usePlayer.getState().queue[usePlayer.getState().index]).toBe(t.id);
+  });
+
+  it('lance l’historique (Récents) avec toute la liste, pour enchaîner les morceaux', async () => {
+    await renderApp();
+    const tracks = useLibrary.getState().index.tracks.slice(0, 3);
+    useUser.setState({ history: tracks.map((t, i) => ({ trackId: t.id, at: Date.now() - i * 60_000 })) });
+    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    await fireEvent.press((await screen.findAllByRole('button', { name: /^Récents/ }))[0]);
+    await fireEvent.press((await screen.findAllByRole('button', { name: new RegExp(`^Lire ${tracks[1].title}`) }))[0]);
+    expect(usePlayer.getState().queue).toEqual(tracks.map((t) => t.id));
+    expect(usePlayer.getState().index).toBe(1);
   });
 });

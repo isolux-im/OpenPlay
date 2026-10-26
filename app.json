@@ -2,13 +2,13 @@
   "expo": {
     "name": "OpenPlay",
     "slug": "openplay",
-    "version": "2.1.0",
+    "version": "2.2.0",
     "orientation": "portrait",
     "icon": "./assets/brand/icon.png",
     "userInterfaceStyle": "automatic",
     "android": {
       "package": "com.openplay.app",
-      "versionCode": 3,
+      "versionCode": 4,
       "adaptiveIcon": {
         "backgroundColor": "#F4F5F7",
         "foregroundImage": "./assets/brand/android-icon-foreground.png",
@@ -18,9 +18,7 @@
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
         "android.permission.READ_MEDIA_IMAGES",
-        "android.permission.READ_MEDIA_VIDEO",
         "android.permission.SYSTEM_ALERT_WINDOW"
       ],
       "permissions": [
@@ -41,7 +39,8 @@
         "expo-media-library",
         {
           "granularPermissions": [
-            "audio"
+            "audio",
+            "video"
           ]
         }
       ],
@@ -59,6 +58,13 @@
             "image": "./assets/brand/splash-icon.png",
             "backgroundColor": "#000000"
           }
+        }
+      ],
+      [
+        "expo-video",
+        {
+          "supportsPictureInPicture": true,
+          "supportsBackgroundPlayback": false
         }
       ]
     ],

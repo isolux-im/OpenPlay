@@ -5,6 +5,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { deleteTracksFromDevice, shareAlbum, sharePlaylist, shareTrack } from '../library/actions';
 import { formatDuration, formatTotalDuration, pluralize } from '../library/text';
+import { useSubtitles } from '../store/subtitles';
+import { useVideoHistory } from '../store/videoHistory';
+import { useVideoPlayer } from '../store/videoPlayer';
+import { useVideos } from '../store/videos';
+import { formatResolution, resumePosition } from '../video/library';
+import { formatSize } from '../video/VideoList';
+import { VideoThumb } from '../video/VideoThumb';
+import { openVideoWith, shareVideo } from '../video/actions';
+import { canImportSubtitles, importSubtitles, unlinkSubtitles } from '../video/subtitleFiles';
 import { navigateInCurrentTab } from '../navigation/ref';
 import type { SharedStackParams } from '../navigation/types';
 import { useLibrary } from '../store/library';
@@ -20,7 +29,7 @@ import { Artwork, Mosaic } from './Artwork';
 import { Glass } from './Glass';
 
 type Item = { icon: IconName; label: string; onPress: () => void; destructive?: boolean; keepOpen?: boolean };
-type Model = { header: ReactNode; groups: Item[][] };
+type Model = { header: ReactNode; groups: Item[][]; body?: ReactNode };
 
 const MENU_WIDTH = 288;
 
@@ -63,12 +72,91 @@ function favoriteItem(ids: string[], favorites: string[], toggle: (id: string) =
 }
 
 function useMenuModel(target: ContextTarget): Model | null {
+  const { colors } = useTheme();
   const index = useLibrary((s) => s.index);
   const favorites = useUser((s) => s.favorites);
   const playlists = useUser((s) => s.playlists);
   const { toggleFavorite, removeFromPlaylist, deletePlaylist, renamePlaylist } = useUser.getState();
   const { openPlaylistPicker, openPrompt, showToast } = useUi.getState();
   const player = usePlayer.getState();
+  const video = useVideos((s) => (target.kind === 'video' ? s.byId[target.videoId] : undefined));
+  const videoEntry = useVideoHistory((s) => (target.kind === 'video' ? s.entries[target.videoId] : undefined));
+  const videoFavorite = useVideoHistory((s) => (target.kind === 'video' ? s.favorites.includes(target.videoId) : false));
+  const videoSubtitles = useSubtitles((s) => (target.kind === 'video' ? s.byVideo[target.videoId] : undefined));
+
+  if (target.kind === 'info') {
+    return {
+      header: (
+        <View style={styles.header}>
+          <Icon name="alert-circle-outline" size={22} color={colors.text} />
+          <Text variant="headline" style={{ flex: 1 }}>
+            {target.title}
+          </Text>
+        </View>
+      ),
+      groups: [],
+      body: (
+        <Text variant="callout" tone="secondary" style={styles.info}>
+          {target.text}
+        </Text>
+      ),
+    };
+  }
+
+  if (target.kind === 'video') {
+    if (!video) return null;
+    const { open } = useVideoPlayer.getState();
+    const history = useVideoHistory.getState();
+    const resumeAt = resumePosition(videoEntry, video.durationSec);
+    const details = [
+      `Fichier : ${video.filename}`,
+      `Dossier : ${video.folder}`,
+      `Durée : ${formatDuration(video.durationSec)}`,
+      video.sizeBytes ? `Taille : ${formatSize(video.sizeBytes)}` : null,
+      formatResolution(video) ? `Résolution : ${formatResolution(video)}` : null,
+      `Format : ${video.mimeType}`,
+      video.addedAt ? `Ajoutée le ${new Date(video.addedAt).toLocaleDateString('fr-FR')}` : null,
+    ].filter(Boolean);
+    return {
+      header: <MenuHeader art={<VideoThumb video={video} width={78} style={{ borderRadius: 8 }} />} title={video.title} subtitle={`Vidéo · ${formatDuration(video.durationSec)}`} />,
+      groups: [
+        resumeAt > 0
+          ? [
+              { icon: 'play-outline', label: `Reprendre à ${formatDuration(resumeAt)}`, onPress: () => open(video.id, target.list) },
+              { icon: 'refresh-outline', label: 'Recommencer', onPress: () => open(video.id, target.list, { restart: true }) },
+            ]
+          : [{ icon: 'play-outline', label: 'Lire', onPress: () => open(video.id, target.list, { restart: true }) }],
+        [
+          {
+            icon: videoFavorite ? 'heart-dislike-outline' : 'heart-outline',
+            label: videoFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris',
+            onPress: () => {
+              tap('success');
+              history.toggleFavorite(video.id);
+              showToast(videoFavorite ? 'Retiré des favoris' : 'Ajouté aux favoris');
+            },
+          },
+          { icon: 'information-circle-outline', label: 'Informations', onPress: () => Alert.alert(video.title, [...details, videoSubtitles ? `Sous-titres : ${videoSubtitles.name}` : null].filter(Boolean).join('\n')) },
+          ...(canImportSubtitles() ? [{ icon: 'chatbox-ellipses-outline' as const, label: videoSubtitles ? 'Remplacer les sous-titres…' : 'Associer des sous-titres…', onPress: () => void importSubtitles(video) }] : []),
+          ...(videoSubtitles
+            ? [
+                {
+                  icon: 'chatbox-outline' as const,
+                  label: 'Retirer les sous-titres',
+                  onPress: () => {
+                    unlinkSubtitles(video.id);
+                    showToast('Sous-titres retirés');
+                  },
+                },
+              ]
+            : []),
+          { icon: 'share-outline', label: 'Partager', onPress: () => void shareVideo(video) },
+          { icon: 'open-outline', label: 'Ouvrir avec…', onPress: () => void openVideoWith(video) },
+        ],
+        ...(videoEntry ? [[{ icon: 'time-outline' as const, label: "Retirer de l'historique", destructive: true, onPress: () => history.remove(video.id) }]] : []),
+      ],
+    };
+  }
 
   const playItems = (ids: string[], label: string | null, shuffle: boolean): Item[] => [
     { icon: 'play-outline', label: 'Lire', onPress: () => player.playTracks(ids, 0, { label }) },
@@ -212,6 +300,7 @@ function Panel({ target, anchor }: { target: ContextTarget; anchor: MenuAnchor |
       <Glass radius={22}>
         <ScrollView style={{ maxHeight }} bounces={false} showsVerticalScrollIndicator={false}>
           {model.header}
+          {model.body}
           {model.groups.map((group, g) => (
             <View key={g} style={{ borderTopWidth: 6, borderTopColor: colors.glassSeparator }}>
               {group.map((item, i) => (
@@ -255,4 +344,5 @@ const styles = StyleSheet.create({
   panel: { position: 'absolute' },
   header: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 12 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, height: 46 },
+  info: { paddingHorizontal: 16, paddingBottom: 16 },
 });

@@ -2,7 +2,7 @@ import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { BlurView } from 'expo-blur';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { FadeInDown, FadeOutDown, runOnJS, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import Animated, { FadeInDown, FadeOutDown, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Artwork } from '../components/Artwork';
@@ -10,6 +10,7 @@ import { PressableScale } from '../components/PressableScale';
 import { miniSwipeAction } from '../player/gestures';
 import { useLibrary } from '../store/library';
 import { usePlayer } from '../store/player';
+import { useUi } from '../store/ui';
 import { tap } from '../ui/haptics';
 import { Icon, type IconName } from '../ui/Icon';
 import { Text } from '../ui/Text';
@@ -23,6 +24,21 @@ const TABS: Record<string, { label: string; icon: IconName; activeIcon: IconName
   SettingsTab: { label: 'Paramètres', icon: 'settings-outline', activeIcon: 'settings' },
 };
 
+/** Écrans vidéo enregistrés dans toutes les piles : jamais de mini-lecteur musical. */
+const VIDEO_ROUTES = new Set(['VideoFolder', 'VideoSeries', 'VideoStats']);
+
+/**
+ * Le mini-lecteur musical n'apparaît que dans Accueil et Bibliothèque › Musique (sous-écrans compris),
+ * qu'un morceau soit en lecture ou en pause. Ailleurs, seule son interface est masquée : la lecture continue.
+ */
+export function miniPlayerVisible(tab: string | undefined, screen: string | undefined, librarySection: 'music' | 'videos'): boolean {
+  if (screen && VIDEO_ROUTES.has(screen)) return false;
+  if (tab === 'HomeTab') return true;
+  if (tab !== 'LibraryTab') return false;
+  // Racine de la Bibliothèque : dépend du sélecteur Musique | Vidéos ; sous-écrans musicaux : visibles.
+  return !screen || screen === 'Library' ? librarySection === 'music' : true;
+}
+
 function Chrome({ radius = 0 }: { radius?: number }) {
   const { colors, dark } = useTheme();
   return (
@@ -32,6 +48,17 @@ function Chrome({ radius = 0 }: { radius?: number }) {
       <View style={[StyleSheet.absoluteFill, { backgroundColor: Platform.OS === 'web' ? (dark ? '#18181A' : '#F9F9FB') : colors.chrome }]} />
     </View>
   );
+}
+
+/** Dernier glissement du mini-lecteur : l'appui qui le termine n'ouvre pas le lecteur plein écran. */
+let lastMiniSwipe = 0;
+
+function markMiniSwipe() {
+  lastMiniSwipe = Date.now();
+}
+
+function swipedRecently() {
+  return Date.now() - lastMiniSwipe < 400;
 }
 
 export function MiniPlayer() {
@@ -49,24 +76,38 @@ export function MiniPlayer() {
     const action = miniSwipeAction(tx, ty, vx, vy);
     if (!action) return;
     tap('selection');
-    if (action === 'next') next();
-    else if (action === 'previous') previous();
-    else setExpanded(true);
+    if (action === 'open') return setExpanded(true);
+    // Même règle que les boutons : la file et le mode de répétition réels décident.
+    const { index, queue, repeat } = usePlayer.getState();
+    if (action === 'next') {
+      if (index >= queue.length - 1 && repeat !== 'all') useUi.getState().showToast('Dernier morceau de la file');
+      else next();
+    } else previous();
   };
 
-  // Glisser horizontalement : suivant / précédent ; vers le haut : ouvrir. Un simple appui ouvre toujours le lecteur.
+  const endSwipe = (tx: number, ty: number, vx: number, vy: number) => {
+    markMiniSwipe();
+    finish(tx, ty, vx, vy);
+  };
+
+  // Glisser horizontalement : suivant / précédent ; vers le haut : ouvrir. Un simple appui ouvre le lecteur.
+  // Rappels sur le fil JavaScript : le geste marque le glissement avant que l'appui ne se termine.
   const swipe = Gesture.Pan()
+    .runOnJS(true)
     .activeOffsetX([-12, 12])
     .activeOffsetY([-12, 10_000])
+    .onStart(markMiniSwipe)
     .onUpdate((e) => {
       dragX.set(Math.abs(e.translationX) > Math.abs(e.translationY) ? e.translationX * 0.6 : 0);
     })
-    .onEnd((e) => {
-      runOnJS(finish)(e.translationX, e.translationY, e.velocityX, e.velocityY);
-    })
+    .onEnd((e) => endSwipe(e.translationX, e.translationY, e.velocityX, e.velocityY))
     .onFinalize(() => {
       dragX.set(withSpring(0, { damping: 18, stiffness: 220 }));
     });
+
+  const openPlayer = () => {
+    if (!swipedRecently()) setExpanded(true);
+  };
 
   if (!track) return null;
   return (
@@ -75,11 +116,11 @@ export function MiniPlayer() {
       <Animated.View style={dragStyle}>
       <PressableScale
         scaleTo={0.98}
-        onPress={() => setExpanded(true)}
+        onPress={openPlayer}
         style={[styles.mini, { backgroundColor: colors.card, borderColor: colors.separator }]}
         accessibilityRole="button"
         accessibilityLabel={`Ouvrir le lecteur : ${track.title}, ${track.artist}`}
-        accessibilityHint="Glisser à gauche ou à droite pour changer de morceau"
+        accessibilityHint="Glisser à gauche pour le morceau précédent, à droite pour le suivant"
         accessibilityActions={[
           { name: 'activate', label: 'Ouvrir le lecteur' },
           { name: 'nextTrack', label: 'Morceau suivant' },
@@ -126,9 +167,14 @@ export function MiniPlayer() {
 export function TabBar({ state, navigation }: BottomTabBarProps) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const librarySection = useUi((s) => s.librarySection);
+  const tab = state.routes[state.index];
+  const stack = tab?.state;
+  const screen = stack && typeof stack.index === 'number' ? stack.routes[stack.index]?.name : undefined;
+  const showMini = miniPlayerVisible(tab?.name, screen, librarySection);
   return (
     <View style={styles.container} pointerEvents="box-none">
-      <MiniPlayer />
+      {showMini ? <MiniPlayer /> : null}
       <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
         <Chrome />
         <View style={[styles.hairline, { backgroundColor: colors.separator }]} />
@@ -152,7 +198,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
               accessibilityState={{ selected: focused }}
               accessibilityLabel={meta?.label ?? route.name}>
               <Icon name={focused ? meta.activeIcon : meta.icon} size={23} color={color} />
-              <Text variant="caption" weight={focused ? 'bold' : 'medium'} color={color} style={styles.tabLabel}>
+              <Text variant="caption" weight={focused ? 'bold' : 'medium'} color={color} style={styles.tabLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
                 {meta?.label}
               </Text>
             </Pressable>
@@ -168,7 +214,7 @@ const styles = StyleSheet.create({
   bar: { flexDirection: 'row', paddingTop: 8 },
   hairline: { position: 'absolute', top: 0, left: 0, right: 0, height: StyleSheet.hairlineWidth },
   tab: { flex: 1, alignItems: 'center', gap: 2 },
-  tabLabel: { fontSize: 10.5, marginTop: 1 },
+  tabLabel: { fontSize: 10, marginTop: 1, paddingHorizontal: 2 },
   miniWrap: { marginHorizontal: 12, marginBottom: 10, borderRadius: 20, boxShadow: '0px 8px 24px rgba(0,0,0,0.14)' },
   mini: { flexDirection: 'row', alignItems: 'center', height: 64, paddingLeft: 10, paddingRight: 8, borderRadius: 20, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth },
   miniText: { flex: 1, marginHorizontal: 12 },

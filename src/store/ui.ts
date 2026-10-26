@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { LibrarySection } from '../components/MediaSwitcher';
 
 export type TrackMenuContext = { playlistId?: string; playlistIndex?: number; queueIndex?: number };
 
@@ -8,7 +9,10 @@ export type MenuAnchor = { x: number; y: number };
 export type ContextTarget =
   | { kind: 'track'; trackId: string; context: TrackMenuContext }
   | { kind: 'album'; albumId: string }
-  | { kind: 'playlist'; playlistId: string };
+  | { kind: 'playlist'; playlistId: string }
+  | { kind: 'video'; videoId: string; list: string[] }
+  /** Description d'une section (icône « ! »), affichée à la demande. */
+  | { kind: 'info'; title: string; text: string };
 
 export type PromptRequest = {
   title: string;
@@ -24,6 +28,9 @@ export type PromptRequest = {
 export type PlayerMode = 'artwork' | 'lyrics' | 'queue';
 
 type UiState = {
+  /** Bibliothèque : section affichée (sélecteur Musique | Vidéos), gardée pendant la session. */
+  librarySection: LibrarySection;
+  setLibrarySection: (s: LibrarySection) => void;
   playerMode: PlayerMode;
   playerOptions: boolean;
   setPlayerMode: (m: PlayerMode) => void;
@@ -36,6 +43,8 @@ type UiState = {
   openTrackMenu: (trackId: string, context?: TrackMenuContext, anchor?: MenuAnchor | null) => void;
   openAlbumMenu: (albumId: string, anchor?: MenuAnchor | null) => void;
   openPlaylistMenu: (playlistId: string, anchor?: MenuAnchor | null) => void;
+  openVideoMenu: (videoId: string, list: string[], anchor?: MenuAnchor | null) => void;
+  openInfo: (title: string, text: string, anchor?: MenuAnchor | null) => void;
   openPlaylistPicker: (trackIds: string[]) => void;
   openPrompt: (p: PromptRequest) => void;
   openSleepSheet: () => void;
@@ -48,6 +57,8 @@ let toastTimer: ReturnType<typeof setTimeout> | null = null;
 let promptCounter = 0;
 
 export const useUi = create<UiState>()((set) => ({
+  librarySection: 'music',
+  setLibrarySection: (librarySection) => set({ librarySection }),
   playerMode: 'artwork',
   playerOptions: false,
   setPlayerMode: (playerMode) => set({ playerMode, playerOptions: false }),
@@ -60,6 +71,8 @@ export const useUi = create<UiState>()((set) => ({
   openTrackMenu: (trackId, context = {}, anchor = null) => set({ menu: { target: { kind: 'track', trackId, context }, anchor } }),
   openAlbumMenu: (albumId, anchor = null) => set({ menu: { target: { kind: 'album', albumId }, anchor } }),
   openPlaylistMenu: (playlistId, anchor = null) => set({ menu: { target: { kind: 'playlist', playlistId }, anchor } }),
+  openVideoMenu: (videoId, list, anchor = null) => set({ menu: { target: { kind: 'video', videoId, list }, anchor } }),
+  openInfo: (title, text, anchor = null) => set({ menu: { target: { kind: 'info', title, text }, anchor } }),
   openPlaylistPicker: (trackIds) => set({ menu: null, playerOptions: false, playlistPicker: trackIds }),
   openPrompt: (prompt) => set({ menu: null, playlistPicker: null, prompt: { ...prompt, id: ++promptCounter } }),
   openSleepSheet: () => set({ menu: null, playerOptions: false, sleepSheet: true }),

@@ -39,13 +39,20 @@ function indexFor(tracks: Track[]): LibraryIndex {
 /** Sans module natif (web, tests), la bibliothèque de démonstration remplace MediaStore. */
 const isDemoMode = () => !OpenPlayMedia;
 
-async function permissionStatus(request: boolean): Promise<'granted' | 'denied' | 'undetermined'> {
+/**
+ * Accès « Musique et audio » (READ_MEDIA_AUDIO, ou READ_EXTERNAL_STORAGE avant Android 13).
+ * `denied` seulement quand Android ne peut plus le redemander : il faut alors passer par ses paramètres.
+ */
+export async function audioAccess(request: boolean): Promise<'granted' | 'denied' | 'undetermined'> {
   if (isDemoMode() || Platform.OS !== 'android') return 'granted';
   const res = request
     ? await MediaLibrary.requestPermissionsAsync(false, ['audio'])
     : await MediaLibrary.getPermissionsAsync(false, ['audio']);
-  return res.status === 'granted' ? 'granted' : res.status === 'denied' ? 'denied' : 'undetermined';
+  if (res.status === 'granted') return 'granted';
+  return res.status === 'denied' && !res.canAskAgain ? 'denied' : 'undetermined';
 }
+
+const permissionStatus = audioAccess;
 
 export const useLibrary = create<LibraryState>()((set, get) => ({
   status: 'checking',
