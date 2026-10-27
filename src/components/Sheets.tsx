@@ -1,10 +1,15 @@
-import { useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { pluralize } from '../library/text';
+import { DEFAULT_ROOT, MEDIA_ROOTS, cleanFolderName, isValidDestination } from '../library/fileOps';
+import { compareText, pluralize } from '../library/text';
 import { useLibrary } from '../store/library';
+import { describePlaylist, resolvePlaylist, useVideoPlaylists } from '../store/videoPlaylists';
+import { useVideos } from '../store/videos';
+import { useSeriesIndex } from '../video/useSeries';
+import { VideoThumb } from '../video/VideoThumb';
 import { usePlayer } from '../store/player';
 import { useUi } from '../store/ui';
 import { useUser } from '../store/user';
@@ -106,6 +111,159 @@ function PlaylistPickerSheet() {
               </Text>
               <Text variant="subhead" tone="secondary">
                 {pluralize(p.trackIds.length, 'morceau', 'morceaux')}
+              </Text>
+            </View>
+          </Pressable>
+        ))}
+      </ScrollView>
+    </BottomSheet>
+  );
+}
+
+/** Ajout de séries ou de vidéos à une playlist vidéo (ou à une nouvelle). */
+function VideoPlaylistPickerSheet() {
+  const { colors } = useTheme();
+  const items = useUi((s) => s.videoPlaylistPicker);
+  const closeAll = useUi((s) => s.closeAll);
+  const openPrompt = useUi((s) => s.openPrompt);
+  const showToast = useUi((s) => s.showToast);
+  const playlists = useVideoPlaylists((s) => s.playlists);
+  const videosById = useVideos((s) => s.byId);
+  const { byKey } = useSeriesIndex();
+
+  return (
+    <BottomSheet visible={!!items} onClose={closeAll}>
+      <Text variant="headline" style={styles.sheetTitle}>
+        Ajouter à une playlist vidéo
+      </Text>
+      <ScrollView style={{ maxHeight: 420 }}>
+        <Pressable
+          style={styles.pickRow}
+          onPress={() =>
+            openPrompt({
+              title: 'Nouvelle playlist vidéo',
+              placeholder: 'Nom (ex. Animés, Policier…)',
+              confirmLabel: 'Créer',
+              onSubmit: (name) => {
+                useVideoPlaylists.getState().create(name, items ?? []);
+                showToast('Playlist créée');
+              },
+            })
+          }
+          accessibilityRole="button">
+          <View style={[styles.newTile, { backgroundColor: colors.fill }]}>
+            <Icon name="add" size={30} color={colors.accent} />
+          </View>
+          <Text variant="body" tone="accent">
+            Nouvelle playlist…
+          </Text>
+        </Pressable>
+        {playlists.map((p) => {
+          const resolved = resolvePlaylist(p, byKey, videosById);
+          const first = resolved[0];
+          const cover = first ? (first.kind === 'series' ? first.series.episodes[0] : first.video) : null;
+          return (
+            <Pressable
+              key={p.id}
+              style={({ pressed }) => [styles.pickRow, pressed && { backgroundColor: colors.fill }]}
+              onPress={() => {
+                closeAll();
+                const added = useVideoPlaylists.getState().addItems(p.id, items ?? []);
+                tap('success');
+                showToast(added ? `Ajouté à « ${p.name} »` : `Déjà dans « ${p.name} »`);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`Ajouter à ${p.name}`}>
+              {cover ? <VideoThumb video={cover} width={52} style={{ borderRadius: 8 }} /> : <View style={[styles.newTile, { backgroundColor: colors.fill }]}><Icon name="film-outline" size={24} color={colors.secondaryText} /></View>}
+              <View style={{ flex: 1 }}>
+                <Text variant="body" numberOfLines={1}>
+                  {p.name}
+                </Text>
+                <Text variant="subhead" tone="secondary">
+                  {describePlaylist(resolved)}
+                </Text>
+              </View>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+    </BottomSheet>
+  );
+}
+
+/** Chemin saisi pour un nouveau dossier : sous le dossier racine par défaut, sauf s'il commence par une racine valide. */
+export function newFolderPath(kind: 'audio' | 'video', input: string): string | null {
+  const parts = input.split('/').map(cleanFolderName).filter(Boolean);
+  if (!parts.length) return null;
+  const path = parts.join('/');
+  return isValidDestination(kind, path) ? path : `${DEFAULT_ROOT[kind]}/${path}`;
+}
+
+/** Dossier de destination pour copier ou déplacer : dossiers existants (racines autorisées par Android) ou nouveau. */
+function FolderPickerSheet() {
+  const { colors } = useTheme();
+  const request = useUi((s) => s.folderPicker);
+  const closeAll = useUi((s) => s.closeAll);
+  const openPrompt = useUi((s) => s.openPrompt);
+  const tracks = useLibrary((s) => s.allTracks);
+  const videos = useVideos((s) => s.videos);
+  const kind = request?.kind ?? 'video';
+  const folders = useMemo(() => {
+    const all = kind === 'video' ? videos.map((v) => v.folder) : tracks.map((t) => t.folder);
+    return [...new Set(all)].filter((f) => isValidDestination(kind, f)).sort(compareText);
+  }, [kind, videos, tracks]);
+
+  const pick = (folder: string) => {
+    const run = request?.onPick;
+    closeAll();
+    run?.(folder);
+  };
+
+  return (
+    <BottomSheet visible={!!request} onClose={closeAll}>
+      <Text variant="headline" style={styles.sheetTitle}>
+        {request?.title}
+      </Text>
+      <ScrollView style={{ maxHeight: 440 }}>
+        <Pressable
+          style={styles.pickRow}
+          onPress={() => {
+            const run = request?.onPick;
+            openPrompt({
+              title: 'Nouveau dossier',
+              message: `Créé dans « ${DEFAULT_ROOT[kind]} » (ou saisissez un chemin commençant par ${MEDIA_ROOTS[kind].join(', ')}).`,
+              placeholder: 'Nom du dossier',
+              confirmLabel: 'Choisir',
+              onSubmit: (name) => {
+                const path = newFolderPath(kind, name);
+                if (path) run?.(path);
+              },
+            });
+          }}
+          accessibilityRole="button">
+          <View style={[styles.newTile, { backgroundColor: colors.fill }]}>
+            <Icon name="folder-open-outline" size={26} color={colors.accent} />
+          </View>
+          <Text variant="body" tone="accent">
+            Nouveau dossier…
+          </Text>
+        </Pressable>
+        {folders.map((f) => (
+          <Pressable
+            key={f}
+            style={({ pressed }) => [styles.pickRow, pressed && { backgroundColor: colors.fill }]}
+            onPress={() => pick(f)}
+            accessibilityRole="button"
+            accessibilityLabel={`Dossier ${f}${f === request?.current ? ' (actuel)' : ''}`}>
+            <View style={[styles.newTile, { backgroundColor: colors.fill }]}>
+              <Icon name="folder-outline" size={24} color={colors.secondaryText} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text variant="body" numberOfLines={1}>
+                {f.split('/').pop()}
+              </Text>
+              <Text variant="subhead" tone="secondary" numberOfLines={1}>
+                {f === request?.current ? `${f} · actuel` : f}
               </Text>
             </View>
           </Pressable>
@@ -233,6 +391,8 @@ export function SheetHost() {
   return (
     <>
       <PlaylistPickerSheet />
+      <VideoPlaylistPickerSheet />
+      <FolderPickerSheet />
       <SleepTimerSheet />
       <PromptDialog />
       <Toast />

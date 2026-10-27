@@ -9,6 +9,7 @@ import { useAppNavigation } from '../navigation/ref';
 import type { SharedStackParams } from '../navigation/types';
 import { useSettings } from '../store/settings';
 import { useVideoHistory } from '../store/videoHistory';
+import { useVideoPlaylists } from '../store/videoPlaylists';
 import { useVideos } from '../store/videos';
 import { Icon } from '../ui/Icon';
 import { Text } from '../ui/Text';
@@ -18,9 +19,10 @@ import type { VideoSort } from '../video/types';
 import { VideoList } from '../video/VideoList';
 import { useSeriesIndex } from '../video/useSeries';
 import { VideoThumb } from '../video/VideoThumb';
+import { NewVideoPlaylistRow, VideoPlaylistRow } from './VideoPlaylistScreen';
 import { SeriesRow } from './VideoSeriesScreen';
 
-type Section = 'all' | 'continue' | 'recent' | 'favorites' | 'series' | 'folders';
+type Section = 'all' | 'continue' | 'recent' | 'favorites' | 'series' | 'playlists' | 'folders';
 
 const SECTIONS: { key: Section; label: string }[] = [
   { key: 'all', label: 'Toutes' },
@@ -28,6 +30,7 @@ const SECTIONS: { key: Section; label: string }[] = [
   { key: 'recent', label: 'Récentes' },
   { key: 'favorites', label: 'Favoris' },
   { key: 'series', label: 'Séries' },
+  { key: 'playlists', label: 'Playlists' },
   { key: 'folders', label: 'Dossiers' },
 ];
 
@@ -97,6 +100,7 @@ export function VideosScreen({ title = 'Vidéos', switcher }: { title?: string; 
   const favorites = useVideoHistory((s) => s.favorites);
   const sort = useSettings((s) => s.videoSort);
   const update = useSettings((s) => s.update);
+  const playlists = useVideoPlaylists((s) => s.playlists);
   const [section, setSection] = useState<Section>('all');
   const [query, setQuery] = useState('');
   const deferred = useDeferredValue(query);
@@ -192,6 +196,27 @@ export function VideosScreen({ title = 'Vidéos', switcher }: { title?: string; 
     );
   }
 
+  if (section === 'playlists') {
+    const q = normalizeText(deferred);
+    const shown = q ? playlists.filter((p) => normalizeText(p.name).includes(q)) : playlists;
+    return (
+      <ListScreen
+        title={title}
+        titleRight={<LayoutButton />}
+        header={
+          <View>
+            {header}
+            <NewVideoPlaylistRow />
+          </View>
+        }
+        data={shown}
+        keyExtractor={(p) => p.id}
+        renderItem={({ item }) => <VideoPlaylistRow playlist={item} onPress={() => navigation.push('VideoPlaylist', { id: item.id })} />}
+        ListEmptyComponent={<EmptyState icon="albums-outline" title="Aucune playlist vidéo" message="Créez des listes pour ranger vos séries et vos vidéos (ex. « Animés », « À voir en famille »)." />}
+      />
+    );
+  }
+
   if (section === 'folders') {
     return (
       <ListScreen
@@ -223,7 +248,7 @@ export function VideosScreen({ title = 'Vidéos', switcher }: { title?: string; 
     );
   }
 
-  const empty: Record<Exclude<Section, 'folders' | 'series'>, [string, string]> = {
+  const empty: Record<Exclude<Section, 'folders' | 'series' | 'playlists'>, [string, string]> = {
     all: query ? ['Aucun résultat', `Rien ne correspond à « ${query.trim()} ».`] : ['Aucune vidéo', 'Aucune vidéo accessible sur l’appareil.'],
     continue: ['Rien à reprendre', 'Les vidéos commencées et non terminées apparaîtront ici.'],
     recent: ['Aucune vidéo regardée', 'Les vidéos ouvertes dans OpenPlay apparaîtront ici.'],

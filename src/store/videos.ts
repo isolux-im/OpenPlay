@@ -22,6 +22,10 @@ type State = {
   /** Accès partiel : rouvre le sélecteur système pour modifier les vidéos autorisées. */
   manageLimitedAccess: () => Promise<void>;
   scan: () => Promise<void>;
+  /** Fichiers renommés, déplacés (`changed`, même identifiant) ou copiés (`added`), sans nouvelle analyse. */
+  applyFileChanges: (changed: Video[], added?: Video[]) => void;
+  /** Retire des vidéos (fichiers supprimés), sans nouvelle analyse. */
+  removeVideos: (ids: string[]) => void;
 };
 
 const isDemo = () => !OpenPlayMedia?.queryVideosAsync;
@@ -85,6 +89,22 @@ export const useVideos = create<State>()((set, get) => ({
     } catch (e) {
       recordDiagnostic('Sélecteur d’accès partiel en échec', describeError(e));
     }
+  },
+
+  applyFileChanges: (changed, added = []) => {
+    const map = new Map(changed.map((v) => [v.id, v]));
+    const videos = [...get().videos.map((v) => map.get(v.id) ?? v), ...added];
+    const byId: Record<string, Video> = {};
+    for (const v of videos) byId[v.id] = v;
+    set({ videos, byId });
+  },
+
+  removeVideos: (ids) => {
+    const gone = new Set(ids);
+    const videos = get().videos.filter((v) => !gone.has(v.id));
+    const byId: Record<string, Video> = {};
+    for (const v of videos) byId[v.id] = v;
+    set({ videos, byId });
   },
 
   scan: () => {

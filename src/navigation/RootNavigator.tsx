@@ -28,6 +28,7 @@ import { PlaylistsScreen } from '../screens/PlaylistsScreen';
 import { SearchScreen } from '../screens/SearchScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { StatsScreen } from '../screens/StatsScreen';
+import { VideoPlaylistScreen } from '../screens/VideoPlaylistScreen';
 import { VideoSeriesScreen } from '../screens/VideoSeriesScreen';
 import { VideoStatsScreen } from '../screens/VideoStatsScreen';
 import { VideoFolderScreen } from '../screens/VideosScreen';
@@ -60,6 +61,7 @@ const SHARED: { name: keyof AnyStackParams; component: ComponentType }[] = [
   { name: 'VideoFolder', component: VideoFolderScreen },
   { name: 'VideoSeries', component: VideoSeriesScreen },
   { name: 'VideoStats', component: VideoStatsScreen },
+  { name: 'VideoPlaylist', component: VideoPlaylistScreen },
 ];
 
 /** Une pile par onglet, avec le même jeu d'écrans de détail : la barre d'onglets reste visible. */

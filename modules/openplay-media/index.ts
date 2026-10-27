@@ -88,6 +88,15 @@ type OpenPlayMediaModule = {
   /** Texte du fichier (encodage détecté) ; erreur ERR_SUBTITLE_UNREADABLE ou ERR_SUBTITLE_TOO_LARGE. */
   readSubtitleAsync?(uri: string): Promise<string>;
   releaseSubtitleAsync?(uri: string): Promise<void>;
+  /**
+   * Fichiers (Android 11+ pour renommer et déplacer : Android demande l'autorisation une fois par opération).
+   * `false` : refusé par l'utilisateur. `displayName` garde l'extension ; `relativePath` : « Movies/Séries ».
+   */
+  renameMediaAsync?(kind: 'audio' | 'video', id: string, displayName: string): Promise<boolean>;
+  /** Nombre de fichiers déplacés, ou `false` si l'autorisation est refusée. */
+  moveMediaAsync?(kind: 'audio' | 'video', ids: string[], relativePath: string): Promise<number | false>;
+  /** Android 10+ : copies créées dans `relativePath` (« (1) » ajouté si le nom existe déjà). Nombre de copies. */
+  copyMediaAsync?(kind: 'audio' | 'video', ids: string[], relativePath: string): Promise<number>;
   /** Journal de diagnostic local et fins anormales enregistrées par Android 11+. Absents des anciennes versions. */
   getCrashReportsAsync?(): Promise<{ log: string | null; exits: ExitReason[] }>;
   clearCrashReportsAsync?(): Promise<void>;

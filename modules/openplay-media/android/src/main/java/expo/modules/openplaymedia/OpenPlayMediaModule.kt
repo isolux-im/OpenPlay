@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.ActivityManager
 import android.app.ApplicationExitInfo
 import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
@@ -35,6 +36,7 @@ import expo.modules.kotlin.functions.Queues
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -57,6 +59,8 @@ import java.util.TimeZone
 import javax.net.ssl.SSLException
 
 private const val PICK_SUBTITLE_REQUEST = 0x5354
+/** Autorisation Android 11+ de modifier des fichiers d'autres applications (renommer, déplacer). */
+private const val WRITE_REQUEST = 0x5752
 
 /** Un fichier de sous-titres dépasse rarement quelques centaines de Ko. */
 private const val MAX_SUBTITLE_BYTES = 4 * 1024 * 1024
@@ -78,6 +82,9 @@ class OpenPlayMediaModule : Module() {
 
   /** Sélection de fichier de sous-titres en attente du retour du sélecteur Android. */
   private var pendingSubtitlePick: Promise? = null
+
+  /** Renommage ou déplacement en attente de l'autorisation Android : la promesse et l'opération à mener. */
+  private var pendingWrite: Pair<Promise, () -> Any?>? = null
 
   /** Orientation de l'activité avant l'ouverture du lecteur vidéo (rétablie à la fermeture). */
   private var savedOrientation: Int? = null
@@ -294,7 +301,49 @@ class OpenPlayMediaModule : Module() {
       }
     }
 
+    // Fichiers : renommer, déplacer (autorisation système demandée une fois pour tous les fichiers), copier.
+    AsyncFunction("renameMediaAsync") { kind: String, id: String, displayName: String, promise: Promise ->
+      val uri = mediaUri(kind, id)
+      requestWrite(listOf(uri), promise) {
+        val values = ContentValues().apply {
+          put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+          // Le titre d'une vidéo suit son nom de fichier ; celui d'un morceau vient de ses balises.
+          if (kind == "video") put(MediaStore.MediaColumns.TITLE, displayName.substringBeforeLast('.'))
+        }
+        context.contentResolver.update(uri, values, null, null) > 0
+      }
+    }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("moveMediaAsync") { kind: String, ids: List<String>, relativePath: String, promise: Promise ->
+      val uris = ids.map { mediaUri(kind, it) }
+      requestWrite(uris, promise) {
+        val values = ContentValues().apply { put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath.trim('/') + "/") }
+        uris.count { context.contentResolver.update(it, values, null, null) > 0 }
+      }
+    }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("copyMediaAsync") Coroutine { kind: String, ids: List<String>, relativePath: String ->
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) throw CodedException("ERR_UNSUPPORTED", "Copie non prise en charge avant Android 10", null)
+      withContext(Dispatchers.IO) { ids.count { copyMedia(kind, it, relativePath) } }
+    }
+
     OnActivityResult { _, payload ->
+      if (payload.requestCode == WRITE_REQUEST) {
+        val (promise, action) = pendingWrite ?: return@OnActivityResult
+        pendingWrite = null
+        if (payload.resultCode != Activity.RESULT_OK) {
+          promise.resolve(false)
+          return@OnActivityResult
+        }
+        appContext.backgroundCoroutineScope.launch {
+          try {
+            promise.resolve(withContext(Dispatchers.IO) { action() })
+          } catch (e: Exception) {
+            promise.reject("ERR_MEDIA_WRITE", e.message, e)
+          }
+        }
+        return@OnActivityResult
+      }
       if (payload.requestCode != PICK_SUBTITLE_REQUEST) return@OnActivityResult
       val promise = pendingSubtitlePick ?: return@OnActivityResult
       pendingSubtitlePick = null
@@ -308,6 +357,76 @@ class OpenPlayMediaModule : Module() {
       } catch (e: Exception) {
         promise.reject("ERR_SUBTITLE_PICK", e.message, e)
       }
+    }
+  }
+
+  private fun mediaUri(kind: String, id: String): Uri =
+    ContentUris.withAppendedId(if (kind == "video") videoCollection() else audioCollection(), id.toLong())
+
+  /**
+   * Android 11+ : demande à l'utilisateur, en une fois, le droit de modifier ces fichiers (ils appartiennent
+   * souvent à une autre application), puis mène `action` hors du fil principal. Refus : `false`.
+   */
+  private fun requestWrite(uris: List<Uri>, promise: Promise, action: () -> Any?) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+      promise.reject("ERR_UNSUPPORTED", "Modification de fichiers non prise en charge avant Android 11", null)
+      return
+    }
+    val activity = appContext.currentActivity ?: run {
+      promise.reject("ERR_NO_ACTIVITY", "Application en arrière-plan", null)
+      return
+    }
+    pendingWrite?.first?.resolve(false)
+    pendingWrite = promise to action
+    try {
+      val request = MediaStore.createWriteRequest(context.contentResolver, uris)
+      activity.startIntentSenderForResult(request.intentSender, WRITE_REQUEST, null, 0, 0, 0)
+    } catch (e: Exception) {
+      pendingWrite = null
+      promise.reject("ERR_MEDIA_WRITE", e.message, e)
+    }
+  }
+
+  /**
+   * Copie d'un fichier vers `relativePath` (« Movies/Séries ») : nouvelle entrée MediaStore, en attente le temps
+   * de la copie ; Android ajoute « (1) » au nom s'il existe déjà. Copie incomplète : l'entrée est supprimée.
+   */
+  private fun copyMedia(kind: String, id: String, relativePath: String): Boolean {
+    val resolver = context.contentResolver
+    val source = mediaUri(kind, id)
+    var name: String? = null
+    var mime: String? = null
+    resolver.query(source, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.MIME_TYPE), null, null, null)?.use { c ->
+      if (c.moveToFirst()) {
+        name = c.getStringOrNull(0)
+        mime = c.getStringOrNull(1)
+      }
+    }
+    val displayName = name ?: return false
+    val collection = if (kind == "video") {
+      MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+    } else {
+      MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+    }
+    val values = ContentValues().apply {
+      put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+      mime?.let { put(MediaStore.MediaColumns.MIME_TYPE, it) }
+      put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath.trim('/') + "/")
+      put(MediaStore.MediaColumns.IS_PENDING, 1)
+    }
+    val target = resolver.insert(collection, values) ?: return false
+    try {
+      resolver.openInputStream(source).use { input ->
+        resolver.openOutputStream(target).use { output ->
+          if (input == null || output == null) throw IOException("Fichier inaccessible")
+          input.copyTo(output, 256 * 1024)
+        }
+      }
+      resolver.update(target, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+      return true
+    } catch (e: Exception) {
+      resolver.delete(target, null, null)
+      throw e
     }
   }
 

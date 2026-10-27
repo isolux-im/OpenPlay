@@ -35,6 +35,16 @@ une vidéo isolée. À la fin naturelle d'un épisode, le suivant disponible dé
 compte à rebours de 10 s (copies du même épisode sautées, numéros absents signalés, arrêt après le dernier) ;
 réglages « Séries : enchaîner les épisodes » et « Continuer à la saison suivante ».
 
+**Playlists vidéo** : Bibliothèque › Vidéos › Playlists. Chaque playlist range des séries entières (elles suivent
+leurs nouveaux épisodes) et des vidéos isolées ; ajout par le menu « ⋮ » / appui long d'une série ou d'une vidéo,
+réorganisation (Monter, Descendre, Retirer), lecture de toute la liste dans l'ordre.
+
+**Fichiers** (musique et vidéos, menu « ⋮ » / appui long) : renommer le fichier (extension conservée), copier ou
+déplacer vers un dossier existant ou nouveau (racines autorisées par Android : Music, Podcasts… pour l'audio ;
+Movies, DCIM, Pictures pour la vidéo), et supprimer une vidéo ou une série. Ce sont les vrais fichiers de
+l'appareil : Android demande l'autorisation (Android 11+ pour renommer et déplacer, Android 10+ pour copier).
+Après un renommage ou un déplacement, favoris, playlists, historique et positions de reprise sont conservés.
+
 **Métadonnées** : module natif local `modules/openplay-media` (Kotlin) qui lit MediaStore : titre, artiste,
 artiste de l'album, album, genre, numéro de piste/disque, année, dossier ; pochettes extraites vers le cache
 (vignette système, puis image intégrée au fichier) et couleurs dominantes calculées avec AndroidX Palette.

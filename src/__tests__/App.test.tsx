@@ -10,6 +10,8 @@ import { useUi } from '../store/ui';
 import { usePlaybackPosition, usePlaybackSession } from '../store/session';
 import { useUser } from '../store/user';
 import { useVideoPlayer } from '../store/videoPlayer';
+import { useVideoPlaylists } from '../store/videoPlaylists';
+import { useVideos } from '../store/videos';
 
 jest.mock('react-native-safe-area-context', () => {
   const { View } = jest.requireActual('react-native');
@@ -264,6 +266,49 @@ describe('application', () => {
       clock.mockRestore();
       spy.mockRestore();
     }
+  });
+
+  it('crée une playlist vidéo depuis une série, y ajoute une vidéo et la lit', async () => {
+    useVideoPlaylists.setState({ playlists: [] });
+    useSettings.setState({ videoLayout: 'list' });
+    await renderApp();
+    await openVideos();
+    await fireEvent.press(await screen.findByRole('radio', { name: 'Séries' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Options pour la série Lagune Blues' }));
+    await fireEvent.press(await screen.findByRole('menuitem', { name: 'Ajouter à une playlist vidéo' }));
+    await fireEvent.press(await screen.findByText('Nouvelle playlist…'));
+    await fireEvent.changeText(await screen.findByLabelText('Nom (ex. Animés, Policier…)'), 'Mes séries');
+    await fireEvent.press(screen.getByRole('button', { name: 'Créer' }));
+    expect(useVideoPlaylists.getState().playlists.map((p) => p.name)).toEqual(['Mes séries']);
+
+    // Une vidéo isolée rejoint la même playlist.
+    await fireEvent.press(screen.getByRole('radio', { name: 'Toutes' }));
+    await fireEvent.press((await screen.findAllByRole('button', { name: 'Options pour Concert au Bénin' }))[0]);
+    await fireEvent.press(await screen.findByRole('menuitem', { name: 'Ajouter à une playlist vidéo' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Ajouter à Mes séries' }));
+
+    await fireEvent.press(screen.getByRole('radio', { name: 'Playlists' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Playlist Mes séries, 1 série · 1 vidéo' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Lire la playlist' }));
+    expect(useVideoPlayer.getState().session?.list).toEqual(['demo-video-9', 'demo-video-10', 'demo-video-11', 'demo-video-1']);
+    await fireEvent.press(screen.getByRole('button', { name: 'Fermer la vidéo' }));
+    useSettings.setState({ videoLayout: 'grid' });
+  });
+
+  it('renomme une vidéo depuis son menu (fichier réel sur Android)', async () => {
+    useSettings.setState({ videoLayout: 'list' });
+    await renderApp();
+    await openVideos();
+    await fireEvent.press((await screen.findAllByRole('button', { name: 'Options pour Anniversaire' }))[0]);
+    await fireEvent.press(await screen.findByRole('menuitem', { name: 'Renommer le fichier…' }));
+    expect(screen.getByText('Extension conservée : .mp4')).toBeTruthy();
+    await fireEvent.changeText(screen.getByLabelText('Nom du fichier'), 'Anniversaire de Mia');
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Renommer' }));
+    });
+    expect(useVideos.getState().byId['demo-video-7']).toMatchObject({ filename: 'Anniversaire de Mia.mp4', title: 'Anniversaire de Mia' });
+    expect(await screen.findAllByText('Anniversaire de Mia')).not.toHaveLength(0);
+    useSettings.setState({ videoLayout: 'grid' });
   });
 
   it('enchaînement désactivé : la fin d’un épisode ne lance rien', async () => {

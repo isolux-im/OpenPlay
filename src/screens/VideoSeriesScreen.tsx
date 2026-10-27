@@ -6,6 +6,7 @@ import { ScrollScreen } from '../components/Screen';
 import { formatDuration, pluralize } from '../library/text';
 import type { SharedStackParams } from '../navigation/types';
 import { useVideoHistory } from '../store/videoHistory';
+import { useUi, type VideoPlaylistContext } from '../store/ui';
 import { useVideoPlayer } from '../store/videoPlayer';
 import { tap } from '../ui/haptics';
 import { Icon } from '../ui/Icon';
@@ -26,15 +27,21 @@ export function SeriesBar({ watched, total }: { watched: number; total: number }
   );
 }
 
-/** Ligne de série : vignette de l'épisode à regarder, nom, épisodes vus. */
-export function SeriesRow({ series, onPress }: { series: Series; onPress: () => void }) {
+/** Ligne de série : vignette de l'épisode à regarder, nom, épisodes vus ; appui long : menu de la série. */
+export function SeriesRow({ series, onPress, playlist }: { series: Series; onPress: () => void; playlist?: VideoPlaylistContext }) {
   const { colors } = useTheme();
   const history = useVideoHistory((s) => s.entries);
+  const openSeriesMenu = useUi((s) => s.openSeriesMenu);
   const p = seriesProgress(series, history);
   const cover = p.next ?? series.episodes[0];
   return (
     <Pressable
       onPress={onPress}
+      onLongPress={(e) => {
+        tap();
+        openSeriesMenu(series.key, { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY }, playlist);
+      }}
+      delayLongPress={320}
       style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.fill }]}
       accessibilityRole="button"
       accessibilityLabel={`Série ${series.name}, ${pluralize(p.total, 'épisode')}, ${p.watched} vus`}>
@@ -48,7 +55,17 @@ export function SeriesRow({ series, onPress }: { series: Series; onPress: () => 
         </Text>
         {p.watched > 0 ? <SeriesBar watched={p.watched} total={p.total} /> : null}
       </View>
-      <Icon name="chevron-forward" size={17} color={colors.tertiaryText} />
+      <Pressable
+        onPress={(e) => {
+          tap();
+          openSeriesMenu(series.key, { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY }, playlist);
+        }}
+        hitSlop={10}
+        style={styles.more}
+        accessibilityRole="button"
+        accessibilityLabel={`Options pour la série ${series.name}`}>
+        <Icon name="ellipsis-vertical" size={18} color={colors.secondaryText} />
+      </Pressable>
     </Pressable>
   );
 }
@@ -118,4 +135,5 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: GUTTER, gap: 12, paddingBottom: 8 },
   play: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 48, borderRadius: radius.lg, paddingHorizontal: 16 },
   note: { paddingHorizontal: GUTTER, paddingTop: 16 },
+  more: { paddingLeft: 4, paddingVertical: 8 },
 });

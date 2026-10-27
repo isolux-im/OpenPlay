@@ -29,6 +29,8 @@ type LibraryState = {
   removeTracks: (ids: string[]) => void;
   /** Reconstruit l'index (dossiers masqués, infos corrigées) sans nouvelle analyse. */
   refreshIndex: () => void;
+  /** Fichiers renommés, déplacés (`changed`, même identifiant) ou copiés (`added`), sans nouvelle analyse. */
+  applyFileChanges: (changed: Track[], added?: Track[]) => void;
 };
 
 /** Index affiché : dossiers masqués retirés, corrections de l'utilisateur appliquées. */
@@ -97,5 +99,11 @@ export const useLibrary = create<LibraryState>()((set, get) => ({
 
   refreshIndex: () => {
     set((s) => ({ index: indexFor(s.allTracks) }));
+  },
+
+  applyFileChanges: (changed, added = []) => {
+    const byId = new Map(changed.map((t) => [t.id, t]));
+    const allTracks = [...get().allTracks.map((t) => byId.get(t.id) ?? t), ...added];
+    set({ allTracks, index: indexFor(allTracks) });
   },
 }));

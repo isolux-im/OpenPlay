@@ -4,6 +4,10 @@ import Animated, { FadeIn, FadeOut, ZoomIn, ZoomOut } from 'react-native-reanima
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { deleteTracksFromDevice, shareAlbum, sharePlaylist, shareTrack } from '../library/actions';
+import { copyTracks, copyVideos, deleteVideosFromDevice, moveTracks, moveVideos, renameTrack, renameVideo, splitName, trackFileName, type MediaKind } from '../library/fileOps';
+import { describePlaylist, playlistVideoIds, resolvePlaylist, useVideoPlaylists } from '../store/videoPlaylists';
+import { seriesProgress } from '../video/series';
+import { useSeriesIndex } from '../video/useSeries';
 import { formatDuration, formatTotalDuration, pluralize } from '../library/text';
 import { useSubtitles } from '../store/subtitles';
 import { useVideoHistory } from '../store/videoHistory';
@@ -18,7 +22,7 @@ import { navigateInCurrentTab } from '../navigation/ref';
 import type { SharedStackParams } from '../navigation/types';
 import { useLibrary } from '../store/library';
 import { usePlayer } from '../store/player';
-import { useUi, type ContextTarget, type MenuAnchor } from '../store/ui';
+import { useUi, type ContextTarget, type MenuAnchor, type VideoPlaylistContext } from '../store/ui';
 import { useUser } from '../store/user';
 import type { Track } from '../types';
 import { tap } from '../ui/haptics';
@@ -71,6 +75,45 @@ function favoriteItem(ids: string[], favorites: string[], toggle: (id: string) =
   };
 }
 
+/** Renommer, copier, déplacer : actions sur les vrais fichiers de l'appareil (Android demande l'autorisation). */
+function fileItems(opts: {
+  kind: MediaKind;
+  what: string;
+  folder?: string;
+  rename?: { filename: string; run: (name: string) => void };
+  copy: (folder: string) => void;
+  move: (folder: string) => void;
+}): Item[] {
+  const { openPrompt, openFolderPicker } = useUi.getState();
+  const items: Item[] = [];
+  if (opts.rename) {
+    const { base, ext } = splitName(opts.rename.filename);
+    const run = opts.rename.run;
+    items.push({
+      icon: 'create-outline',
+      label: 'Renommer le fichier…',
+      keepOpen: true,
+      onPress: () => openPrompt({ title: 'Renommer le fichier', message: ext ? `Extension conservée : ${ext}` : undefined, initialValue: base, placeholder: 'Nom du fichier', confirmLabel: 'Renommer', onSubmit: run }),
+    });
+  }
+  items.push(
+    { icon: 'copy-outline', label: `Copier ${opts.what} vers…`, keepOpen: true, onPress: () => openFolderPicker({ kind: opts.kind, title: `Copier ${opts.what} vers…`, current: opts.folder, onPick: opts.copy }) },
+    { icon: 'folder-open-outline', label: `Déplacer ${opts.what} vers…`, keepOpen: true, onPress: () => openFolderPicker({ kind: opts.kind, title: `Déplacer ${opts.what} vers…`, current: opts.folder, onPick: opts.move }) },
+  );
+  return items;
+}
+
+/** Élément ouvert depuis une playlist vidéo : monter, descendre, retirer. */
+function playlistOrderItems(ctx: VideoPlaylistContext | undefined): Item[] {
+  if (!ctx) return [];
+  const store = useVideoPlaylists.getState();
+  return [
+    ...(ctx.index > 0 ? [{ icon: 'arrow-up-outline' as const, label: 'Monter', onPress: () => store.moveItem(ctx.playlistId, ctx.index, ctx.index - 1) }] : []),
+    ...(ctx.index < ctx.count - 1 ? [{ icon: 'arrow-down-outline' as const, label: 'Descendre', onPress: () => store.moveItem(ctx.playlistId, ctx.index, ctx.index + 1) }] : []),
+    { icon: 'remove-circle-outline', label: 'Retirer de la playlist', destructive: true, onPress: () => store.removeItem(ctx.playlistId, ctx.index) },
+  ];
+}
+
 function useMenuModel(target: ContextTarget): Model | null {
   const { colors } = useTheme();
   const index = useLibrary((s) => s.index);
@@ -83,6 +126,10 @@ function useMenuModel(target: ContextTarget): Model | null {
   const videoEntry = useVideoHistory((s) => (target.kind === 'video' ? s.entries[target.videoId] : undefined));
   const videoFavorite = useVideoHistory((s) => (target.kind === 'video' ? s.favorites.includes(target.videoId) : false));
   const videoSubtitles = useSubtitles((s) => (target.kind === 'video' ? s.byVideo[target.videoId] : undefined));
+  const seriesIndex = useSeriesIndex();
+  const videosById = useVideos((s) => s.byId);
+  const videoEntries = useVideoHistory((s) => s.entries);
+  const videoPlaylist = useVideoPlaylists((s) => (target.kind === 'videoPlaylist' ? s.playlists.find((p) => p.id === target.playlistId) : undefined));
 
   if (target.kind === 'info') {
     return {
@@ -153,8 +200,84 @@ function useMenuModel(target: ContextTarget): Model | null {
           { icon: 'share-outline', label: 'Partager', onPress: () => void shareVideo(video) },
           { icon: 'open-outline', label: 'Ouvrir avec…', onPress: () => void openVideoWith(video) },
         ],
-        ...(videoEntry ? [[{ icon: 'time-outline' as const, label: "Retirer de l'historique", destructive: true, onPress: () => history.remove(video.id) }]] : []),
+        [
+          { icon: 'add-circle-outline', label: 'Ajouter à une playlist vidéo', keepOpen: true, onPress: () => useUi.getState().openVideoPlaylistPicker([{ kind: 'video', id: video.id }]) },
+          ...playlistOrderItems(target.playlist),
+        ],
+        fileItems({
+          kind: 'video',
+          what: 'la vidéo',
+          folder: video.folder,
+          rename: { filename: video.filename, run: (name) => void renameVideo(video, name) },
+          copy: (folder) => void copyVideos([video], folder),
+          move: (folder) => void moveVideos([video], folder),
+        }),
+        [
+          ...(videoEntry ? [{ icon: 'time-outline' as const, label: "Retirer de l'historique", destructive: true, onPress: () => history.remove(video.id) }] : []),
+          { icon: 'trash-outline', label: 'Supprimer', destructive: true, onPress: () => void deleteVideosFromDevice([video], `« ${video.title} »`) },
+        ],
       ],
+    };
+  }
+
+  if (target.kind === 'series') {
+    const series = seriesIndex.byKey[target.seriesKey];
+    if (!series) return null;
+    const p = seriesProgress(series, videoEntries);
+    const ids = series.episodes.map((e) => e.id);
+    const { open } = useVideoPlayer.getState();
+    const folders = [...new Set(series.episodes.map((e) => e.folder))];
+    return {
+      header: <MenuHeader art={<VideoThumb video={p.next ?? series.episodes[0]} width={78} style={{ borderRadius: 8 }} />} title={series.name} subtitle={`Série · ${pluralize(p.total, 'épisode')}`} />,
+      groups: [
+        [
+          p.next
+            ? { icon: 'play-outline', label: p.watched ? 'Continuer' : 'Commencer', onPress: () => open(p.next!.id, ids) }
+            : { icon: 'refresh-outline', label: 'Revoir depuis le début', onPress: () => open(series.episodes[0].id, ids, { restart: true }) },
+          { icon: 'tv-outline', label: 'Afficher la série', onPress: () => goTo('VideoSeries', { key: series.key }) },
+        ],
+        [
+          { icon: 'add-circle-outline', label: 'Ajouter à une playlist vidéo', keepOpen: true, onPress: () => useUi.getState().openVideoPlaylistPicker([{ kind: 'series', key: series.key }]) },
+          ...playlistOrderItems(target.playlist),
+        ],
+        fileItems({
+          kind: 'video',
+          what: 'la série',
+          folder: folders.length === 1 ? folders[0] : undefined,
+          copy: (folder) => void copyVideos(series.episodes, folder),
+          move: (folder) => void moveVideos(series.episodes, folder),
+        }),
+        [{ icon: 'trash-outline', label: 'Supprimer la série', destructive: true, onPress: () => void deleteVideosFromDevice(series.episodes, `les ${series.episodes.length} épisodes de « ${series.name} »`) }],
+      ],
+    };
+  }
+
+  if (target.kind === 'videoPlaylist') {
+    if (!videoPlaylist) return null;
+    const resolved = resolvePlaylist(videoPlaylist, seriesIndex.byKey, videosById);
+    const ids = playlistVideoIds(resolved);
+    const store = useVideoPlaylists.getState();
+    const cover = resolved[0] ? (resolved[0].kind === 'series' ? resolved[0].series.episodes[0] : resolved[0].video) : null;
+    return {
+      header: <MenuHeader art={cover ? <VideoThumb video={cover} width={78} style={{ borderRadius: 8 }} /> : <Icon name="film-outline" size={28} color={colors.secondaryText} />} title={videoPlaylist.name} subtitle={`Playlist vidéo · ${describePlaylist(resolved)}`} />,
+      groups: ([
+        ids.length ? [{ icon: 'play-outline', label: 'Lire', onPress: () => useVideoPlayer.getState().open(ids[0], ids) }] : [],
+        [
+          { icon: 'create-outline', label: 'Renommer', keepOpen: true, onPress: () => openPrompt({ title: 'Renommer la playlist', initialValue: videoPlaylist.name, confirmLabel: 'Enregistrer', placeholder: 'Nom', onSubmit: (v) => store.rename(videoPlaylist.id, v) }) },
+        ],
+        [
+          {
+            icon: 'trash-outline',
+            label: 'Supprimer la playlist',
+            destructive: true,
+            onPress: () =>
+              Alert.alert('Supprimer la playlist ?', `« ${videoPlaylist.name} » sera supprimée. Les séries et vidéos restent sur l'appareil.`, [
+                { text: 'Annuler', style: 'cancel' },
+                { text: 'Supprimer', style: 'destructive', onPress: () => store.remove(videoPlaylist.id) },
+              ]),
+          },
+        ],
+      ] as Item[][]).filter((g) => g.length > 0),
     };
   }
 
@@ -191,6 +314,14 @@ function useMenuModel(target: ContextTarget): Model | null {
           { icon: 'person-outline', label: "Afficher l'artiste", onPress: () => goTo('Artist', { id: track.albumArtist.toLowerCase() }) },
           { icon: 'create-outline', label: 'Modifier les infos', onPress: () => goTo('EditTrack', { id: track.id }) },
         ],
+        fileItems({
+          kind: 'audio',
+          what: 'le fichier',
+          folder: track.folder,
+          rename: { filename: trackFileName(track), run: (name) => void renameTrack(track, name) },
+          copy: (folder) => void copyTracks([track], folder),
+          move: (folder) => void moveTracks([track], folder),
+        }),
         removal,
       ],
     };
@@ -210,6 +341,13 @@ function useMenuModel(target: ContextTarget): Model | null {
           { icon: 'share-outline', label: 'Partager', onPress: () => void shareAlbum(album) },
         ],
         [{ icon: 'person-outline', label: "Afficher l'artiste", onPress: () => goTo('Artist', { id: album.artist.toLowerCase() }) }],
+        fileItems({
+          kind: 'audio',
+          what: "l'album",
+          folder: [...new Set(tracks.map((t) => t.folder))].length === 1 ? tracks[0]?.folder : undefined,
+          copy: (folder) => void copyTracks(tracks, folder),
+          move: (folder) => void moveTracks(tracks, folder),
+        }),
         [{ icon: 'trash-outline', label: "Supprimer l'album", destructive: true, onPress: () => void deleteTracksFromDevice(tracks, `l'album « ${album.title} »`) }],
       ],
     };

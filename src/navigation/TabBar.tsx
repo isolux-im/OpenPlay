@@ -25,7 +25,7 @@ const TABS: Record<string, { label: string; icon: IconName; activeIcon: IconName
 };
 
 /** Écrans vidéo enregistrés dans toutes les piles : jamais de mini-lecteur musical. */
-const VIDEO_ROUTES = new Set(['VideoFolder', 'VideoSeries', 'VideoStats']);
+const VIDEO_ROUTES = new Set(['VideoFolder', 'VideoSeries', 'VideoStats', 'VideoPlaylist']);
 
 /**
  * Le mini-lecteur musical n'apparaît que dans Accueil et Bibliothèque › Musique (sous-écrans compris),

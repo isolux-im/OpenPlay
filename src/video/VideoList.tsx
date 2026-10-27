@@ -6,7 +6,7 @@ import { PressableScale } from '../components/PressableScale';
 import { ListScreen } from '../components/Screen';
 import { formatDuration } from '../library/text';
 import { useSettings } from '../store/settings';
-import { useUi } from '../store/ui';
+import { useUi, type VideoPlaylistContext } from '../store/ui';
 import { useVideoHistory } from '../store/videoHistory';
 import { useVideoPlayer } from '../store/videoPlayer';
 import { tap } from '../ui/haptics';
@@ -23,14 +23,14 @@ export function formatSize(bytes: number): string {
   return bytes >= 1e9 ? `${(bytes / 1e9).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} Go` : `${Math.round(bytes / 1e6)} Mo`;
 }
 
-function useVideoActions(video: Video, list: string[]) {
+function useVideoActions(video: Video, list: string[], playlist?: VideoPlaylistContext) {
   const open = useVideoPlayer((s) => s.open);
   const openMenu = useUi((s) => s.openVideoMenu);
   return {
     play: () => open(video.id, list),
     menu: (e: GestureResponderEvent) => {
       tap();
-      openMenu(video.id, list, { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY });
+      openMenu(video.id, list, { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY }, playlist);
     },
   };
 }
@@ -58,13 +58,13 @@ function GridItem({ video, list, width }: { video: Video; list: string[]; width:
 }
 
 /** Ligne de vidéo (vignette, titre, détails) ; `subtitle` remplace la ligne de détails, `watched` ajoute une coche. */
-export function VideoRow(props: { video: Video; list: string[]; label?: string; title?: string; subtitle?: string; watched?: boolean }) {
+export function VideoRow(props: { video: Video; list: string[]; label?: string; title?: string; subtitle?: string; watched?: boolean; playlist?: VideoPlaylistContext }) {
   return <ListItem {...props} />;
 }
 
-function ListItem({ video, list, label, title, subtitle, watched }: { video: Video; list: string[]; label?: string; title?: string; subtitle?: string; watched?: boolean }) {
+function ListItem({ video, list, label, title, subtitle, watched, playlist }: { video: Video; list: string[]; label?: string; title?: string; subtitle?: string; watched?: boolean; playlist?: VideoPlaylistContext }) {
   const { colors } = useTheme();
-  const { play, menu } = useVideoActions(video, list);
+  const { play, menu } = useVideoActions(video, list, playlist);
   const progress = useProgress(video);
   return (
     <Pressable
