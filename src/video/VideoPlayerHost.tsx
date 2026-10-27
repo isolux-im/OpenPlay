@@ -744,10 +744,15 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   const miniX = useSharedValue(Number.NaN);
   const miniY = useSharedValue(Number.NaN);
   const dragStart = useSharedValue({ x: 0, y: 0 });
+  const floating = mini && !inPip;
   const miniStyle = useAnimatedStyle(() => {
+    // Plein écran : position remise à zéro (une valeur posée sur la vue native y resterait sinon).
+    if (!floating) return { left: 0, top: 0 };
     const x = Number.isNaN(miniX.get()) ? miniBounds.maxX : miniX.get();
     const y = Number.isNaN(miniY.get()) ? miniBounds.maxY - 84 : miniY.get();
-    return { transform: [{ translateX: Math.min(Math.max(x, miniBounds.minX), miniBounds.maxX) }, { translateY: Math.min(Math.max(y, miniBounds.minY), miniBounds.maxY) }] };
+    // Position (left / top), pas une transformation : la surface vidéo native d'Android (SurfaceView) ne suit pas
+    // les transformations, l'image resterait ailleurs que la fenêtre.
+    return { left: Math.min(Math.max(x, miniBounds.minX), miniBounds.maxX), top: Math.min(Math.max(y, miniBounds.minY), miniBounds.maxY) };
   });
   const miniDrag = Gesture.Pan()
     .enabled(mini && !inPip)
@@ -771,7 +776,7 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   return (
     <GestureDetector gesture={miniDrag}>
     <Animated.View
-      style={mini && !inPip ? [styles.mini, { width: miniBox.width, height: miniBox.height }, miniStyle] : styles.root}
+      style={floating ? [styles.mini, { width: miniBox.width, height: miniBox.height }, miniStyle] : [styles.root, miniStyle]}
       accessibilityViewIsModal={!mini}
       accessibilityLabel={mini ? `Mini-lecteur : ${video.title}` : undefined}>
       <StatusBar hidden={!inPip && !mini} style="light" />
