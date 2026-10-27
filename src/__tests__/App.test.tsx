@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Alert } from 'react-native';
+import { Alert, StyleSheet } from 'react-native';
 import * as ExpoVideo from 'expo-video';
 
 import App from '../App';
@@ -453,6 +453,22 @@ describe('application', () => {
     // Le menu reste accessible par « ⋮ », y compris en grille.
     await fireEvent.press(screen.getAllByRole('button', { name: /^Options pour Anniversaire/ })[0]);
     expect(await screen.findByRole('menuitem', { name: 'Renommer le fichier…' })).toBeTruthy();
+    await act(async () => useUi.getState().closeAll());
+  });
+
+  it('le menu contextuel défile quand il est plus haut que l’écran visible', async () => {
+    await renderApp();
+    await act(async () => useUi.getState().openVideoMenu('demo-video-1', ['demo-video-1']));
+    // Écran visible de 420 px (barres système comprises dans la fenêtre, pas dans la zone mesurée).
+    await act(async () => fireEvent(screen.getByTestId('context-menu-area'), 'layout', { nativeEvent: { layout: { width: 380, height: 420 } } }));
+    const scroll = screen.getByTestId('context-menu-scroll');
+    expect(StyleSheet.flatten(scroll.props.style).maxHeight).toBe(420 - 14 * 2);
+    expect(scroll.props.showsVerticalScrollIndicator).toBe(false);
+    await act(async () => fireEvent(scroll, 'contentSizeChange', 288, 900));
+    expect(screen.getByTestId('context-menu-scroll').props.showsVerticalScrollIndicator).toBe(true);
+    expect(screen.getByTestId('context-menu-scroll').props.persistentScrollbar).toBe(true);
+    // Tous les choix restent accessibles en faisant défiler, jusqu'au dernier.
+    expect(screen.getByRole('menuitem', { name: 'Supprimer' })).toBeTruthy();
     await act(async () => useUi.getState().closeAll());
   });
 

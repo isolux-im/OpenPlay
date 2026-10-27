@@ -408,18 +408,24 @@ function MenuRow({ item, first }: { item: Item; first: boolean }) {
   );
 }
 
-function Panel({ target, anchor }: { target: ContextTarget; anchor: MenuAnchor | null }) {
+function Panel({ target, anchor, area }: { target: ContextTarget; anchor: MenuAnchor | null; area: { width: number; height: number } | null }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const { width: W, height: H } = useWindowDimensions();
+  const windowSize = useWindowDimensions();
   const model = useMenuModel(target);
   const [height, setHeight] = useState(0);
+  const [contentHeight, setContentHeight] = useState(0);
   if (!model) return null;
 
+  // Zone réellement visible (mesurée) : sous Android « bord à bord », la hauteur de la fenêtre peut dépasser
+  // l'écran utile ; le menu croirait tenir, ne défilerait pas et ses derniers choix passeraient sous la barre système.
+  const W = area?.width ?? windowSize.width;
+  const H = area?.height ?? windowSize.height;
   const width = Math.min(W - EDGE * 2, MENU_WIDTH);
   const minTop = insets.top + EDGE;
   const maxBottom = H - insets.bottom - EDGE;
-  const maxHeight = maxBottom - minTop;
+  const maxHeight = Math.max(160, maxBottom - minTop);
+  const scrollable = contentHeight > maxHeight + 1;
   const h = Math.min(height, maxHeight);
   let left = (W - width) / 2;
   let top = (H - h) / 2;
@@ -439,7 +445,15 @@ function Panel({ target, anchor }: { target: ContextTarget; anchor: MenuAnchor |
       accessibilityRole="menu"
       accessibilityViewIsModal>
       <Glass radius={22}>
-        <ScrollView style={{ maxHeight }} bounces={false} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          testID="context-menu-scroll"
+          style={{ maxHeight }}
+          bounces={false}
+          nestedScrollEnabled
+          // Menu plus haut que l'écran : il défile, avec une barre de défilement visible.
+          showsVerticalScrollIndicator={scrollable}
+          persistentScrollbar={scrollable}
+          onContentSizeChange={(_, h) => setContentHeight(h)}>
           {model.header}
           {model.body}
           {model.groups.map((group, g) => (
@@ -460,6 +474,7 @@ export function ContextMenuHost() {
   const { dark } = useTheme();
   const menu = useUi((s) => s.menu);
   const closeAll = useUi((s) => s.closeAll);
+  const [area, setArea] = useState<{ width: number; height: number } | null>(null);
 
   useEffect(() => {
     if (!menu) return;
@@ -472,11 +487,11 @@ export function ContextMenuHost() {
 
   if (!menu) return null;
   return (
-    <View style={StyleSheet.absoluteFill}>
+    <View testID="context-menu-area" style={StyleSheet.absoluteFill} onLayout={(e) => setArea({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}>
       <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(140)} style={[StyleSheet.absoluteFill, { backgroundColor: dark ? 'rgba(0,0,0,0.42)' : 'rgba(0,0,0,0.16)' }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={closeAll} accessibilityLabel="Fermer le menu" />
       </Animated.View>
-      <Panel key={JSON.stringify(menu)} target={menu.target} anchor={menu.anchor} />
+      <Panel key={JSON.stringify(menu)} target={menu.target} anchor={menu.anchor} area={area} />
     </View>
   );
 }
