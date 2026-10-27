@@ -47,8 +47,11 @@ Après un renommage ou un déplacement, favoris, playlists, historique et positi
 « Nouveau dossier… » en tête de Musique › Dossiers et de Vidéos › Dossiers : nom du dossier, puis choix des
 morceaux ou vidéos à y déplacer ou copier (Android ne conserve pas de dossier vide).
 
-**Sélection** (unique ou multiple) : bouton « Sélectionner » en haut des listes de morceaux et de vidéos, ou
-« Sélectionner » dans le menu d'un élément. Toucher coche ou décoche (aucune lecture), « Tout sélectionner » ;
+**Gestes** : toucher un morceau ou une vidéo lance la lecture ; l'appui long le sélectionne ; « ⋮ » ouvre son menu
+(en liste comme en grille). Albums, playlists et séries gardent leur menu à l'appui long.
+
+**Sélection** (unique ou multiple) : appui long sur un élément, bouton « Sélectionner » en haut des listes de
+morceaux et de vidéos, ou « Sélectionner » dans le menu d'un élément. Toucher coche ou décoche (aucune lecture), « Tout sélectionner » ;
 la barre du bas propose Playlist, Copier, Déplacer, Renommer (un seul élément) et Supprimer. Retour ou « ✕ »
 termine la sélection, qui prend aussi fin en quittant l'écran.
 

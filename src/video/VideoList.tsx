@@ -37,9 +37,14 @@ function useVideoActions(video: Video, list: string[], playlist?: VideoPlaylistC
   return {
     selecting,
     checked,
+    // Toucher : lecture ; appui long : sélection ; « ⋮ » : menu.
     play: selecting ? toggle : () => open(video.id, list),
-    menu: (e: GestureResponderEvent) => {
+    select: () => {
       if (selecting) return toggle();
+      tap();
+      useSelection.getState().start('video', video.id);
+    },
+    menu: (e: GestureResponderEvent) => {
       tap();
       openMenu(video.id, list, { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY }, playlist);
     },
@@ -62,25 +67,34 @@ function useProgress(video: Video): number {
 }
 
 function GridItem({ video, list, width }: { video: Video; list: string[]; width: number }) {
-  const { play, menu, selecting, checked } = useVideoActions(video, list);
+  const { colors } = useTheme();
+  const { play, select, menu, selecting, checked } = useVideoActions(video, list);
   const progress = useProgress(video);
   return (
     <PressableScale
       onPress={play}
-      onLongPress={menu}
+      onLongPress={select}
       delayLongPress={320}
       scaleTo={0.97}
       style={{ width }}
       accessibilityRole={selecting ? 'checkbox' : 'button'}
       accessibilityState={selecting ? { checked } : undefined}
-      accessibilityLabel={selecting ? video.title : `Lire ${video.title}, ${formatDuration(video.durationSec)}`}>
+      accessibilityLabel={selecting ? video.title : `Lire ${video.title}, ${formatDuration(video.durationSec)}`}
+      accessibilityHint={selecting ? undefined : 'Appui long pour sélectionner'}>
       <View>
         <VideoThumb video={video} progress={progress} />
         {selecting ? <Check checked={checked} overlay /> : null}
       </View>
-      <Text variant="subhead" weight="semibold" numberOfLines={2} style={styles.gridTitle}>
-        {video.title}
-      </Text>
+      <View style={styles.gridTitleRow}>
+        <Text variant="subhead" weight="semibold" numberOfLines={2} style={[styles.gridTitle, { flex: 1 }]}>
+          {video.title}
+        </Text>
+        {selecting ? null : (
+          <Pressable onPress={menu} hitSlop={10} style={styles.gridMore} accessibilityRole="button" accessibilityLabel={`Options pour ${video.title}`}>
+            <Icon name="ellipsis-vertical" size={16} color={colors.secondaryText} />
+          </Pressable>
+        )}
+      </View>
       <Text variant="caption" tone="secondary" numberOfLines={1}>
         {[formatSize(video.sizeBytes), video.folder.split('/').pop()].filter(Boolean).join(' · ')}
       </Text>
@@ -95,18 +109,19 @@ export function VideoRow(props: { video: Video; list: string[]; label?: string; 
 
 function ListItem({ video, list, label, title, subtitle, watched, playlist }: { video: Video; list: string[]; label?: string; title?: string; subtitle?: string; watched?: boolean; playlist?: VideoPlaylistContext }) {
   const { colors } = useTheme();
-  const { play, menu, selecting, checked } = useVideoActions(video, list, playlist);
+  const { play, select, menu, selecting, checked } = useVideoActions(video, list, playlist);
   const progress = useProgress(video);
   return (
     <Pressable
       onPress={play}
-      onLongPress={menu}
+      onLongPress={select}
       delayLongPress={320}
       android_ripple={{ color: colors.fill }}
       style={({ pressed }) => [styles.row, (pressed || checked) && { backgroundColor: colors.fill }]}
       accessibilityRole={selecting ? 'checkbox' : 'button'}
       accessibilityState={selecting ? { checked } : undefined}
-      accessibilityLabel={selecting ? video.title : `Lire ${video.title}, ${formatDuration(video.durationSec)}`}>
+      accessibilityLabel={selecting ? video.title : `Lire ${video.title}, ${formatDuration(video.durationSec)}`}
+      accessibilityHint={selecting ? undefined : 'Appui long pour sélectionner'}>
       <VideoThumb video={video} width={128} progress={progress} />
       <View style={styles.rowText}>
         {label ? (
@@ -176,6 +191,8 @@ export function VideoList({ title, videos, back, header, titleRight, emptyTitle 
 const styles = StyleSheet.create({
   columns: { paddingHorizontal: GUTTER, gap: GAP, marginBottom: 18 },
   gridTitle: { marginTop: 8 },
+  gridTitleRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  gridMore: { paddingLeft: 6, paddingTop: 10 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: GUTTER, paddingVertical: 8 },
   rowText: { flex: 1, gap: 4 },
   rowMeta: { flexDirection: 'row', alignItems: 'center', gap: 4 },

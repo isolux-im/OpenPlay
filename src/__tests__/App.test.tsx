@@ -82,14 +82,13 @@ describe('application', () => {
     expect(screen.getAllByText('Neon Drift').length).toBeGreaterThan(0);
   });
 
-  it('ouvre le menu contextuel vitré par appui long et ajoute aux favoris', async () => {
+  it('ouvre le menu contextuel vitré par « ⋮ » et ajoute aux favoris', async () => {
     useUser.setState({ favorites: [] });
     await renderApp();
     await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
     await fireEvent.press(await screen.findByRole('button', { name: /^Albums/ }));
     await fireEvent.press((await screen.findAllByRole('button', { name: /^Racines/ }))[0]);
-    const row = await screen.findByRole('button', { name: /^Lire Lagune/ });
-    await fireEvent(row, 'longPress', { nativeEvent: { pageX: 200, pageY: 300 } });
+    await fireEvent.press((await screen.findAllByRole('button', { name: /^Options pour Lagune/ }))[0], { nativeEvent: { pageX: 200, pageY: 300 } });
     for (const label of ['Lire', 'Lire ensuite', 'Ajouter à une playlist', 'Ajouter aux favoris', 'Partager', 'Supprimer']) {
       expect(await screen.findByRole('menuitem', { name: label })).toBeTruthy();
     }
@@ -165,8 +164,7 @@ describe('application', () => {
   it('affiche les vidéos dans la Bibliothèque, ouvre le menu d’une vidéo et le lecteur', async () => {
     await renderApp();
     await openVideos();
-    const video = (await screen.findAllByRole('button', { name: /^Lire Concert au Bénin/ }))[0];
-    await fireEvent(video, 'longPress', { nativeEvent: { pageX: 100, pageY: 300 } });
+    await fireEvent.press((await screen.findAllByRole('button', { name: 'Options pour Concert au Bénin' }))[0], { nativeEvent: { pageX: 100, pageY: 300 } });
     for (const label of ['Lire', 'Ajouter aux favoris', 'Informations', 'Partager', 'Ouvrir avec…']) {
       expect(await screen.findByRole('menuitem', { name: label })).toBeTruthy();
     }
@@ -401,6 +399,32 @@ describe('application', () => {
     expect([byId['demo-video-4'].folder, byId['demo-video-5'].folder]).toEqual(['Movies/Concerts', 'Movies/Concerts']);
     expect(useSelection.getState().kind).toBeNull();
     useSettings.setState({ videoLayout: 'grid' });
+  });
+
+  it('toucher lance la lecture ; l’appui long sélectionne (morceaux et vidéos en grille)', async () => {
+    await renderApp();
+    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    await fireEvent.press((await screen.findAllByRole('button', { name: /^Titres, \d+$/ }))[0]);
+    const [first, second] = useLibrary.getState().index.tracks.slice().sort((x, y) => x.title.localeCompare(y.title, 'fr'));
+    await fireEvent.press(screen.getAllByRole('button', { name: `Lire ${first.title}, ${first.artist}` })[0]);
+    expect(usePlayer.getState().queue[usePlayer.getState().index]).toBe(first.id);
+    await fireEvent(screen.getAllByRole('button', { name: `Lire ${second.title}, ${second.artist}` })[0], 'longPress');
+    expect(useSelection.getState()).toMatchObject({ kind: 'audio', ids: [second.id] });
+    expect(screen.getByText('1 sélectionné')).toBeTruthy();
+    expect(screen.queryByRole('menu')).toBeNull(); // plus de menu à l'appui long
+    await fireEvent.press(screen.getByRole('button', { name: 'Terminer la sélection' }));
+
+    await openVideos(); // grille par défaut
+    await fireEvent(screen.getAllByRole('button', { name: /^Lire Anniversaire/ })[0], 'longPress');
+    expect(useSelection.getState()).toMatchObject({ kind: 'video', ids: ['demo-video-7'] });
+    expect(useVideoPlayer.getState().session).toBeNull();
+    await fireEvent.press(screen.getAllByRole('checkbox', { name: 'Concert au Bénin' })[0]);
+    expect(useSelection.getState().ids).toEqual(['demo-video-7', 'demo-video-1']);
+    await fireEvent.press(screen.getByRole('button', { name: 'Terminer la sélection' }));
+    // Le menu reste accessible par « ⋮ », y compris en grille.
+    await fireEvent.press(screen.getAllByRole('button', { name: /^Options pour Anniversaire/ })[0]);
+    expect(await screen.findByRole('menuitem', { name: 'Renommer le fichier…' })).toBeTruthy();
+    await act(async () => useUi.getState().closeAll());
   });
 
   it('enchaînement désactivé : la fin d’un épisode ne lance rien', async () => {

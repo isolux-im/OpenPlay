@@ -48,10 +48,11 @@ function TrackRowBase({ track, onPress, number, artwork = number === undefined, 
   return (
     <Pressable
       onPress={selecting ? toggle : onPress}
-      onLongPress={(e) => {
+      // Toucher : lecture ; appui long : sélection (le menu reste sur « ⋮ »).
+      onLongPress={() => {
         if (selecting) return toggle();
         tap();
-        open(e);
+        useSelection.getState().start('audio', track.id);
       }}
       delayLongPress={320}
       android_ripple={{ color: colors.fill }}
@@ -59,7 +60,7 @@ function TrackRowBase({ track, onPress, number, artwork = number === undefined, 
       accessibilityRole={selecting ? 'checkbox' : 'button'}
       accessibilityState={selecting ? { checked } : undefined}
       accessibilityLabel={selecting ? track.title : `Lire ${track.title}, ${track.artist}`}
-      accessibilityHint={selecting ? undefined : "Appui long pour plus d'options"}>
+      accessibilityHint={selecting ? undefined : 'Appui long pour sélectionner'}>
       {number !== undefined ? (
         <View style={styles.number}>
           {isCurrent && !artwork ? (
