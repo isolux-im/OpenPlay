@@ -93,7 +93,7 @@ function VideosGate() {
   );
 }
 
-/** Vidéothèque ; dans la Bibliothèque, `switcher` (Musique | Vidéos) s'affiche en tête. */
+/** Onglet Vidéo : vidéothèque complète (sections, séries, playlists vidéo, dossiers, bilan). */
 export function VideosScreen({ title = 'Vidéos', switcher }: { title?: string; switcher?: ReactNode } = {}) {
   const navigation = useAppNavigation();
   const { colors } = useTheme();

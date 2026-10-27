@@ -19,9 +19,9 @@ import { Text } from '../ui/Text';
 import { useTheme } from '../ui/theme';
 
 const TABS: Record<string, { label: string; icon: IconName; activeIcon: IconName }> = {
-  LibraryTab: { label: 'Bibliothèque', icon: 'library-outline', activeIcon: 'library' },
+  VideosTab: { label: 'Vidéo', icon: 'film-outline', activeIcon: 'film' },
+  MusicTab: { label: 'Musique', icon: 'musical-notes-outline', activeIcon: 'musical-notes' },
   SearchTab: { label: 'Recherche', icon: 'search-outline', activeIcon: 'search' },
-  PlaylistsTab: { label: 'Playlists', icon: 'list-outline', activeIcon: 'list' },
   SettingsTab: { label: 'Paramètres', icon: 'settings-outline', activeIcon: 'settings' },
 };
 
@@ -29,14 +29,12 @@ const TABS: Record<string, { label: string; icon: IconName; activeIcon: IconName
 const VIDEO_ROUTES = new Set(['VideoFolder', 'VideoSeries', 'VideoStats', 'VideoPlaylist']);
 
 /**
- * Le mini-lecteur musical n'apparaît que dans Bibliothèque › Musique (sous-écrans compris),
- * qu'un morceau soit en lecture ou en pause. Ailleurs, seule son interface est masquée : la lecture continue.
+ * Le mini-lecteur musical n'apparaît que dans l'onglet Musique (sous-écrans compris), qu'un morceau soit en
+ * lecture ou en pause. Ailleurs (Vidéo, Recherche, Paramètres), seule son interface est masquée : la lecture continue.
  */
-export function miniPlayerVisible(tab: string | undefined, screen: string | undefined, librarySection: 'music' | 'videos'): boolean {
+export function miniPlayerVisible(tab: string | undefined, screen: string | undefined): boolean {
   if (screen && VIDEO_ROUTES.has(screen)) return false;
-  if (tab !== 'LibraryTab') return false;
-  // Racine de la Bibliothèque : dépend du sélecteur Musique | Vidéos ; sous-écrans musicaux : visibles.
-  return !screen || screen === 'Library' ? librarySection === 'music' : true;
+  return tab === 'MusicTab';
 }
 
 function Chrome({ radius = 0 }: { radius?: number }) {
@@ -167,11 +165,10 @@ export function MiniPlayer() {
 export function TabBar({ state, navigation }: BottomTabBarProps) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const librarySection = useUi((s) => s.librarySection);
   const tab = state.routes[state.index];
   const stack = tab?.state;
   const screen = stack && typeof stack.index === 'number' ? stack.routes[stack.index]?.name : undefined;
-  const showMini = miniPlayerVisible(tab?.name, screen, librarySection);
+  const showMini = miniPlayerVisible(tab?.name, screen);
   // Sélection en cours : sa barre d'actions remplace le mini-lecteur (la lecture continue).
   const selecting = useSelection((s) => s.kind !== null);
   return (

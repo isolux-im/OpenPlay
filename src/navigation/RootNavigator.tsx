@@ -9,8 +9,8 @@ import { ArtistScreen } from '../screens/ArtistScreen';
 import { DiscoverScreen } from '../screens/DiscoverScreen';
 import { EditTrackScreen } from '../screens/EditTrackScreen';
 import { ExcludedFoldersScreen } from '../screens/ExcludedFoldersScreen';
-import { LibraryHome } from '../screens/LibraryHome';
 import {
+  LibraryScreen,
   AlbumsScreen,
   ArtistsScreen,
   FavoritesScreen,
@@ -31,7 +31,7 @@ import { StatsScreen } from '../screens/StatsScreen';
 import { VideoPlaylistScreen } from '../screens/VideoPlaylistScreen';
 import { VideoSeriesScreen } from '../screens/VideoSeriesScreen';
 import { VideoStatsScreen } from '../screens/VideoStatsScreen';
-import { VideoFolderScreen } from '../screens/VideosScreen';
+import { VideoFolderScreen, VideosScreen } from '../screens/VideosScreen';
 import { useTheme } from '../ui/theme';
 import { navigationRef } from './ref';
 import { TabBar } from './TabBar';
@@ -63,10 +63,24 @@ const SHARED: { name: keyof AnyStackParams; component: ComponentType }[] = [
   { name: 'VideoStats', component: VideoStatsScreen },
   { name: 'VideoPlaylist', component: VideoPlaylistScreen },
   { name: 'NewFolder', component: NewFolderScreen },
+  { name: 'MusicPlaylists', component: MusicPlaylistsScreen },
 ];
 
+/** Playlists musicales en sous-écran de Musique (plus d'onglet Playlists). */
+function MusicPlaylistsScreen() {
+  return <PlaylistsScreen back />;
+}
+
+function VideosRoot() {
+  return <VideosScreen title="Vidéos" />;
+}
+
+function MusicRoot() {
+  return <LibraryScreen title="Musique" />;
+}
+
 /** Une pile par onglet, avec le même jeu d'écrans de détail : la barre d'onglets reste visible. */
-function makeStack(rootName: 'Library' | 'Playlists' | 'Search' | 'Settings', root: ComponentType) {
+function makeStack(rootName: 'Videos' | 'Music' | 'Search' | 'Settings', root: ComponentType) {
   const Stack = createNativeStackNavigator<AnyStackParams>();
   function TabStack() {
     const { colors } = useTheme();
@@ -85,9 +99,9 @@ function makeStack(rootName: 'Library' | 'Playlists' | 'Search' | 'Settings', ro
   return TabStack;
 }
 
-// Bibliothèque : Musique et Vidéos réunies derrière le sélecteur Musique | Vidéos.
-const LibraryStack = makeStack('Library', LibraryHome);
-const PlaylistsStack = makeStack('Playlists', PlaylistsScreen);
+// Quatre onglets, à la manière de VLC : Vidéo et Musique, chacun avec toutes ses fonctions (playlists comprises).
+const VideosStack = makeStack('Videos', VideosRoot);
+const MusicStack = makeStack('Music', MusicRoot);
 const SearchStack = makeStack('Search', SearchScreen);
 const SettingsStack = makeStack('Settings', SettingsScreen);
 
@@ -101,9 +115,9 @@ export function RootNavigator() {
   return (
     <NavigationContainer ref={navigationRef} theme={navTheme}>
       <Tab.Navigator tabBar={(props) => <TabBar {...props} />} screenOptions={{ headerShown: false, animation: 'fade' }}>
-        <Tab.Screen name="LibraryTab" component={LibraryStack} />
+        <Tab.Screen name="VideosTab" component={VideosStack} />
+        <Tab.Screen name="MusicTab" component={MusicStack} />
         <Tab.Screen name="SearchTab" component={SearchStack} />
-        <Tab.Screen name="PlaylistsTab" component={PlaylistsStack} />
         <Tab.Screen name="SettingsTab" component={SettingsStack} />
       </Tab.Navigator>
     </NavigationContainer>

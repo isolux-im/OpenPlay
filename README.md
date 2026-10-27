@@ -6,14 +6,19 @@ branche `archive/kotlin-native`.
 
 ## Fonctions
 
-**Navigation** : quatre onglets (Bibliothèque, Recherche, Playlists, Paramètres ; plus d'Accueil), une pile d'écrans
+**Autorisations** : au premier lancement, Android demande aussitôt l'accès au stockage (musique et audio, puis
+photos et vidéos) ; un écran explique pourquoi et permet de redemander. Refusé, l'accès reste proposé dans les
+onglets Vidéo et Musique.
+
+**Navigation** : quatre onglets, à la manière de VLC — Vidéo, Musique, Recherche, Paramètres —, une pile d'écrans
 par onglet (la barre reste visible sur les fiches album/artiste), mini-lecteur flottant au-dessus de la barre,
 lecteur plein écran qui s'ouvre depuis le mini-lecteur et se ferme d'un glissement vers le bas.
 
 | Écran | Contenu |
 |---|---|
-| Bibliothèque | Mix pour vous (titres phares, genre favori, à redécouvrir, aléatoire), Favoris, Titres (tri titre/artiste/album/date), Artistes, Albums, Genres, Dossiers, Historique ; fiches album et artiste ; Vidéos |
-| Playlists | Création, renommage, suppression, ajout de morceaux, réordonnancement par glisser-déposer ; playlists automatiques (favoris, plus écoutés, ajoutés récemment, à redécouvrir) |
+| Vidéo | Toutes, Continuer, Récentes, Favoris, Séries, Playlists vidéo, Dossiers, bilan de visionnage, lecteur vidéo et mini-lecteur |
+| Musique | Mix pour vous (titres phares, genre favori, à redécouvrir, aléatoire), Récents, Favoris, Playlists, Titres (tri titre/artiste/album/date), Artistes, Albums, Genres, Dossiers, À découvrir, Bilan d'écoute ; fiches album et artiste |
+| Musique › Playlists | Création, renommage, suppression, ajout de morceaux, réordonnancement par glisser-déposer ; playlists automatiques (favoris, plus écoutés, ajoutés récemment, à redécouvrir) |
 | Recherche | Recherche instantanée sans accents ni casse (morceaux, artistes, albums, playlists), meilleur résultat, recherches récentes, genres |
 | Paramètres | Thème clair/sombre/système, couleur d'accent, lecteur coloré, analyse et durée minimale, reprise au lancement, haptique, minuterie, historique |
 | Lecteur | Pochette, fond aux couleurs de la pochette, barre de progression interactive, aléatoire, répétition (tout / un), favoris, paroles .lrc synchronisées, file d'attente modifiable, minuterie de sommeil |
@@ -40,7 +45,7 @@ du téléphone en plein écran quitte OpenPlay et passe en fenêtre flottante An
 restauré tel quel. Sans PiP (réglage désactivé, appareil non compatible), le Retour ouvre le mini-lecteur. Un seul
 lecteur natif pour les trois affichages ; l'enchaînement des épisodes continue en mini-lecteur.
 
-**Playlists vidéo** : Bibliothèque › Vidéos › Playlists. Chaque playlist range des séries entières (elles suivent
+**Playlists vidéo** : Vidéo › Playlists. Chaque playlist range des séries entières (elles suivent
 leurs nouveaux épisodes) et des vidéos isolées ; ajout par le menu « ⋮ » / appui long d'une série ou d'une vidéo,
 réorganisation (Monter, Descendre, Retirer), lecture de toute la liste dans l'ordre.
 
@@ -123,7 +128,7 @@ modules/openplay-media/      module natif Kotlin (MediaStore, pochettes, couleur
 src/
   App.tsx                    polices, thème, démarrage (bibliothèque, moteur, session)
   navigation/                onglets, piles, barre d'onglets + mini-lecteur
-  screens/                   Bibliothèque (+ sous-écrans), Playlists, Recherche, Paramètres, détails
+  screens/                   Vidéo, Musique (+ sous-écrans, Playlists), Recherche, Paramètres, détails
   player/                    moteur (expo-audio / simulé), file, paroles .lrc, lecteur plein écran
   store/                     zustand : bibliothèque, lecteur, données utilisateur et réglages (persistés)
   library/                   conversion MediaStore, index, recherche, sélecteurs, pochettes

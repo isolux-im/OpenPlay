@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 import { miniPlayerVisible } from '../navigation/TabBar';
 import { MediaOnboardingScreen, needsMediaOnboarding, requestMediaAccess } from '../onboarding/MediaOnboarding';
@@ -9,21 +9,14 @@ import { ThemeProvider } from '../ui/theme';
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }) }));
 
 describe('visibilité du mini-lecteur musical', () => {
-  it('suit l’onglet et la section, jamais la lecture ou la pause', () => {
-    expect(miniPlayerVisible('LibraryTab', 'Library', 'music')).toBe(true);
-    expect(miniPlayerVisible('LibraryTab', undefined, 'music')).toBe(true);
-    expect(miniPlayerVisible('LibraryTab', 'Library', 'videos')).toBe(false);
-    // Sous-écrans musicaux de la Bibliothèque (Titres, À découvrir, Bilan…).
-    expect(miniPlayerVisible('LibraryTab', 'Songs', 'music')).toBe(true);
-    expect(miniPlayerVisible('LibraryTab', 'Discover', 'music')).toBe(true);
-    expect(miniPlayerVisible('LibraryTab', 'Stats', 'music')).toBe(true);
+  it('suit l’onglet, jamais la lecture ou la pause', () => {
+    expect(miniPlayerVisible('MusicTab', 'Music')).toBe(true);
+    expect(miniPlayerVisible('MusicTab', undefined)).toBe(true);
+    // Sous-écrans musicaux (Titres, À découvrir, Bilan, Playlists…).
+    for (const s of ['Songs', 'Discover', 'Stats', 'MusicPlaylists', 'Album']) expect(miniPlayerVisible('MusicTab', s)).toBe(true);
     // Écrans vidéo, où qu'ils soient ouverts.
-    for (const s of ['VideoFolder', 'VideoSeries', 'VideoStats']) {
-      expect(miniPlayerVisible('LibraryTab', s, 'videos')).toBe(false);
-      expect(miniPlayerVisible('LibraryTab', s, 'music')).toBe(false);
-    }
-    for (const tab of ['SearchTab', 'PlaylistsTab', 'SettingsTab']) expect(miniPlayerVisible(tab, undefined, 'music')).toBe(false);
-    expect(miniPlayerVisible('HomeTab', undefined, 'music')).toBe(false); // onglet Accueil supprimé
+    for (const s of ['VideoFolder', 'VideoSeries', 'VideoStats', 'VideoPlaylist']) expect(miniPlayerVisible('MusicTab', s)).toBe(false);
+    for (const tab of ['VideosTab', 'SearchTab', 'SettingsTab', 'HomeTab', 'LibraryTab', 'PlaylistsTab']) expect(miniPlayerVisible(tab, undefined)).toBe(false);
   });
 });
 
@@ -70,5 +63,20 @@ describe('accueil des autorisations audio et vidéo', () => {
     expect(onContinue).toHaveBeenCalledTimes(1);
     await fireEvent.press(screen.getByRole('button', { name: 'Plus tard' }));
     expect(onLater).toHaveBeenCalledTimes(1);
+  });
+
+  it('premier lancement : la demande d’Android s’ouvre d’elle-même, sans attendre « Continuer »', async () => {
+    let answer: () => void = () => {};
+    const onContinue = jest.fn(() => new Promise<void>((resolve) => (answer = resolve)));
+    await render(
+      <ThemeProvider>
+        <MediaOnboardingScreen autoStart onContinue={onContinue} onLater={jest.fn()} />
+      </ThemeProvider>,
+    );
+    expect(onContinue).toHaveBeenCalledTimes(1); // fenêtres système ouvertes aussitôt
+    expect(screen.getByRole('button', { name: 'Continuer' }).props.accessibilityState).toMatchObject({ busy: true });
+    await act(async () => answer());
+    // Après la réponse d'Android, « Continuer » permet de redemander.
+    expect(screen.getByRole('button', { name: 'Continuer' }).props.accessibilityState).toMatchObject({ busy: false });
   });
 });

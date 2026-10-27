@@ -33,25 +33,25 @@ const engine = () => new SimulatedEngine(() => 200, 0);
 
 beforeEach(() => {
   usePlayer.setState({ queue: [], originalQueue: [], index: -1, isPlaying: false, expanded: false });
-  useUi.setState({ librarySection: 'music' });
 });
 
 /**
- * Onglet Bibliothèque. Il est déjà actif au lancement (plus d'Accueil) : le toucher à nouveau revient à la racine
- * de sa pile de façon asynchrone et pourrait refermer l'écran ouvert juste après ; on ne le touche que s'il ne l'est pas.
+ * Onglet Musique. Toucher un onglet déjà actif revient à la racine de sa pile de façon asynchrone et pourrait
+ * refermer l'écran ouvert juste après : on ne le touche que s'il n'est pas actif.
  */
 async function openLibrary() {
-  const tab = screen.getByRole('tab', { name: 'Bibliothèque' });
+  const tab = screen.getByRole('tab', { name: 'Musique' });
   if (!tab.props.accessibilityState?.selected) await fireEvent.press(tab);
+  await screen.findAllByRole('button', { name: /^Titres, \d+$/ });
 }
 
 /**
- * Vidéos : retour à la racine de la Bibliothèque (toucher l'onglet, même actif, referme les sous-écrans), puis
- * « Vidéos » dans le sélecteur Musique | Vidéos, attendu jusqu'à son affichage.
+ * Onglet Vidéo, à sa racine (toucher l'onglet, même actif, referme les sous-écrans), attendue jusqu'à l'affichage
+ * de ses sections.
  */
 async function openVideos() {
-  await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
-  await fireEvent.press(await screen.findByRole('radio', { name: 'Vidéos' }));
+  await fireEvent.press(screen.getByRole('tab', { name: 'Vidéo' }));
+  await screen.findByRole('radio', { name: 'Toutes' });
 }
 
 // Le minuteur du toast ne doit pas survivre au test.
@@ -65,11 +65,15 @@ async function renderApp() {
 }
 
 describe('application', () => {
-  it('affiche quatre onglets, sans Accueil, et s’ouvre sur la Bibliothèque avec « Mix pour vous »', async () => {
+  it('affiche quatre onglets (Vidéo, Musique, Recherche, Paramètres) et s’ouvre sur Vidéo', async () => {
     await renderApp();
-    expect(screen.getAllByRole('tab').map((t) => t.props.accessibilityLabel)).toEqual(['Bibliothèque', 'Recherche', 'Playlists', 'Paramètres']);
-    expect(screen.getByRole('tab', { name: 'Bibliothèque' }).props.accessibilityState).toMatchObject({ selected: true });
-    // « Mix pour vous », autrefois sur l'Accueil, est conservé en tête de Bibliothèque › Musique.
+    expect(screen.getAllByRole('tab').map((t) => t.props.accessibilityLabel)).toEqual(['Vidéo', 'Musique', 'Recherche', 'Paramètres']);
+    expect(screen.getByRole('tab', { name: 'Vidéo' }).props.accessibilityState).toMatchObject({ selected: true });
+    expect(await screen.findByLabelText('Rechercher une vidéo')).toBeTruthy();
+    expect(screen.queryByRole('tab', { name: 'Bibliothèque' })).toBeNull();
+    expect(screen.queryByRole('tab', { name: 'Playlists' })).toBeNull();
+    // Musique : « Mix pour vous » (ancien Accueil) en tête.
+    await openLibrary();
     expect(await screen.findByText('Mix pour vous')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Lancer Mix aléatoire' })).toBeTruthy();
     expect(screen.getAllByText('Lumières du Sud').length).toBeGreaterThan(0);
@@ -117,6 +121,7 @@ describe('application', () => {
     await renderApp();
     const t = useLibrary.getState().index.tracks[0];
     await act(async () => usePlayer.getState().playTracks([t.id], 0));
+    await openLibrary(); // le mini-lecteur musical s'affiche dans l'onglet Musique
     await fireEvent.press(await screen.findByRole('button', { name: /^Ouvrir le lecteur/ }));
     await fireEvent.press(await screen.findByRole('button', { name: "Plus d'options de lecture" }));
     await fireEvent.press(await screen.findByRole('menuitem', { name: 'Qualité audio' }));
@@ -138,6 +143,7 @@ describe('application', () => {
     await renderApp();
     const t = useLibrary.getState().index.tracks[0];
     await act(async () => usePlayer.getState().playTracks([t.id], 0));
+    await openLibrary(); // le mini-lecteur musical s'affiche dans l'onglet Musique
     await fireEvent.press(await screen.findByRole('button', { name: /^Ouvrir le lecteur/ }));
     await fireEvent.press(await screen.findByRole('button', { name: 'Paroles' }));
     const button = await screen.findByRole('button', { name: 'Transcrire' });
@@ -156,19 +162,23 @@ describe('application', () => {
     expect(strip).toBeTruthy();
   });
 
-  it('réunit Musique et Vidéos dans la Bibliothèque sans perdre de section', async () => {
+  it('Musique et Vidéo : deux onglets complets, chacun avec ses playlists', async () => {
     await renderApp();
     await openLibrary();
-    expect(screen.getByRole('radio', { name: 'Musique' }).props.accessibilityState).toEqual({ selected: true });
     const musicTiles = [/^Récents/, /^Favoris/, /^Playlists/, /^Titres, \d+$/, /^À découvrir, \d+$/, /^Bilan/];
     for (const name of musicTiles) expect((await screen.findAllByRole('button', { name })).length).toBeGreaterThan(0);
-    // Vidéos : la vidéothèque complète (recherche, sections, séries, bilan de visionnage).
-    await fireEvent.press(screen.getByRole('radio', { name: 'Vidéos' }));
+    // Playlists musicales intégrées à Musique (plus d'onglet Playlists).
+    await fireEvent.press((await screen.findAllByRole('button', { name: /^Playlists, \d+$/ }))[0]);
+    expect((await screen.findAllByRole('button', { name: 'Nouvelle playlist' })).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('tab', { name: 'Musique' })[0].props.accessibilityState).toMatchObject({ selected: true });
+    await fireEvent.press(screen.getAllByRole('button', { name: 'Retour' }).at(-1)!);
+    // Vidéo : la vidéothèque complète (recherche, sections, séries, playlists vidéo, bilan de visionnage).
+    await openVideos();
     expect(await screen.findByLabelText('Rechercher une vidéo')).toBeTruthy();
-    for (const name of ['Toutes', 'Continuer', 'Récentes', 'Favoris', 'Séries', 'Dossiers']) expect(screen.getByRole('radio', { name })).toBeTruthy();
+    for (const name of ['Toutes', 'Continuer', 'Récentes', 'Favoris', 'Séries', 'Playlists', 'Dossiers']) expect(screen.getByRole('radio', { name })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Bilan de visionnage' })).toBeTruthy();
     // Retour à Musique : « À découvrir » et « Bilan d'écoute » toujours accessibles.
-    await fireEvent.press(screen.getByRole('radio', { name: 'Musique' }));
+    await openLibrary();
     await fireEvent.press((await screen.findAllByRole('button', { name: /^Bilan/ }))[0]);
     expect((await screen.findAllByText('Bilan d’écoute')).length).toBeGreaterThan(0);
     await fireEvent.press(screen.getAllByRole('button', { name: 'Retour' }).at(-1)!);
@@ -176,7 +186,7 @@ describe('application', () => {
     expect(await screen.findByRole('radio', { name: 'Oubliés' })).toBeTruthy();
   });
 
-  it('affiche les vidéos dans la Bibliothèque, ouvre le menu d’une vidéo et le lecteur', async () => {
+  it('affiche les vidéos dans l’onglet Vidéo, ouvre le menu d’une vidéo et le lecteur', async () => {
     await renderApp();
     await openVideos();
     await fireEvent.press((await screen.findAllByRole('button', { name: 'Options pour Concert au Bénin' }))[0], { nativeEvent: { pageX: 100, pageY: 300 } });
@@ -535,7 +545,7 @@ describe('application', () => {
       await fireEvent.press(screen.getByRole('radio', { name: 'Favoris' }));
       expect(await screen.findByText('Aucun favori')).toBeTruthy();
       await fireEvent.press(screen.getByRole('radio', { name: 'Toutes' }));
-      expect(screen.getByRole('tab', { name: 'Bibliothèque' }).props.accessibilityState).toMatchObject({ selected: true });
+      expect(screen.getByRole('tab', { name: 'Vidéo' }).props.accessibilityState).toMatchObject({ selected: true });
       // Commandes du mini-lecteur sur la même session et le même lecteur natif.
       await act(async () => player.emit('playingChange', { isPlaying: true }));
       await fireEvent.press(screen.getByRole('button', { name: 'Pause' }));
@@ -583,7 +593,7 @@ describe('application', () => {
         expect(screen.getByRole('button', { name: 'Fermer la vidéo' })).toBeTruthy();
         expect(players.at(-1)).toBe(player);
         // Derrière le lecteur restauré (fenêtre modale), l'onglet et l'écran d'origine n'ont pas changé.
-        expect(screen.getByRole('tab', { name: 'Bibliothèque', includeHiddenElements: true }).props.accessibilityState).toMatchObject({ selected: true });
+        expect(screen.getByRole('tab', { name: 'Vidéo', includeHiddenElements: true }).props.accessibilityState).toMatchObject({ selected: true });
         expect(screen.getAllByText('Concert au Bénin', { includeHiddenElements: true }).length).toBeGreaterThan(0);
 
         // PiP désactivé dans les réglages : repli sur le mini-lecteur interne, avec un message.
@@ -637,7 +647,7 @@ describe('application', () => {
     for (const g of ['Lecture', 'À découvrir', 'Paroles en ligne', 'Informations']) expect(screen.getByRole('button', { name: `En savoir plus : ${g}` })).toBeTruthy();
   });
 
-  it('n’affiche le mini-lecteur que dans Bibliothèque › Musique, en lecture comme en pause', async () => {
+  it('n’affiche le mini-lecteur musical que dans l’onglet Musique, en lecture comme en pause', async () => {
     useUser.setState({ session: null });
     usePlaybackSession.setState({ session: null, saved: true });
     usePlaybackPosition.setState({ trackId: null, positionSec: 0 });
@@ -646,21 +656,17 @@ describe('application', () => {
     expect(mini()).toBeNull(); // aucun morceau chargé
     const t = useLibrary.getState().index.tracks[0];
     await act(async () => usePlayer.getState().playTracks([t.id], 0));
-    expect(mini()).toBeTruthy(); // Bibliothèque › Musique, à l'ouverture
+    expect(mini()).toBeNull(); // onglet Vidéo, à l'ouverture
+    await openLibrary();
+    expect(mini()).toBeTruthy(); // Musique
     await act(async () => usePlayer.getState().pause());
     expect(usePlayer.getState().isPlaying).toBe(false);
     expect(mini()).toBeTruthy(); // en pause, toujours visible
-    await openLibrary();
-    expect(mini()).toBeTruthy(); // Bibliothèque › Musique
-    await fireEvent.press(await screen.findByRole('radio', { name: 'Vidéos' }));
-    expect(mini()).toBeNull(); // Bibliothèque › Vidéos
-    for (const tab of ['Recherche', 'Playlists', 'Paramètres']) {
+    for (const tab of ['Vidéo', 'Recherche', 'Paramètres']) {
       await fireEvent.press(screen.getByRole('tab', { name: tab }));
       expect(mini()).toBeNull();
     }
     await openLibrary();
-    expect(mini()).toBeNull(); // la section Vidéos est restée choisie
-    await fireEvent.press(screen.getByRole('radio', { name: 'Musique' }));
     expect(mini()).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Lecture' })).toBeTruthy(); // toujours en pause
     // Masquer l'interface n'arrête rien : morceau, file et position conservés.

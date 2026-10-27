@@ -28,23 +28,25 @@ export type SharedStackParams = {
   VideoPlaylist: { id: string };
   /** Nouveau dossier : choix des fichiers à y déplacer ou copier. */
   NewFolder: { kind: 'audio' | 'video'; folder: string };
+  /** Playlists musicales, ouvertes depuis l'onglet Musique. */
+  MusicPlaylists: undefined;
 };
 
-export type LibraryStackParams = SharedStackParams & { Library: undefined };
-export type PlaylistsStackParams = SharedStackParams & { Playlists: undefined };
+export type VideosStackParams = SharedStackParams & { Videos: undefined };
+export type MusicStackParams = SharedStackParams & { Music: undefined };
 export type SearchStackParams = SharedStackParams & { Search: undefined };
 export type SettingsStackParams = SharedStackParams & { Settings: undefined };
 
 export type TabParams = {
-  LibraryTab: NavigatorScreenParams<LibraryStackParams>;
-  PlaylistsTab: NavigatorScreenParams<PlaylistsStackParams>;
+  VideosTab: NavigatorScreenParams<VideosStackParams>;
+  MusicTab: NavigatorScreenParams<MusicStackParams>;
   SearchTab: NavigatorScreenParams<SearchStackParams>;
   SettingsTab: NavigatorScreenParams<SettingsStackParams>;
 };
 
 export type AnyStackParams = SharedStackParams & {
-  Library: undefined;
-  Playlists: undefined;
+  Videos: undefined;
+  Music: undefined;
   Search: undefined;
   Settings: undefined;
 };

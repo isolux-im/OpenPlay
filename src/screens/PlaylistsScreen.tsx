@@ -122,7 +122,8 @@ function Featured({ playlist }: { playlist: Playlist | undefined }) {
   );
 }
 
-export function PlaylistsScreen() {
+/** Playlists musicales ; `back` quand l'écran est ouvert depuis l'onglet Musique. */
+export function PlaylistsScreen({ back = false }: { back?: boolean } = {}) {
   const navigation = useAppNavigation();
   const { colors } = useTheme();
   const playlists = useUser((s) => s.playlists);
@@ -144,6 +145,8 @@ export function PlaylistsScreen() {
   return (
     <ScrollScreen
       title="Playlists"
+      back={back}
+      backLabel={back ? 'Musique' : undefined}
       titleRight={
         <>
           <HeaderButton icon="search-outline" label="Rechercher" onPress={() => goToTab('SearchTab')} />

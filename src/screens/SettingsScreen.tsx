@@ -176,7 +176,7 @@ export function SettingsScreen() {
         <Row icon="color-palette" iconColor="#AF52DE" label="Lecteur aux couleurs de la pochette" right={<Switch value={s.coloredPlayer} onValueChange={(v) => s.update({ coloredPlayer: v })} {...switchColors} />} last />
       </Group>
 
-      <Group title="Bibliothèque" footer={isDemo ? 'Aperçu : bibliothèque de démonstration (le module Android est absent sur cette plateforme).' : `Les fichiers de moins de ${s.minDurationSec} s (sonneries, notifications) sont ignorés.`}>
+      <Group title="Bibliothèque musicale" footer={isDemo ? 'Aperçu : bibliothèque de démonstration (le module Android est absent sur cette plateforme).' : `Les fichiers de moins de ${s.minDurationSec} s (sonneries, notifications) sont ignorés.`}>
         <Row icon="musical-notes" iconColor="#FF2D55" label="Morceaux" detail={String(index.tracks.length)} />
         <Row icon="time" iconColor="#FF9500" label="Durée totale" detail={formatTotalDuration(totalDuration)} />
         <Row
@@ -186,7 +186,7 @@ export function SettingsScreen() {
           detail={scannedAt ? new Date(scannedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : undefined}
           onPress={async () => {
             await scan(s.minDurationSec);
-            showToast('Bibliothèque à jour');
+            showToast('Bibliothèque musicale à jour');
           }}
         />
         <Row icon="eye-off" iconColor="#8E8E93" label="Dossiers masqués" detail={s.excludedFolders.length ? String(s.excludedFolders.length) : 'Aucun'} onPress={() => navigation.navigate('ExcludedFolders')} />

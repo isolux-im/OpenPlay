@@ -15,13 +15,13 @@ export function useAppNavigation(): AppNavigation {
 export function navigateInCurrentTab<K extends keyof SharedStackParams>(screen: K, params: SharedStackParams[K]) {
   if (!navigationRef.isReady()) return;
   const state = navigationRef.getRootState();
-  const tab = (state?.routes[state.index ?? 0]?.name ?? 'LibraryTab') as keyof TabParams;
+  const tab = (state?.routes[state.index ?? 0]?.name ?? 'VideosTab') as keyof TabParams;
   // Les piles partagent le même jeu d'écrans : la navigation imbriquée est sûre pour chaque onglet.
   (navigationRef.navigate as (name: string, p: object) => void)(tab, { screen, params });
 }
 
-/** Bascule vers la racine d'un autre onglet (raccourcis de la bibliothèque). */
-export function goToTab(tab: 'LibraryTab' | 'SearchTab' | 'PlaylistsTab' | 'SettingsTab') {
+/** Bascule vers un autre onglet (raccourcis Rechercher, Paramètres…). */
+export function goToTab(tab: 'VideosTab' | 'MusicTab' | 'SearchTab' | 'SettingsTab') {
   if (!navigationRef.isReady()) return;
   (navigationRef.navigate as (name: string) => void)(tab);
 }

@@ -48,11 +48,32 @@ function Point({ icon, title, text }: { icon: IconName; title: string; text: str
   );
 }
 
-/** Écran d'explication ; les fenêtres d'autorisation sont celles d'Android, ouvertes après « Continuer ». */
-export function MediaOnboardingScreen({ onContinue, onLater }: { onContinue: () => Promise<void>; onLater: () => void }) {
+/**
+ * Écran d'explication ; les fenêtres d'autorisation sont celles d'Android. `autoStart` : elles s'ouvrent d'elles-mêmes
+ * dès l'affichage (premier lancement), sans attendre « Continuer », qui reste là pour redemander.
+ */
+export function MediaOnboardingScreen({ onContinue, onLater, autoStart = false }: { onContinue: () => Promise<void>; onLater: () => void; autoStart?: boolean }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(autoStart);
+  const run = async () => {
+    setBusy(true);
+    try {
+      await onContinue();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Premier lancement : Android demande aussitôt l'accès au stockage (musique, puis vidéos).
+  const [started] = useState(autoStart);
+  useEffect(() => {
+    if (!started) return;
+    // `busy` est déjà vrai (état initial) : il repasse à faux quand Android a répondu.
+    void onContinue().finally(() => setBusy(false));
+    // Une seule fois, à l'affichage.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [started]);
 
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -81,14 +102,8 @@ export function MediaOnboardingScreen({ onContinue, onLater }: { onContinue: () 
           Android affiche ensuite ses propres fenêtres d’autorisation. Les fichiers restent sur l’appareil : rien n’est envoyé pendant l’analyse. Vous pourrez modifier ces accès à tout moment dans les paramètres d’Android.
         </Text>
         <PressableScale
-          onPress={async () => {
-            if (busy) return;
-            setBusy(true);
-            try {
-              await onContinue();
-            } finally {
-              setBusy(false);
-            }
+          onPress={() => {
+            if (!busy) void run();
           }}
           style={[styles.primary, { backgroundColor: colors.accent }]}
           accessibilityRole="button"
@@ -144,6 +159,7 @@ export function MediaOnboardingHost() {
   };
   return (
     <MediaOnboardingScreen
+      autoStart
       onContinue={async () => {
         await requestMediaAccess();
         finish();

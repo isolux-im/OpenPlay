@@ -1,5 +1,5 @@
 import { useRoute, type RouteProp } from '@react-navigation/native';
-import { useCallback, useMemo, type ReactNode } from 'react';
+import { useCallback, useMemo } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
 
 import { Artwork } from '../components/Artwork';
@@ -29,7 +29,8 @@ import { MixesSection } from './MixesSection';
 import { FolderActions, NewFolderRow } from './NewFolderScreen';
 import { useFolders } from '../store/folders';
 
-export function LibraryScreen({ switcher }: { switcher?: ReactNode } = {}) {
+/** Onglet Musique : raccourcis, mix, albums, playlists et parcours de toute la bibliothèque musicale. */
+export function LibraryScreen({ title = 'Musique' }: { title?: string } = {}) {
   const navigation = useAppNavigation();
   const index = useLibrary((s) => s.index);
   const favorites = useUser((s) => s.favorites.length);
@@ -51,14 +52,13 @@ export function LibraryScreen({ switcher }: { switcher?: ReactNode } = {}) {
 
   return (
     <ScrollScreen
-      title="Bibliothèque"
+      title={title}
       titleRight={
         <>
           <HeaderButton icon="search-outline" label="Rechercher" onPress={() => goToTab('SearchTab')} />
           <HeaderButton icon="person-outline" label="Paramètres" onPress={() => goToTab('SettingsTab')} />
         </>
       }>
-      {switcher}
       <LibraryGate>
         <View style={styles.quickGrid}>
           <View style={styles.quickRow}>
@@ -66,7 +66,7 @@ export function LibraryScreen({ switcher }: { switcher?: ReactNode } = {}) {
             <QuickTile icon="heart-outline" label="Favoris" count={favorites} onPress={() => navigation.navigate('Favorites')} />
           </View>
           <View style={styles.quickRow}>
-            <QuickTile icon="list-outline" label="Playlists" count={playlists.length} onPress={() => goToTab('PlaylistsTab')} />
+            <QuickTile icon="list-outline" label="Playlists" count={playlists.length} onPress={() => navigation.navigate('MusicPlaylists')} />
             <QuickTile icon="musical-notes-outline" label="Titres" count={index.tracks.length} onPress={() => navigation.navigate('Songs')} />
           </View>
           <View style={styles.quickRow}>
@@ -97,7 +97,7 @@ export function LibraryScreen({ switcher }: { switcher?: ReactNode } = {}) {
           </>
         ) : null}
 
-        <SectionHeader title="Playlists pour vous" onPress={() => goToTab('PlaylistsTab')} />
+        <SectionHeader title="Playlists pour vous" onPress={() => navigation.navigate('MusicPlaylists')} />
         <Carousel
           data={[...playlists.map((p) => ({ key: p.id, playlist: p })), ...smart.map((k) => ({ key: k, kind: k }))]}
           keyOf={(x) => x.key}
@@ -176,7 +176,7 @@ export function SongsScreen() {
   return (
     <TrackCollectionScreen
       title="Titres"
-      backLabel="Bibliothèque"
+      backLabel="Musique"
       tracks={sorted}
       alphabetKey={sort === 'title' ? alphabetByTitle : sort === 'artist' ? alphabetByArtist : undefined}
       label="Tous les titres"
@@ -215,7 +215,7 @@ export function ArtistsScreen() {
     <ListScreen
       title="Artistes"
       back
-      backLabel="Bibliothèque"
+      backLabel="Musique"
       data={index.artists}
       alphabet={alphabet}
       keyExtractor={(a) => a.id}
@@ -229,7 +229,7 @@ export function ArtistsScreen() {
 export function AlbumsScreen() {
   const albums = useLibrary((s) => s.index.albums);
   return (
-    <ScrollScreen title="Albums" back backLabel="Bibliothèque">
+    <ScrollScreen title="Albums" back backLabel="Musique">
       {albums.length ? <Grid data={albums} keyOf={(a) => a.id} render={(a) => <AlbumGridCard album={a} />} /> : <EmptyState icon="albums-outline" title="Aucun album" />}
     </ScrollScreen>
   );
@@ -239,7 +239,7 @@ export function GenresScreen() {
   const navigation = useAppNavigation();
   const genres = useLibrary((s) => s.index.genres);
   return (
-    <ScrollScreen title="Genres" back backLabel="Bibliothèque">
+    <ScrollScreen title="Genres" back backLabel="Musique">
       <View style={styles.tiles}>
         {genres.map((g) => (
           <GenreTile key={g.id} genre={g} onPress={() => navigation.push('Genre', { id: g.id })} />
@@ -301,7 +301,7 @@ export function FoldersScreen() {
       </View>
     </Pressable>
   );
-  return <ListScreen title="Dossiers" back backLabel="Bibliothèque" header={<NewFolderRow kind="audio" />} data={folders} keyExtractor={(f) => f.id} renderItem={renderItem} ListEmptyComponent={<EmptyState icon="folder-outline" title="Aucun dossier" />} />;
+  return <ListScreen title="Dossiers" back backLabel="Musique" header={<NewFolderRow kind="audio" />} data={folders} keyExtractor={(f) => f.id} renderItem={renderItem} ListEmptyComponent={<EmptyState icon="folder-outline" title="Aucun dossier" />} />;
 }
 
 export function FolderScreen() {
@@ -367,7 +367,7 @@ export function HistoryScreen() {
     <ScrollScreen
       title="Historique"
       back
-      backLabel="Bibliothèque"
+      backLabel="Musique"
       right={
         history.length ? (
           <Pressable onPress={clearHistory} hitSlop={10} accessibilityRole="button">

@@ -46,7 +46,7 @@ function MixCard({ mix }: { mix: Mix }) {
 
 /**
  * « Mix pour vous » (titres phares, genre préféré, à découvrir, mix aléatoire), autrefois sur l'Accueil :
- * désormais en tête de Bibliothèque › Musique.
+ * désormais en tête de l'onglet Musique.
  */
 export function MixesSection() {
   const index = useLibrary((s) => s.index);
