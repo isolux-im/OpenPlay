@@ -1,7 +1,11 @@
 import { Alert } from 'react-native';
 
-import { newFolderPath, copyTracks, copyVideos, deleteVideosFromDevice, isValidDestination, moveTracks, moveVideos, renameTrack, renameVideo, renamedFile, cleanFileName, trackFileName } from '../library/fileOps';
+import { createEmptyFolder, deleteEmptyFolder, knownFolders, newFolderPath, copyTracks, copyVideos, deleteVideosFromDevice, isValidDestination, moveTracks, moveVideos, renameTrack, renameVideo, renamedFile, cleanFileName, trackFileName } from '../library/fileOps';
+import { useFolders } from '../store/folders';
 import { useLibrary } from '../store/library';
+import { compareText } from '../library/text';
+import { migrateSettings } from '../store/settings';
+import { sortVideos } from '../video/library';
 import { useUi } from '../store/ui';
 import { useVideoHistory } from '../store/videoHistory';
 import { describePlaylist, playlistVideoIds, resolvePlaylist, useVideoPlaylists } from '../store/videoPlaylists';
@@ -142,5 +146,45 @@ describe('playlists vidéo', () => {
     const { byKey } = seriesIndex(useVideos.getState().videos);
     expect(resolvePlaylist(p, byKey, useVideos.getState().byId)).toHaveLength(1);
     expect(useVideoPlaylists.getState().playlists[0].items).toHaveLength(2);
+  });
+});
+
+describe('dossiers vides', () => {
+  beforeEach(() => useFolders.setState({ created: { audio: [], video: [] } }));
+
+  it('crée un dossier sans fichier, visible comme destination ; refuse un doublon', async () => {
+    expect(await createEmptyFolder('video', 'Movies/Animés')).toBe(true);
+    expect(useFolders.getState().created.video).toEqual(['Movies/Animés']);
+    expect(knownFolders('video')).toContain('Movies/Animés');
+    expect(useVideos.getState().videos.some((v) => v.folder === 'Movies/Animés')).toBe(false);
+    expect(await createEmptyFolder('video', 'Movies/animés')).toBe(true);
+    expect(toast()).toBe('Le dossier « animés » existe déjà');
+    expect(useFolders.getState().created.video).toHaveLength(1);
+    expect(await createEmptyFolder('video', 'Music/Animés')).toBe(false); // pas de vidéos dans Music
+  });
+
+  it('ne supprime un dossier que s’il est vide', async () => {
+    await createEmptyFolder('audio', 'Music/Soirée');
+    await moveTracks([useLibrary.getState().index.tracks[0]], 'Music/Soirée');
+    expect(await deleteEmptyFolder('audio', 'Music/Soirée')).toBe(false);
+    expect(toast()).toBe('« Soirée » n\'est pas vide : supprimez d\'abord ses fichiers');
+    await createEmptyFolder('audio', 'Music/Vide');
+    expect(await deleteEmptyFolder('audio', 'Music/Vide')).toBe(true);
+    expect(useFolders.getState().created.audio).toEqual(['Music/Soirée']);
+  });
+});
+
+describe('ordre alphabétique et numérique', () => {
+  it('range les nombres selon leur valeur (2 avant 10), sans tenir compte des accents ni de la casse', () => {
+    expect(['Film 10', 'film 2', 'Film 1', 'Épisode', 'Zorro', 'avatar'].sort(compareText)).toEqual(['avatar', 'Épisode', 'Film 1', 'film 2', 'Film 10', 'Zorro']);
+    expect(['Saison 10', 'Saison 9', 'Saison 1'].sort(compareText)).toEqual(['Saison 1', 'Saison 9', 'Saison 10']);
+  });
+
+  it('trie les vidéos et films par nom par défaut (ancien défaut « Date » migré)', () => {
+    expect(migrateSettings({ videoSort: 'date' }, 2).videoSort).toBe('name');
+    expect(migrateSettings({ videoSort: 'size' }, 2).videoSort).toBe('size');
+    const titles = sortVideos(useVideos.getState().videos, 'name').map((v) => v.title);
+    expect(titles.indexOf('Cours de guitare — leçon 1')).toBeLessThan(titles.indexOf('Cours de guitare — leçon 2'));
+    expect(titles[0]).toBe('Anniversaire');
   });
 });

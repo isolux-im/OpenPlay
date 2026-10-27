@@ -44,8 +44,12 @@ déplacer vers un dossier existant ou nouveau (racines autorisées par Android :
 Movies, DCIM, Pictures pour la vidéo), et supprimer une vidéo ou une série. Ce sont les vrais fichiers de
 l'appareil : Android demande l'autorisation (Android 11+ pour renommer et déplacer, Android 10+ pour copier).
 Après un renommage ou un déplacement, favoris, playlists, historique et positions de reprise sont conservés.
-« Nouveau dossier… » en tête de Musique › Dossiers et de Vidéos › Dossiers : nom du dossier, puis choix des
-morceaux ou vidéos à y déplacer ou copier (Android ne conserve pas de dossier vide).
+« Nouveau dossier… » en tête de Musique › Dossiers et de Vidéos › Dossiers : crée un dossier **vide** (Android 11+),
+retenu par OpenPlay (Android n'indexe pas les dossiers vides) ; « Ajouter des fichiers » le remplit quand on veut,
+« Supprimer le dossier » l'efface tant qu'il est vide.
+
+**Tri** : alphabétique « naturel » partout (« Film 2 » avant « Film 10 ») ; vidéos et films par nom par défaut ;
+séries par ordre alphabétique, saisons et épisodes par ordre croissant (épisodes spéciaux à la fin).
 
 **Gestes** : toucher un morceau ou une vidéo lance la lecture ; l'appui long le sélectionne ; « ⋮ » ouvre son menu
 (en liste comme en grille). Albums, playlists et séries gardent leur menu à l'appui long.

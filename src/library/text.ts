@@ -15,8 +15,21 @@ export function sortKey(value: string): string {
   return normalizeText(value).replace(ARTICLES, '');
 }
 
+/**
+ * Ordre alphabétique « naturel » : les nombres comptent pour leur valeur (« Film 2 » avant « Film 10 »,
+ * « Saison 9 » avant « Saison 10 »). Indépendant du moteur JavaScript (pas d'option `numeric` d'Intl).
+ */
 export function compareText(a: string, b: string): number {
-  return sortKey(a).localeCompare(sortKey(b), 'fr');
+  const x = sortKey(a).match(/\d+|\D+/g) ?? [];
+  const y = sortKey(b).match(/\d+|\D+/g) ?? [];
+  for (let i = 0; i < Math.min(x.length, y.length); i++) {
+    const p = x[i];
+    const q = y[i];
+    const numeric = /^\d/.test(p) && /^\d/.test(q);
+    const diff = numeric ? Number(p) - Number(q) || p.length - q.length : p.localeCompare(q, 'fr');
+    if (diff) return diff;
+  }
+  return x.length - y.length;
 }
 
 /** Lettre d'index (A–Z, ou « # » pour les chiffres et symboles). */

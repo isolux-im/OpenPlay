@@ -90,7 +90,7 @@ export const DEFAULT_SETTINGS: Settings = {
   videoAutoNextSeason: true,
   videoIntroDetect: true,
   videoIntroAutoSkip: false,
-  videoSort: 'date',
+  videoSort: 'name',
   videoLayout: 'grid',
   subtitleSize: 'medium',
   subtitleContrast: 'shadow',
@@ -106,6 +106,8 @@ export function migrateSettings(persisted: unknown, version: number): Partial<Se
     if (s.accent === undefined || s.accent === 'coral') s.accent = 'graphite';
     s.coloredPlayer = false;
   }
+  // v3 : vidéos et films par ordre alphabétique par défaut (l'ancien défaut « Date » passe à « Nom »).
+  if (version < 3 && s.videoSort === 'date') s.videoSort = 'name';
   return s;
 }
 
@@ -125,7 +127,7 @@ export const useSettings = create<SettingsState>()(
     {
       name: 'openplay.settings.v1',
       storage: persistStorage,
-      version: 2,
+      version: 3,
       migrate: (persisted, version) => migrateSettings(persisted, version) as SettingsState,
     },
   ),

@@ -17,6 +17,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.os.PowerManager
 import android.provider.MediaStore
 import android.provider.OpenableColumns
@@ -327,6 +328,28 @@ class OpenPlayMediaModule : Module() {
       withContext(Dispatchers.IO) { ids.count { copyMedia(kind, it, relativePath) } }
     }
 
+    // Dossier vide dans le stockage partagé (Android 11+ : autorisé sous Music, Movies, DCIM… sans permission).
+    AsyncFunction("createFolderAsync") Coroutine { relativePath: String ->
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) throw CodedException("ERR_UNSUPPORTED", "Création de dossier non prise en charge avant Android 11", null)
+      withContext(Dispatchers.IO) {
+        val dir = sharedFolder(relativePath)
+        (dir.isDirectory || dir.mkdirs()) && dir.isDirectory
+      }
+    }
+
+    // Suppression d'un dossier seulement s'il est vide (jamais de suppression récursive).
+    AsyncFunction("deleteEmptyFolderAsync") Coroutine { relativePath: String ->
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) throw CodedException("ERR_UNSUPPORTED", "Suppression de dossier non prise en charge avant Android 11", null)
+      withContext(Dispatchers.IO) {
+        val dir = sharedFolder(relativePath)
+        when {
+          !dir.exists() -> true
+          !dir.isDirectory || dir.list()?.isNotEmpty() == true -> false
+          else -> dir.delete()
+        }
+      }
+    }
+
     OnActivityResult { _, payload ->
       if (payload.requestCode == WRITE_REQUEST) {
         val (promise, action) = pendingWrite ?: return@OnActivityResult
@@ -358,6 +381,14 @@ class OpenPlayMediaModule : Module() {
         promise.reject("ERR_SUBTITLE_PICK", e.message, e)
       }
     }
+  }
+
+  /** Dossier du stockage partagé (« Movies/Séries ») ; chemins remontants ou vides refusés. */
+  @Suppress("DEPRECATION")
+  private fun sharedFolder(relativePath: String): File {
+    val parts = relativePath.split('/').filter { it.isNotBlank() }
+    if (parts.isEmpty() || parts.any { it == "." || it == ".." }) throw CodedException("ERR_BAD_FOLDER", "Dossier invalide", null)
+    return File(Environment.getExternalStorageDirectory(), parts.joinToString("/"))
   }
 
   private fun mediaUri(kind: String, id: String): Uri =

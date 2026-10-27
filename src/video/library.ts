@@ -64,13 +64,15 @@ export function recentlyWatched(videos: Video[], history: Record<string, VideoHi
   return videos.filter((v) => history[v.id]).sort((a, b) => history[b.id].watchedAt - history[a.id].watchedAt);
 }
 
-export function videoFolders(videos: Video[]): { folder: string; count: number; cover: Video }[] {
-  const map = new Map<string, { folder: string; count: number; cover: Video }>();
+/** Dossiers des vidéos, plus les dossiers créés encore vides (`extra`, sans vignette). */
+export function videoFolders(videos: Video[], extra: string[] = []): { folder: string; count: number; cover: Video | null }[] {
+  const map = new Map<string, { folder: string; count: number; cover: Video | null }>();
   for (const v of videos) {
     const f = map.get(v.folder);
     if (f) f.count += 1;
     else map.set(v.folder, { folder: v.folder, count: 1, cover: v });
   }
+  for (const folder of extra) if (!map.has(folder)) map.set(folder, { folder, count: 0, cover: null });
   return [...map.values()].sort((a, b) => compareText(a.folder, b.folder));
 }
 

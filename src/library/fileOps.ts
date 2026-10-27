@@ -3,6 +3,7 @@ import { Alert, Platform } from 'react-native';
 
 import { OpenPlayMedia } from '../../modules/openplay-media';
 import { describeError, recordDiagnostic } from '../diagnostics/crashReports';
+import { useFolders } from '../store/folders';
 import { useLibrary } from '../store/library';
 import { useSettings } from '../store/settings';
 import { useUi } from '../store/ui';
@@ -242,6 +243,72 @@ export async function copyTracks(tracks: Track[], folder: string): Promise<numbe
     useLibrary.getState().applyFileChanges([], tracks.map((t) => ({ ...t, id: `${t.id}-copie-${++copyCounter}`, folder, path: `/storage/emulated/0/${folder}/${trackFileName(t)}`, addedAt: Date.now() })));
   }
   return done;
+}
+
+// ——— Dossiers vides ———
+
+/** Raison pour laquelle la création ou la suppression d'un dossier est indisponible, ou null. */
+export function folderOpUnavailable(): string | null {
+  if (isDemo()) return null;
+  if (!OpenPlayMedia?.createFolderAsync || Platform.OS !== 'android') return 'Fonction indisponible dans cette version d’OpenPlay';
+  if (Number(Platform.Version) < 30) return 'Nécessite Android 11 ou plus récent';
+  return null;
+}
+
+/** Dossiers d'un type connus d'OpenPlay : ceux des fichiers indexés et ceux créés vides. */
+export function knownFolders(kind: MediaKind): string[] {
+  const fromFiles = kind === 'video' ? useVideos.getState().videos.map((v) => v.folder) : useLibrary.getState().allTracks.map((t) => t.folder);
+  return [...new Set([...fromFiles, ...useFolders.getState().created[kind]])];
+}
+
+/** Crée un dossier vide (« Movies/Animés ») ; il reste visible dans Dossiers même sans fichier. */
+export async function createEmptyFolder(kind: MediaKind, folder: string): Promise<boolean> {
+  const reason = folderOpUnavailable();
+  if (reason) {
+    toast(reason);
+    return false;
+  }
+  if (!isValidDestination(kind, folder)) {
+    toast(`Choisissez un dossier dans ${MEDIA_ROOTS[kind].slice(0, 3).join(', ')}…`);
+    return false;
+  }
+  const label = folder.split('/').pop() ?? folder;
+  if (knownFolders(kind).some((f) => sameName(f, folder))) {
+    toast(`Le dossier « ${label} » existe déjà`);
+    return true;
+  }
+  try {
+    if (!isDemo() && !(await OpenPlayMedia!.createFolderAsync!(folder))) throw new Error('mkdirs');
+    useFolders.getState().add(kind, folder);
+    toast(`Dossier « ${label} » créé`);
+    return true;
+  } catch (e) {
+    failed('création du dossier', e);
+    return false;
+  }
+}
+
+/** Supprime un dossier vide (jamais ses fichiers : un dossier qui en contient encore est conservé). */
+export async function deleteEmptyFolder(kind: MediaKind, folder: string): Promise<boolean> {
+  const label = folder.split('/').pop() ?? folder;
+  const hasFiles = kind === 'video' ? useVideos.getState().videos.some((v) => v.folder === folder) : useLibrary.getState().allTracks.some((t) => t.folder === folder);
+  if (hasFiles) {
+    toast(`« ${label} » n'est pas vide : supprimez d'abord ses fichiers`);
+    return false;
+  }
+  const reason = folderOpUnavailable();
+  try {
+    if (!isDemo() && !reason && !(await OpenPlayMedia!.deleteEmptyFolderAsync!(folder))) {
+      toast(`« ${label} » contient encore des fichiers (d'autres applications)`);
+      return false;
+    }
+  } catch (e) {
+    failed('suppression du dossier', e);
+    return false;
+  }
+  useFolders.getState().remove(kind, folder);
+  toast(`Dossier « ${label} » supprimé`);
+  return true;
 }
 
 // ——— Supprimer (vidéos ; les morceaux ont déjà leur suppression) ———

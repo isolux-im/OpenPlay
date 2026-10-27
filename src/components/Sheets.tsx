@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DEFAULT_ROOT, MEDIA_ROOTS, isValidDestination, newFolderPath } from '../library/fileOps';
 import { compareText, pluralize } from '../library/text';
+import { useFolders } from '../store/folders';
 import { useLibrary } from '../store/library';
 import { describePlaylist, resolvePlaylist, useVideoPlaylists } from '../store/videoPlaylists';
 import { useVideos } from '../store/videos';
@@ -199,11 +200,12 @@ function FolderPickerSheet() {
   const openPrompt = useUi((s) => s.openPrompt);
   const tracks = useLibrary((s) => s.allTracks);
   const videos = useVideos((s) => s.videos);
+  const created = useFolders((s) => s.created);
   const kind = request?.kind ?? 'video';
   const folders = useMemo(() => {
-    const all = kind === 'video' ? videos.map((v) => v.folder) : tracks.map((t) => t.folder);
+    const all = [...(kind === 'video' ? videos.map((v) => v.folder) : tracks.map((t) => t.folder)), ...created[kind]];
     return [...new Set(all)].filter((f) => isValidDestination(kind, f)).sort(compareText);
-  }, [kind, videos, tracks]);
+  }, [kind, videos, tracks, created]);
 
   const pick = (folder: string) => {
     const run = request?.onPick;

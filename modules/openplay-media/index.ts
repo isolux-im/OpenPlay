@@ -97,6 +97,10 @@ type OpenPlayMediaModule = {
   moveMediaAsync?(kind: 'audio' | 'video', ids: string[], relativePath: string): Promise<number | false>;
   /** Android 10+ : copies créées dans `relativePath` (« (1) » ajouté si le nom existe déjà). Nombre de copies. */
   copyMediaAsync?(kind: 'audio' | 'video', ids: string[], relativePath: string): Promise<number>;
+  /** Android 11+ : crée un dossier vide (« Movies/Séries ») ; true s'il existe ensuite. */
+  createFolderAsync?(relativePath: string): Promise<boolean>;
+  /** Android 11+ : supprime le dossier s'il est vide ; false s'il contient encore des fichiers. */
+  deleteEmptyFolderAsync?(relativePath: string): Promise<boolean>;
   /** Journal de diagnostic local et fins anormales enregistrées par Android 11+. Absents des anciennes versions. */
   getCrashReportsAsync?(): Promise<{ log: string | null; exits: ExitReason[] }>;
   clearCrashReportsAsync?(): Promise<void>;

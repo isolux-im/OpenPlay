@@ -13,6 +13,7 @@ import { useUser } from '../store/user';
 import { useVideoPlayer } from '../store/videoPlayer';
 import { useVideoPlaylists } from '../store/videoPlaylists';
 import { useSelection } from '../store/selection';
+import { useFolders } from '../store/folders';
 import { useVideos } from '../store/videos';
 
 jest.mock('react-native-safe-area-context', () => {
@@ -311,31 +312,59 @@ describe('application', () => {
     useSettings.setState({ videoLayout: 'grid' });
   });
 
-  it('crée un nouveau dossier de musique en y déplaçant un morceau', async () => {
+  it('crée un dossier de musique vide, puis y ajoute un morceau', async () => {
+    useFolders.setState({ created: { audio: [], video: [] } });
     await renderApp();
-    const track = useLibrary.getState().index.tracks[0];
+    const track = useLibrary.getState().index.tracks.find((t) => t.id !== usePlayer.getState().queue[usePlayer.getState().index])!;
     await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
     await fireEvent.press(await screen.findByRole('button', { name: /^Dossiers/ }));
     await fireEvent.press(await screen.findByRole('button', { name: 'Nouveau dossier' }));
     await fireEvent.changeText(await screen.findByLabelText('Nom du dossier'), 'Favoris du soir');
-    await fireEvent.press(screen.getByRole('button', { name: 'Choisir les fichiers' }));
-    expect(await screen.findByText('Nouveau dossier · Music/Favoris du soir')).toBeTruthy();
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Créer' }));
+    });
+    // Dossier créé vide, sans aucun fichier ajouté, et ouvert.
+    expect(useFolders.getState().created.audio).toEqual(['Music/Favoris du soir']);
+    expect(await screen.findByText('Dossier vide')).toBeTruthy();
+    expect(useLibrary.getState().allTracks.some((t) => t.folder === 'Music/Favoris du soir')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Supprimer le dossier' })).toBeTruthy();
+
+    // Plus tard : « Ajouter des fichiers ».
+    await fireEvent.press(screen.getByRole('button', { name: 'Ajouter des fichiers' }));
+    expect(await screen.findByText('Vers « Music/Favoris du soir »')).toBeTruthy();
     await fireEvent.press(screen.getAllByRole('checkbox', { name: track.title })[0]);
     await act(async () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Déplacer 1 fichier' }));
     });
-    expect(useLibrary.getState().index.byId[track.id].folder).toBe('Music/Favoris du soir');
     expect(useLibrary.getState().index.foldersById['Music/Favoris du soir'].trackIds).toEqual([track.id]);
-    expect(await screen.findAllByText(track.title)).not.toHaveLength(0); // le nouveau dossier s'ouvre
+    expect(await screen.findAllByText(track.title)).not.toHaveLength(0); // retour au dossier
+    expect(screen.queryByRole('button', { name: 'Supprimer le dossier' })).toBeNull(); // plus vide
   });
 
-  it('crée un nouveau dossier vidéo en y copiant une série', async () => {
+  it('crée un dossier vidéo vide, le supprime, puis en crée un et y copie une série', async () => {
+    useFolders.setState({ created: { audio: [], video: [] } });
     await renderApp();
     await openVideos();
     await fireEvent.press(await screen.findByRole('radio', { name: 'Dossiers' }));
     await fireEvent.press(await screen.findByRole('button', { name: 'Nouveau dossier' }));
+    await fireEvent.changeText(await screen.findByLabelText('Nom du dossier'), 'Vide');
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Créer' }));
+    });
+    expect(await screen.findByText('Dossier vide')).toBeTruthy();
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation((_t, _m, buttons) => buttons?.find((x) => x.style === 'destructive')?.onPress?.());
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Supprimer le dossier' }));
+    });
+    alert.mockRestore();
+    expect(useFolders.getState().created.video).toEqual([]);
+
+    await fireEvent.press(await screen.findByRole('button', { name: 'Nouveau dossier' }));
     await fireEvent.changeText(await screen.findByLabelText('Nom du dossier'), 'Animés');
-    await fireEvent.press(screen.getByRole('button', { name: 'Choisir les fichiers' }));
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Créer' }));
+    });
+    await fireEvent.press(await screen.findByRole('button', { name: 'Ajouter des fichiers' }));
     await fireEvent.press(await screen.findByRole('radio', { name: 'Copier ici' }));
     await fireEvent.changeText(screen.getByLabelText('Rechercher'), 'lagune blues');
     for (const n of ['01', '02', '03']) await fireEvent.press(screen.getByRole('checkbox', { name: `Lagune Blues S01E${n}` }));

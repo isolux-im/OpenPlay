@@ -20,7 +20,8 @@ import type { VideoSort } from '../video/types';
 import { VideoList } from '../video/VideoList';
 import { useSeriesIndex } from '../video/useSeries';
 import { VideoThumb } from '../video/VideoThumb';
-import { NewFolderRow } from './NewFolderScreen';
+import { FolderActions, NewFolderRow } from './NewFolderScreen';
+import { useFolders } from '../store/folders';
 import { NewVideoPlaylistRow, VideoPlaylistRow } from './VideoPlaylistScreen';
 import { SeriesRow } from './VideoSeriesScreen';
 
@@ -125,7 +126,11 @@ export function VideosScreen({ title = 'Vidéos', switcher }: { title?: string; 
         return sortVideos(found, sort);
     }
   }, [videos, deferred, section, entries, favorites, sort]);
-  const folders = useMemo(() => videoFolders(searchVideos(videos, deferred)), [videos, deferred]);
+  const createdFolders = useFolders((s) => s.created.video);
+  const folders = useMemo(() => {
+    const q = normalizeText(deferred);
+    return videoFolders(searchVideos(videos, deferred), createdFolders.filter((f) => !q || normalizeText(f).includes(q)));
+  }, [videos, deferred, createdFolders]);
   const allSeries = useSeriesIndex().list;
   const series = useMemo(() => {
     const q = normalizeText(deferred);
@@ -239,13 +244,19 @@ export function VideosScreen({ title = 'Vidéos', switcher }: { title?: string; 
             style={({ pressed }) => [styles.folder, pressed && { backgroundColor: colors.fill }]}
             accessibilityRole="button"
             accessibilityLabel={`Dossier ${item.folder}, ${pluralize(item.count, 'vidéo')}`}>
-            <VideoThumb video={item.cover} width={96} />
+            {item.cover ? (
+              <VideoThumb video={item.cover} width={96} />
+            ) : (
+              <View style={[styles.emptyFolder, { backgroundColor: colors.fill }]}>
+                <Icon name="folder-open-outline" size={26} color={colors.secondaryText} />
+              </View>
+            )}
             <View style={{ flex: 1 }}>
               <Text variant="callout" weight="medium" numberOfLines={1}>
                 {item.folder.split('/').pop() || item.folder}
               </Text>
               <Text variant="footnote" tone="secondary" numberOfLines={1}>
-                {item.folder} · {pluralize(item.count, 'vidéo')}
+                {item.folder} · {item.count ? pluralize(item.count, 'vidéo') : 'vide'}
               </Text>
             </View>
             <Icon name="chevron-forward" size={17} color={colors.tertiaryText} />
@@ -279,7 +290,17 @@ export function VideoFolderScreen() {
   const videos = useVideos((s) => s.videos);
   const sort = useSettings((s) => s.videoSort);
   const list = useMemo(() => sortVideos(videos.filter((v) => v.folder === params.folder), sort), [videos, params.folder, sort]);
-  return <VideoList title={params.folder.split('/').pop() || params.folder} back videos={list} titleRight={<LayoutButton selectable />} />;
+  return (
+    <VideoList
+      title={params.folder.split('/').pop() || params.folder}
+      back
+      videos={list}
+      titleRight={<LayoutButton selectable />}
+      header={<FolderActions kind="video" folder={params.folder} empty={!list.length} />}
+      emptyTitle="Dossier vide"
+      emptyMessage="Ajoutez des vidéos avec « Ajouter des fichiers », ou par Copier / Déplacer vers… depuis une vidéo."
+    />
+  );
 }
 
 const styles = StyleSheet.create({
@@ -290,4 +311,5 @@ const styles = StyleSheet.create({
   banner: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: GUTTER, marginBottom: 10, padding: 12, borderRadius: radius.lg },
   sortRow: { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
   folder: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: GUTTER, paddingVertical: 8 },
+  emptyFolder: { width: 96, height: 54, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
 });

@@ -8,7 +8,7 @@ import { PressableScale } from '../components/PressableScale';
 import { HeaderButton, ListScreen, ScrollScreen } from '../components/Screen';
 import { TrackRow } from '../components/TrackRow';
 import { groupHistory, mostPlayed, recentlyAddedAlbums, recentlyPlayedAlbums, recentlyAddedTracks, sortTracks, uniqueDiscover } from '../library/selectors';
-import { pluralize } from '../library/text';
+import { compareText, pluralize } from '../library/text';
 import { goToTab, useAppNavigation } from '../navigation/ref';
 import type { SharedStackParams, SmartPlaylistKind } from '../navigation/types';
 import { useLibrary } from '../store/library';
@@ -25,7 +25,8 @@ import { TrackCollectionScreen } from './TrackCollectionScreen';
 import { useNow } from '../ui/useNow';
 import { useDiscover } from './DiscoverScreen';
 import { LibraryGate } from './LibraryGate';
-import { NewFolderRow } from './NewFolderScreen';
+import { FolderActions, NewFolderRow } from './NewFolderScreen';
+import { useFolders } from '../store/folders';
 
 export function LibraryScreen({ switcher }: { switcher?: ReactNode } = {}) {
   const navigation = useAppNavigation();
@@ -271,7 +272,13 @@ export function GenreScreen() {
 
 export function FoldersScreen() {
   const navigation = useAppNavigation();
-  const folders = useLibrary((s) => s.index.folders);
+  const indexed = useLibrary((s) => s.index.folders);
+  const created = useFolders((s) => s.created.audio);
+  // Dossiers créés dans OpenPlay et encore vides : Android ne les indexe pas.
+  const folders = useMemo(() => {
+    const extra = created.filter((path) => !indexed.some((f) => f.path === path)).map((path) => ({ id: path, path, name: path.split('/').pop() || path, trackIds: [] }));
+    return extra.length ? [...indexed, ...extra].sort((a, b) => compareText(a.name, b.name)) : indexed;
+  }, [indexed, created]);
   const { colors } = useTheme();
   const renderItem = ({ item }: { item: Folder }) => (
     <Pressable onPress={() => navigation.push('Folder', { id: item.id })} style={({ pressed }) => [styles.listRow, pressed && { backgroundColor: colors.fill }]} accessibilityRole="button" accessibilityLabel={item.path}>
@@ -298,8 +305,10 @@ export function FolderScreen() {
   const { params } = useRoute<RouteProp<SharedStackParams, 'Folder'>>();
   const navigation = useAppNavigation();
   const index = useLibrary((s) => s.index);
+  const created = useFolders((s) => s.created.audio.includes(params.id));
   const folder = index.foldersById[params.id];
   const tracks = folder ? folder.trackIds.map((id) => index.byId[id]).filter(Boolean) : [];
+  const name = folder?.name ?? (created ? params.id.split('/').pop() : undefined);
   const hide = () =>
     folder &&
     Alert.alert('Masquer ce dossier ?', `« ${folder.path} » et ses sous-dossiers n'apparaîtront plus dans la bibliothèque. Aucun fichier n'est supprimé ; vous pourrez le réafficher dans Paramètres › Dossiers masqués.`, [
@@ -315,10 +324,14 @@ export function FolderScreen() {
     ]);
   return (
     <TrackCollectionScreen
-      title={folder?.name ?? 'Dossier'}
-      subtitle={folder?.path}
+      title={name ?? 'Dossier'}
+      subtitle={folder?.path ?? (created ? params.id : undefined)}
       tracks={tracks}
       backLabel="Dossiers"
+      headerExtra={folder || created ? <FolderActions kind="audio" folder={params.id} empty={!tracks.length} /> : undefined}
+      emptyIcon="folder-open-outline"
+      emptyTitle="Dossier vide"
+      emptyMessage={created ? 'Ajoutez des morceaux avec « Ajouter des fichiers », ou par Copier / Déplacer vers… depuis un morceau.' : undefined}
       right={folder ? <HeaderButton icon="eye-off-outline" label="Masquer ce dossier" onPress={hide} /> : undefined}
     />
   );
