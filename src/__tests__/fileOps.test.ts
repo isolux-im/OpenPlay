@@ -180,10 +180,10 @@ describe('ordre alphabétique et numérique', () => {
     expect(['Saison 10', 'Saison 9', 'Saison 1'].sort(compareText)).toEqual(['Saison 1', 'Saison 9', 'Saison 10']);
   });
 
-  it('trie les vidéos et films par nom par défaut (ancien défaut « Date » migré)', () => {
-    expect(migrateSettings({ videoSort: 'date' }, 2).videoSort).toBe('name');
-    expect(migrateSettings({ videoSort: 'size' }, 2).videoSort).toBe('size');
-    const titles = sortVideos(useVideos.getState().videos, 'name').map((v) => v.title);
+  it('classe les vidéos par nom dès l’import, sans réglage « Trier par » (ancien réglage retiré)', () => {
+    expect(migrateSettings({ videoSort: 'date', videoLayout: 'list' }, 3)).toEqual({ videoLayout: 'list' });
+    const titles = useVideos.getState().videos.map((v) => v.title);
+    expect(titles).toEqual(sortVideos(useVideos.getState().videos, 'name').map((v) => v.title));
     expect(titles.indexOf('Cours de guitare — leçon 1')).toBeLessThan(titles.indexOf('Cours de guitare — leçon 2'));
     expect(titles[0]).toBe('Anniversaire');
   });

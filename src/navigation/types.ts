@@ -26,6 +26,11 @@ export type SharedStackParams = {
   VideoSeries: { key: string };
   VideoStats: undefined;
   VideoPlaylist: { id: string };
+  /** Sous-écrans de l'onglet Vidéo (comme ceux de Musique). */
+  VideoCollection: { section: 'all' | 'favorites' | 'continue' | 'recent' };
+  VideoSeriesList: undefined;
+  VideoPlaylists: undefined;
+  VideoFolders: undefined;
   /** Nouveau dossier : choix des fichiers à y déplacer ou copier. */
   NewFolder: { kind: 'audio' | 'video'; folder: string };
   /** Playlists musicales, ouvertes depuis l'onglet Musique. */

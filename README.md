@@ -16,7 +16,7 @@ lecteur plein écran qui s'ouvre depuis le mini-lecteur et se ferme d'un glissem
 
 | Écran | Contenu |
 |---|---|
-| Vidéo | Toutes, Continuer, Récentes, Favoris, Séries, Playlists vidéo, Dossiers, bilan de visionnage, lecteur vidéo et mini-lecteur |
+| Vidéo | Même organisation que Musique : recherche, tuiles Récentes, Favoris, Playlists, Toutes, Continuer, Bilan ; « Continuer à regarder » ; Parcourir (Toutes les vidéos, Séries, Playlists vidéo, Dossiers) ; lecteur vidéo et mini-lecteur. Vidéos classées automatiquement par nom (ordre alphabétique, 2 avant 10), sans « Trier par » |
 | Musique | Mix pour vous (titres phares, genre favori, à redécouvrir, aléatoire), Récents, Favoris, Playlists, Titres (tri titre/artiste/album/date), Artistes, Albums, Genres, Dossiers, À découvrir, Bilan d'écoute ; fiches album et artiste |
 | Musique › Playlists | Création, renommage, suppression, ajout de morceaux, réordonnancement par glisser-déposer ; playlists automatiques (favoris, plus écoutés, ajoutés récemment, à redécouvrir) |
 | Recherche | Recherche instantanée sans accents ni casse (morceaux, artistes, albums, playlists), meilleur résultat, recherches récentes, genres |

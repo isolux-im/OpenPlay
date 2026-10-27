@@ -31,7 +31,7 @@ import { StatsScreen } from '../screens/StatsScreen';
 import { VideoPlaylistScreen } from '../screens/VideoPlaylistScreen';
 import { VideoSeriesScreen } from '../screens/VideoSeriesScreen';
 import { VideoStatsScreen } from '../screens/VideoStatsScreen';
-import { VideoFolderScreen, VideosScreen } from '../screens/VideosScreen';
+import { VideoCollectionScreen, VideoFolderScreen, VideoFoldersScreen, VideoPlaylistsScreen, VideoSeriesListScreen, VideosScreen } from '../screens/VideosScreen';
 import { useTheme } from '../ui/theme';
 import { navigationRef } from './ref';
 import { TabBar } from './TabBar';
@@ -62,6 +62,10 @@ const SHARED: { name: keyof AnyStackParams; component: ComponentType }[] = [
   { name: 'VideoSeries', component: VideoSeriesScreen },
   { name: 'VideoStats', component: VideoStatsScreen },
   { name: 'VideoPlaylist', component: VideoPlaylistScreen },
+  { name: 'VideoCollection', component: VideoCollectionScreen },
+  { name: 'VideoSeriesList', component: VideoSeriesListScreen },
+  { name: 'VideoPlaylists', component: VideoPlaylistsScreen },
+  { name: 'VideoFolders', component: VideoFoldersScreen },
   { name: 'NewFolder', component: NewFolderScreen },
   { name: 'MusicPlaylists', component: MusicPlaylistsScreen },
 ];

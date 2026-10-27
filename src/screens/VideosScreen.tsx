@@ -1,48 +1,32 @@
 import { useRoute, type RouteProp } from '@react-navigation/native';
-import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
-import { Chips, EmptyState } from '../components/Blocks';
+import { Carousel, EmptyState, MenuRow, QuickTile, SectionHeader } from '../components/Blocks';
 import { SelectButton } from '../components/SelectButton';
 import { HeaderButton, ListScreen } from '../components/Screen';
-import { normalizeText, pluralize } from '../library/text';
-import { useAppNavigation } from '../navigation/ref';
+import { pluralize } from '../library/text';
+import { goToTab, useAppNavigation } from '../navigation/ref';
 import type { SharedStackParams } from '../navigation/types';
 import { useSettings } from '../store/settings';
+import { useSelectable } from '../store/selection';
+import { useUi } from '../store/ui';
 import { useVideoHistory } from '../store/videoHistory';
+import { useVideoPlayer } from '../store/videoPlayer';
 import { useVideoPlaylists } from '../store/videoPlaylists';
 import { useVideos } from '../store/videos';
 import { Icon } from '../ui/Icon';
 import { Text } from '../ui/Text';
 import { GUTTER, radius, useTheme } from '../ui/theme';
 import { continueWatching, recentlyWatched, searchVideos, sortVideos, videoFolders } from '../video/library';
-import type { VideoSort } from '../video/types';
-import { VideoList } from '../video/VideoList';
+import type { Video } from '../video/types';
+import { VideoList, VideoRow } from '../video/VideoList';
 import { useSeriesIndex } from '../video/useSeries';
 import { VideoThumb } from '../video/VideoThumb';
 import { FolderActions, NewFolderRow } from './NewFolderScreen';
 import { useFolders } from '../store/folders';
 import { NewVideoPlaylistRow, VideoPlaylistRow } from './VideoPlaylistScreen';
 import { SeriesRow } from './VideoSeriesScreen';
-
-type Section = 'all' | 'continue' | 'recent' | 'favorites' | 'series' | 'playlists' | 'folders';
-
-const SECTIONS: { key: Section; label: string }[] = [
-  { key: 'all', label: 'Toutes' },
-  { key: 'continue', label: 'Continuer' },
-  { key: 'recent', label: 'Récentes' },
-  { key: 'favorites', label: 'Favoris' },
-  { key: 'series', label: 'Séries' },
-  { key: 'playlists', label: 'Playlists' },
-  { key: 'folders', label: 'Dossiers' },
-];
-
-const SORTS: { key: VideoSort; label: string }[] = [
-  { key: 'date', label: 'Date' },
-  { key: 'name', label: 'Nom' },
-  { key: 'duration', label: 'Durée' },
-  { key: 'size', label: 'Taille' },
-];
 
 function LayoutButton({ selectable = false }: { selectable?: boolean }) {
   const navigation = useAppNavigation();
@@ -93,8 +77,35 @@ function VideosGate() {
   );
 }
 
-/** Onglet Vidéo : vidéothèque complète (sections, séries, playlists vidéo, dossiers, bilan). */
-export function VideosScreen({ title = 'Vidéos', switcher }: { title?: string; switcher?: ReactNode } = {}) {
+/** Vignette de vidéo dans une rangée horizontale (« Continuer à regarder », « Ajoutées récemment »). */
+function VideoCard({ video, list }: { video: Video; list: string[] }) {
+  const { colors } = useTheme();
+  const progress = useVideoHistory((s) => {
+    const e = s.entries[video.id];
+    return e && !e.finished && video.durationSec ? e.positionSec / video.durationSec : 0;
+  });
+  return (
+    <Pressable
+      onPress={() => useVideoPlayer.getState().open(video.id, list)}
+      onLongPress={(e) => useUi.getState().openVideoMenu(video.id, list, { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY })}
+      delayLongPress={320}
+      style={({ pressed }) => [{ width: 168 }, pressed && { opacity: 0.8 }]}
+      accessibilityRole="button"
+      accessibilityLabel={`Lire ${video.title}`}>
+      <VideoThumb video={video} width={168} progress={progress} />
+      <Text variant="subhead" weight="semibold" numberOfLines={2} style={{ marginTop: 6 }} color={colors.text}>
+        {video.title}
+      </Text>
+    </Pressable>
+  );
+}
+
+/**
+ * Onglet Vidéo, organisé comme l'onglet Musique : recherche par nom, raccourcis (Récentes, Favoris, Playlists,
+ * Toutes, Continuer, Bilan), rangées « Continuer à regarder » / « Ajoutées récemment », puis « Parcourir »
+ * (Toutes les vidéos, Séries, Playlists, Dossiers). Les vidéos sont toujours classées par nom.
+ */
+export function VideosScreen({ title = 'Vidéos' }: { title?: string } = {}) {
   const navigation = useAppNavigation();
   const { colors } = useTheme();
   const status = useVideos((s) => s.status);
@@ -102,10 +113,9 @@ export function VideosScreen({ title = 'Vidéos', switcher }: { title?: string; 
   const limited = useVideos((s) => s.limited);
   const entries = useVideoHistory((s) => s.entries);
   const favorites = useVideoHistory((s) => s.favorites);
-  const sort = useSettings((s) => s.videoSort);
-  const update = useSettings((s) => s.update);
   const playlists = useVideoPlaylists((s) => s.playlists);
-  const [section, setSection] = useState<Section>('all');
+  const createdFolders = useFolders((s) => s.created.video);
+  const series = useSeriesIndex().list;
   const [query, setQuery] = useState('');
   const deferred = useDeferredValue(query);
 
@@ -113,39 +123,25 @@ export function VideosScreen({ title = 'Vidéos', switcher }: { title?: string; 
     useVideos.getState().init();
   }, []);
 
-  const list = useMemo(() => {
-    const found = searchVideos(videos, deferred);
-    switch (section) {
-      case 'continue':
-        return continueWatching(found, entries);
-      case 'recent':
-        return recentlyWatched(found, entries);
-      case 'favorites':
-        return sortVideos(found.filter((v) => favorites.includes(v.id)), sort);
-      default:
-        return sortVideos(found, sort);
-    }
-  }, [videos, deferred, section, entries, favorites, sort]);
-  const createdFolders = useFolders((s) => s.created.video);
-  const folders = useMemo(() => {
-    const q = normalizeText(deferred);
-    return videoFolders(searchVideos(videos, deferred), createdFolders.filter((f) => !q || normalizeText(f).includes(q)));
-  }, [videos, deferred, createdFolders]);
-  const allSeries = useSeriesIndex().list;
-  const series = useMemo(() => {
-    const q = normalizeText(deferred);
-    return q ? allSeries.filter((x) => normalizeText(x.name).includes(q)) : allSeries;
-  }, [allSeries, deferred]);
+  const results = useMemo(() => (deferred.trim() ? sortVideos(searchVideos(videos, deferred), 'name') : []), [videos, deferred]);
+  const resultIds = useMemo(() => results.map((v) => v.id), [results]);
+  useSelectable('video', resultIds);
+  const resume = useMemo(() => continueWatching(videos, entries), [videos, entries]);
+  const recent = useMemo(() => recentlyWatched(videos, entries), [videos, entries]);
+  const added = useMemo(() => [...videos].sort((a, b) => b.addedAt - a.addedAt).slice(0, 12), [videos]);
+  const folders = useMemo(() => videoFolders(videos, createdFolders), [videos, createdFolders]);
+  const favoriteCount = useMemo(() => videos.filter((v) => favorites.includes(v.id)).length, [videos, favorites]);
 
   if (status !== 'ready') {
-    return (
-      <ListScreen title={title} header={switcher} data={[]} renderItem={() => null} ListEmptyComponent={<VideosGate />} />
-    );
+    return <ListScreen title={title} data={[]} renderItem={() => null} ListEmptyComponent={<VideosGate />} />;
   }
+
+  const row = resume.length ? { title: 'Continuer à regarder', list: resume.slice(0, 12), section: 'continue' as const } : { title: 'Ajoutées récemment', list: added, section: 'all' as const };
+  const rowIds = row.list.map((v) => v.id);
+  const searching = !!query.trim();
 
   const header = (
     <View>
-      {switcher}
       <View style={[styles.field, { backgroundColor: colors.card, borderColor: colors.separator }]}>
         <Icon name="search-outline" size={18} color={colors.secondaryText} />
         <TextInput
@@ -175,112 +171,169 @@ export function VideosScreen({ title = 'Vidéos', switcher }: { title?: string; 
           </Text>
         </Pressable>
       ) : null}
-      <Chips options={SECTIONS} value={section} onChange={setSection} />
-      {section === 'all' || section === 'favorites' ? (
-        <View style={styles.sortRow}>
-          <Text variant="footnote" tone="secondary" style={{ paddingLeft: GUTTER }}>
-            Trier par
-          </Text>
-          <View style={{ flex: 1 }}>
-            <Chips options={SORTS} value={sort} onChange={(videoSort) => update({ videoSort })} />
+      {searching ? null : (
+        <>
+          <View style={styles.quickGrid}>
+            <View style={styles.quickRow}>
+              <QuickTile icon="time-outline" label="Récentes" count={recent.length} onPress={() => navigation.push('VideoCollection', { section: 'recent' })} />
+              <QuickTile icon="heart-outline" label="Favoris" count={favoriteCount} onPress={() => navigation.push('VideoCollection', { section: 'favorites' })} />
+            </View>
+            <View style={styles.quickRow}>
+              <QuickTile icon="list-outline" label="Playlists" count={playlists.length} onPress={() => navigation.push('VideoPlaylists')} />
+              <QuickTile icon="film-outline" label="Toutes" count={videos.length} onPress={() => navigation.push('VideoCollection', { section: 'all' })} />
+            </View>
+            <View style={styles.quickRow}>
+              <QuickTile icon="play-circle-outline" label="Continuer" count={resume.length} onPress={() => navigation.push('VideoCollection', { section: 'continue' })} />
+              <QuickTile icon="stats-chart-outline" label="Bilan" onPress={() => navigation.push('VideoStats')} />
+            </View>
           </View>
-        </View>
-      ) : null}
+
+          {row.list.length ? (
+            <>
+              <SectionHeader title={row.title} onPress={() => navigation.push('VideoCollection', { section: row.section })} />
+              <Carousel data={row.list} keyOf={(v) => v.id} render={(v) => <VideoCard video={v} list={rowIds} />} />
+            </>
+          ) : null}
+
+          <SectionHeader title="Parcourir" />
+          <View style={[styles.browse, { backgroundColor: colors.card }]}>
+            <MenuRow icon="film-outline" label="Toutes les vidéos" detail={String(videos.length)} onPress={() => navigation.push('VideoCollection', { section: 'all' })} />
+            <MenuRow icon="tv-outline" label="Séries" detail={String(series.length)} onPress={() => navigation.push('VideoSeriesList')} />
+            <MenuRow icon="list-outline" label="Playlists" detail={String(playlists.length)} onPress={() => navigation.push('VideoPlaylists')} />
+            <MenuRow icon="folder-outline" label="Dossiers" detail={String(folders.length)} onPress={() => navigation.push('VideoFolders')} last />
+          </View>
+        </>
+      )}
       <View style={{ height: 12 }} />
     </View>
   );
 
-  if (section === 'series') {
-    return (
-      <ListScreen
-        title={title}
-        titleRight={<LayoutButton />}
-        header={header}
-        data={series}
-        keyExtractor={(x) => x.key}
-        renderItem={({ item }) => <SeriesRow series={item} onPress={() => navigation.push('VideoSeries', { key: item.key })} />}
-        ListEmptyComponent={<EmptyState icon="tv-outline" title="Aucune série" message="Les épisodes nommés « S01E02 », « 1x02 » ou « Épisode 2 » sont regroupés ici automatiquement (deux épisodes au moins)." />}
-      />
-    );
-  }
-
-  if (section === 'playlists') {
-    const q = normalizeText(deferred);
-    const shown = q ? playlists.filter((p) => normalizeText(p.name).includes(q)) : playlists;
-    return (
-      <ListScreen
-        title={title}
-        titleRight={<LayoutButton />}
-        header={
-          <View>
-            {header}
-            <NewVideoPlaylistRow />
-          </View>
-        }
-        data={shown}
-        keyExtractor={(p) => p.id}
-        renderItem={({ item }) => <VideoPlaylistRow playlist={item} onPress={() => navigation.push('VideoPlaylist', { id: item.id })} />}
-        ListEmptyComponent={<EmptyState icon="albums-outline" title="Aucune playlist vidéo" message="Créez des listes pour ranger vos séries et vos vidéos (ex. « Animés », « À voir en famille »)." />}
-      />
-    );
-  }
-
-  if (section === 'folders') {
-    return (
-      <ListScreen
-        title={title}
-        titleRight={<LayoutButton />}
-        header={
-          <View>
-            {header}
-            <NewFolderRow kind="video" />
-          </View>
-        }
-        data={folders}
-        keyExtractor={(f) => f.folder}
-        renderItem={({ item }) => (
-          <Pressable
-            onPress={() => navigation.push('VideoFolder', { folder: item.folder })}
-            style={({ pressed }) => [styles.folder, pressed && { backgroundColor: colors.fill }]}
-            accessibilityRole="button"
-            accessibilityLabel={`Dossier ${item.folder}, ${pluralize(item.count, 'vidéo')}`}>
-            {item.cover ? (
-              <VideoThumb video={item.cover} width={96} />
-            ) : (
-              <View style={[styles.emptyFolder, { backgroundColor: colors.fill }]}>
-                <Icon name="folder-open-outline" size={26} color={colors.secondaryText} />
-              </View>
-            )}
-            <View style={{ flex: 1 }}>
-              <Text variant="callout" weight="medium" numberOfLines={1}>
-                {item.folder.split('/').pop() || item.folder}
-              </Text>
-              <Text variant="footnote" tone="secondary" numberOfLines={1}>
-                {item.folder} · {item.count ? pluralize(item.count, 'vidéo') : 'vide'}
-              </Text>
-            </View>
-            <Icon name="chevron-forward" size={17} color={colors.tertiaryText} />
-          </Pressable>
-        )}
-        ListEmptyComponent={<EmptyState icon="folder-outline" title="Aucun dossier" />}
-      />
-    );
-  }
-
-  const empty: Record<Exclude<Section, 'folders' | 'series' | 'playlists'>, [string, string]> = {
-    all: query ? ['Aucun résultat', `Rien ne correspond à « ${query.trim()} ».`] : ['Aucune vidéo', 'Aucune vidéo accessible sur l’appareil.'],
-    continue: ['Rien à reprendre', 'Les vidéos commencées et non terminées apparaîtront ici.'],
-    recent: ['Aucune vidéo regardée', 'Les vidéos ouvertes dans OpenPlay apparaîtront ici.'],
-    favorites: ['Aucun favori', 'Ajoutez une vidéo aux favoris par un appui long.'],
-  };
   return (
-    <VideoList
+    <ListScreen
       title={title}
-      titleRight={<LayoutButton selectable />}
+      titleRight={
+        <>
+          {searching ? <SelectButton kind="video" /> : null}
+          <HeaderButton icon="person-outline" label="Paramètres" onPress={() => goToTab('SettingsTab')} />
+        </>
+      }
       header={header}
-      videos={list}
-      emptyTitle={empty[section][0]}
-      emptyMessage={empty[section][1]}
+      data={results}
+      keyExtractor={(v) => v.id}
+      renderItem={({ item }) => <VideoRow video={item} list={resultIds} />}
+      keyboardShouldPersistTaps="handled"
+      ListEmptyComponent={searching ? <EmptyState icon="search-outline" title="Aucun résultat" message={`Rien ne correspond à « ${query.trim()} ».`} /> : undefined}
+    />
+  );
+}
+
+const COLLECTIONS = {
+  all: { title: 'Toutes les vidéos', empty: ['Aucune vidéo', 'Aucune vidéo accessible sur l’appareil.'] },
+  favorites: { title: 'Favoris', empty: ['Aucun favori', 'Ajoutez une vidéo aux favoris depuis son menu « ⋮ ».'] },
+  continue: { title: 'Continuer', empty: ['Rien à reprendre', 'Les vidéos commencées et non terminées apparaîtront ici.'] },
+  recent: { title: 'Récentes', empty: ['Aucune vidéo regardée', 'Les vidéos ouvertes dans OpenPlay apparaîtront ici.'] },
+} as const;
+
+/**
+ * Toutes, Favoris : classées par nom (ordre alphabétique, automatique). Continuer, Récentes : la plus récente
+ * d'abord, puisque c'est leur rôle.
+ */
+export function VideoCollectionScreen() {
+  const { params } = useRoute<RouteProp<SharedStackParams, 'VideoCollection'>>();
+  const videos = useVideos((s) => s.videos);
+  const entries = useVideoHistory((s) => s.entries);
+  const favorites = useVideoHistory((s) => s.favorites);
+  const list = useMemo(() => {
+    switch (params.section) {
+      case 'continue':
+        return continueWatching(videos, entries);
+      case 'recent':
+        return recentlyWatched(videos, entries);
+      case 'favorites':
+        return sortVideos(videos.filter((v) => favorites.includes(v.id)), 'name');
+      default:
+        return sortVideos(videos, 'name');
+    }
+  }, [params.section, videos, entries, favorites]);
+  const meta = COLLECTIONS[params.section];
+  return <VideoList title={meta.title} back videos={list} titleRight={<LayoutButton selectable />} emptyTitle={meta.empty[0]} emptyMessage={meta.empty[1]} />;
+}
+
+/** Séries reconnues, par ordre alphabétique (saisons et épisodes dans l'ordre croissant). */
+export function VideoSeriesListScreen() {
+  const navigation = useAppNavigation();
+  const series = useSeriesIndex().list;
+  return (
+    <ListScreen
+      title="Séries"
+      back
+      backLabel="Vidéos"
+      data={series}
+      keyExtractor={(x) => x.key}
+      renderItem={({ item }) => <SeriesRow series={item} onPress={() => navigation.push('VideoSeries', { key: item.key })} />}
+      ListEmptyComponent={<EmptyState icon="tv-outline" title="Aucune série" message="Les épisodes nommés « S01E02 », « 1x02 » ou « Épisode 2 » sont regroupés ici automatiquement (deux épisodes au moins)." />}
+    />
+  );
+}
+
+/** Playlists vidéo (séries et vidéos), avec « Nouvelle playlist… ». */
+export function VideoPlaylistsScreen() {
+  const navigation = useAppNavigation();
+  const playlists = useVideoPlaylists((s) => s.playlists);
+  return (
+    <ListScreen
+      title="Playlists"
+      back
+      backLabel="Vidéos"
+      header={<NewVideoPlaylistRow />}
+      data={playlists}
+      keyExtractor={(p) => p.id}
+      renderItem={({ item }) => <VideoPlaylistRow playlist={item} onPress={() => navigation.push('VideoPlaylist', { id: item.id })} />}
+      ListEmptyComponent={<EmptyState icon="albums-outline" title="Aucune playlist vidéo" message="Créez des listes pour ranger vos séries et vos vidéos (ex. « Animés », « À voir en famille »)." />}
+    />
+  );
+}
+
+/** Dossiers des vidéos (et dossiers créés vides), par ordre alphabétique, avec « Nouveau dossier… ». */
+export function VideoFoldersScreen() {
+  const navigation = useAppNavigation();
+  const { colors } = useTheme();
+  const videos = useVideos((s) => s.videos);
+  const createdFolders = useFolders((s) => s.created.video);
+  const folders = useMemo(() => videoFolders(videos, createdFolders), [videos, createdFolders]);
+  return (
+    <ListScreen
+      title="Dossiers"
+      back
+      backLabel="Vidéos"
+      header={<NewFolderRow kind="video" />}
+      data={folders}
+      keyExtractor={(f) => f.folder}
+      renderItem={({ item }) => (
+        <Pressable
+          onPress={() => navigation.push('VideoFolder', { folder: item.folder })}
+          style={({ pressed }) => [styles.folder, pressed && { backgroundColor: colors.fill }]}
+          accessibilityRole="button"
+          accessibilityLabel={`Dossier ${item.folder}, ${pluralize(item.count, 'vidéo')}`}>
+          {item.cover ? (
+            <VideoThumb video={item.cover} width={96} />
+          ) : (
+            <View style={[styles.emptyFolder, { backgroundColor: colors.fill }]}>
+              <Icon name="folder-open-outline" size={26} color={colors.secondaryText} />
+            </View>
+          )}
+          <View style={{ flex: 1 }}>
+            <Text variant="callout" weight="medium" numberOfLines={1}>
+              {item.folder.split('/').pop() || item.folder}
+            </Text>
+            <Text variant="footnote" tone="secondary" numberOfLines={1}>
+              {item.folder} · {item.count ? pluralize(item.count, 'vidéo') : 'vide'}
+            </Text>
+          </View>
+          <Icon name="chevron-forward" size={17} color={colors.tertiaryText} />
+        </Pressable>
+      )}
+      ListEmptyComponent={<EmptyState icon="folder-outline" title="Aucun dossier" />}
     />
   );
 }
@@ -288,8 +341,8 @@ export function VideosScreen({ title = 'Vidéos', switcher }: { title?: string; 
 export function VideoFolderScreen() {
   const { params } = useRoute<RouteProp<SharedStackParams, 'VideoFolder'>>();
   const videos = useVideos((s) => s.videos);
-  const sort = useSettings((s) => s.videoSort);
-  const list = useMemo(() => sortVideos(videos.filter((v) => v.folder === params.folder), sort), [videos, params.folder, sort]);
+  // Classement automatique par nom (ordre alphabétique).
+  const list = useMemo(() => sortVideos(videos.filter((v) => v.folder === params.folder), 'name'), [videos, params.folder]);
   return (
     <VideoList
       title={params.folder.split('/').pop() || params.folder}
@@ -309,7 +362,9 @@ const styles = StyleSheet.create({
   field: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: GUTTER, marginBottom: 10, paddingHorizontal: 14, height: 44, borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth },
   input: { flex: 1, fontSize: 16, paddingVertical: 0 },
   banner: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: GUTTER, marginBottom: 10, padding: 12, borderRadius: radius.lg },
-  sortRow: { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
+  quickGrid: { paddingHorizontal: GUTTER, gap: 12, marginTop: 4 },
+  quickRow: { flexDirection: 'row', gap: 12 },
+  browse: { marginHorizontal: GUTTER, borderRadius: radius.lg, overflow: 'hidden' },
   folder: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: GUTTER, paddingVertical: 8 },
   emptyFolder: { width: 96, height: 54, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
 });

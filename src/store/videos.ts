@@ -4,7 +4,7 @@ import { create } from 'zustand';
 
 import { OpenPlayMedia } from '../../modules/openplay-media';
 import { describeError, recordDiagnostic } from '../diagnostics/crashReports';
-import { demoVideos, videoFromNative } from '../video/library';
+import { demoVideos, sortVideos, videoFromNative } from '../video/library';
 import type { Video } from '../video/types';
 
 export type VideoLibraryStatus = 'idle' | 'needs-permission' | 'denied' | 'loading' | 'ready' | 'error';
@@ -93,7 +93,8 @@ export const useVideos = create<State>()((set, get) => ({
 
   applyFileChanges: (changed, added = []) => {
     const map = new Map(changed.map((v) => [v.id, v]));
-    const videos = [...get().videos.map((v) => map.get(v.id) ?? v), ...added];
+    // Toujours par ordre alphabétique (renommage, copie : la liste reste triée).
+    const videos = sortVideos([...get().videos.map((v) => map.get(v.id) ?? v), ...added], 'name');
     const byId: Record<string, Video> = {};
     for (const v of videos) byId[v.id] = v;
     set({ videos, byId });
@@ -122,7 +123,8 @@ async function runScan() {
   const set = useVideos.setState;
   set((s) => ({ status: s.status === 'ready' ? 'ready' : 'loading' }));
   try {
-    const videos = OpenPlayMedia?.queryVideosAsync ? (await OpenPlayMedia.queryVideosAsync()).map(videoFromNative) : demoVideos();
+    // Classement automatique par nom, dans l'ordre alphabétique (2 avant 10), dès l'import.
+    const videos = sortVideos(OpenPlayMedia?.queryVideosAsync ? (await OpenPlayMedia.queryVideosAsync()).map(videoFromNative) : demoVideos(), 'name');
     const byId: Record<string, Video> = {};
     for (const v of videos) byId[v.id] = v;
     set({ videos, byId, status: 'ready', isDemo: isDemo() });

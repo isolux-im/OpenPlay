@@ -3,7 +3,6 @@ import { create } from 'zustand';
 import type { LanguageCode, ProviderId } from '../lyrics/transcription';
 import type { VideoFitMode } from '../video/display';
 import type { SubtitleContrast, SubtitleSize } from '../video/subtitles';
-import type { VideoSort } from '../video/types';
 import { persist } from 'zustand/middleware';
 
 import { persistStorage } from './storage';
@@ -57,7 +56,6 @@ export type Settings = {
   mediaOnboarded: boolean;
   /** Vidéo : format d'affichage (conservé d'une vidéo à l'autre, comme dans VLC). */
   videoFit: VideoFitMode;
-  videoSort: VideoSort;
   videoLayout: 'grid' | 'list';
   /** Sous-titres importés (SRT / WebVTT) : taille et contraste d'affichage. */
   subtitleSize: SubtitleSize;
@@ -90,7 +88,6 @@ export const DEFAULT_SETTINGS: Settings = {
   videoAutoNextSeason: true,
   videoIntroDetect: true,
   videoIntroAutoSkip: false,
-  videoSort: 'name',
   videoLayout: 'grid',
   subtitleSize: 'medium',
   subtitleContrast: 'shadow',
@@ -106,8 +103,8 @@ export function migrateSettings(persisted: unknown, version: number): Partial<Se
     if (s.accent === undefined || s.accent === 'coral') s.accent = 'graphite';
     s.coloredPlayer = false;
   }
-  // v3 : vidéos et films par ordre alphabétique par défaut (l'ancien défaut « Date » passe à « Nom »).
-  if (version < 3 && s.videoSort === 'date') s.videoSort = 'name';
+  // v4 : plus de « Trier par » ; les vidéos sont toujours classées par nom (ordre alphabétique).
+  if (version < 4) delete (s as Partial<Settings> & { videoSort?: unknown }).videoSort;
   return s;
 }
 
@@ -127,7 +124,7 @@ export const useSettings = create<SettingsState>()(
     {
       name: 'openplay.settings.v1',
       storage: persistStorage,
-      version: 3,
+      version: 4,
       migrate: (persisted, version) => migrateSettings(persisted, version) as SettingsState,
     },
   ),
