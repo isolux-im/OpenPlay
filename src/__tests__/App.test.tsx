@@ -543,9 +543,20 @@ describe('application', () => {
       // Retour système en mini-lecteur : navigation normale, pas de PiP ni de fermeture.
       expect(backHandlers.at(-1)?.(backEvent)).toBe(false);
 
+      // Mini-lecteur : petite fenêtre placée par sa position, aux proportions de la vidéo.
+      const miniStyle = StyleSheet.flatten(screen.getByTestId('video-mini').props.style);
+      expect(miniStyle).toMatchObject({ position: 'absolute', width: expect.any(Number), height: expect.any(Number) });
+      expect(miniStyle.width).toBeLessThan(400);
+
       await fireEvent.press(screen.getByRole('button', { name: 'Plein écran' }));
       expect(useVideoPlayer.getState().display).toBe('fullscreen');
       expect(await screen.findByRole('button', { name: 'Fermer la vidéo' })).toBeTruthy();
+      // Plein écran : tout l'écran, sans taille ni décalage hérités du mini-lecteur.
+      const full = StyleSheet.flatten(screen.getByTestId('video-fullscreen').props.style);
+      expect(full).toMatchObject({ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 });
+      expect(full.width).toBeUndefined();
+      expect(full.height).toBeUndefined();
+      expect(full.transform).toBeUndefined();
       expect(players.at(-1)).toBe(player); // aucun nouveau lecteur : progression et piste conservées
       expect(useVideoPlayer.getState().session!.seq).toBe(seqBefore);
 

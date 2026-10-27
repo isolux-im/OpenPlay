@@ -776,6 +776,11 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   return (
     <GestureDetector gesture={miniDrag}>
     <Animated.View
+      // Vue d'encadrement neuve à chaque changement de mode : aucune position, taille ou transformation posée sur
+      // la vue native Android par le mini-lecteur ne subsiste en plein écran (sinon le plein écran restait décalé
+      // et ne couvrait qu'une partie de l'écran). Le lecteur natif, lui, est conservé : lecture, position, pistes.
+      key={floating ? 'mini' : 'fullscreen'}
+      testID={floating ? 'video-mini' : 'video-fullscreen'}
       style={floating ? [styles.mini, { width: miniBox.width, height: miniBox.height }, miniStyle] : [styles.root, miniStyle]}
       accessibilityViewIsModal={!mini}
       accessibilityLabel={mini ? `Mini-lecteur : ${video.title}` : undefined}>
