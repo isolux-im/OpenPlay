@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import * as ExpoVideo from 'expo-video';
 
 import App from '../App';
 import { SimulatedEngine } from '../player/PlaybackEngine';
@@ -202,6 +203,77 @@ describe('application', () => {
     await fireEvent.press(screen.getAllByRole('button', { name: 'Retour' }).at(-1)!);
     await fireEvent.press(await screen.findByRole('button', { name: 'Bilan de visionnage' }));
     expect(await screen.findByText('Pas encore de bilan')).toBeTruthy();
+  });
+
+  it('enchaîne l’épisode suivant à la fin naturelle, dans le même lecteur, et jamais après une pause', async () => {
+    type FakePlayer = { emit: (event: string, payload: unknown) => void; play: jest.Mock };
+    const players: FakePlayer[] = [];
+    const original = ExpoVideo.useVideoPlayer;
+    const spy = jest.spyOn(ExpoVideo, 'useVideoPlayer').mockImplementation(((...args: Parameters<typeof original>) => {
+      const p = original(...args) as unknown as FakePlayer;
+      if (!players.includes(p)) players.push(p);
+      return p;
+    }) as unknown as typeof original);
+    useSettings.setState({ videoAutoNext: true, videoAutoNextSeason: true });
+    await renderApp();
+    await openVideos();
+    await fireEvent.press(await screen.findByRole('radio', { name: 'Séries' }));
+    await fireEvent.press(await screen.findByRole('button', { name: /^Série Lagune Blues, 3 épisodes/ }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Commencer : S01E01' }));
+    const live = () => players.at(-1)!;
+
+    // Pause en cours d'épisode : aucun enchaînement.
+    await act(async () => live().emit('playingChange', { isPlaying: false }));
+    expect(screen.queryByText(/^Épisode suivant dans/)).toBeNull();
+
+    // Fin naturelle : proposition, puis lecture automatique après le compte à rebours.
+    // Horloge avancée à la main (le compte à rebours lit Date.now toutes les 250 ms).
+    let offset = 0;
+    const realNow = Date.now.bind(Date);
+    const clock = jest.spyOn(Date, 'now').mockImplementation(() => realNow() + offset);
+    const elapse = async (ms: number) => {
+      offset += ms;
+      await act(() => new Promise<void>((r) => setTimeout(r, 400)));
+    };
+    try {
+      await act(async () => live().emit('playToEnd', {}));
+      expect(screen.getByText('Épisode suivant dans 10 s')).toBeTruthy();
+      await elapse(10_500);
+      expect(useVideoPlayer.getState().session?.id).toBe('demo-video-10');
+      expect(screen.getByRole('button', { name: 'Fermer la vidéo' })).toBeTruthy(); // lecteur toujours ouvert
+
+      // Annuler : la vidéo reste sur l'épisode terminé.
+      await act(async () => live().emit('playToEnd', {}));
+      await fireEvent.press(screen.getByRole('button', { name: 'Annuler l’épisode suivant' }));
+      await elapse(15_000);
+      expect(useVideoPlayer.getState().session?.id).toBe('demo-video-10');
+
+      // « Lire maintenant », puis dernier épisode : arrêt propre, pas de retour au premier.
+      await act(async () => live().emit('playToEnd', {}));
+      await fireEvent.press(screen.getByRole('button', { name: 'Lire l’épisode suivant maintenant' }));
+      expect(useVideoPlayer.getState().session?.id).toBe('demo-video-11');
+      await act(async () => live().emit('playToEnd', {}));
+      expect(screen.queryByText(/^Épisode suivant dans/)).toBeNull();
+      await elapse(15_000);
+      expect(useVideoPlayer.getState().session?.id).toBe('demo-video-11');
+
+      // Fermeture pendant le compte à rebours : rien ne se relance.
+      await fireEvent.press(screen.getByRole('button', { name: 'Fermer la vidéo' }));
+      expect(useVideoPlayer.getState().session).toBeNull();
+    } finally {
+      clock.mockRestore();
+      spy.mockRestore();
+    }
+  });
+
+  it('enchaînement désactivé : la fin d’un épisode ne lance rien', async () => {
+    useSettings.setState({ videoAutoNext: false });
+    await renderApp();
+    await act(async () => useVideoPlayer.getState().open('demo-video-9', ['demo-video-9', 'demo-video-10', 'demo-video-11']));
+    expect(await screen.findByRole('button', { name: 'Fermer la vidéo' })).toBeTruthy();
+    expect(screen.queryByText(/^Épisode suivant dans/)).toBeNull();
+    useSettings.setState({ videoAutoNext: true });
+    await act(async () => useVideoPlayer.getState().close());
   });
 
   it('range les descriptions des Paramètres derrière l’icône « ! »', async () => {

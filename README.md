@@ -28,6 +28,13 @@ notification, écran verrouillé, casque) coupe le son en gardant morceau, posit
 la lecture ensuite, ni un état natif arrivé en retard, ni une erreur de fichier. Il n'y a pas de bouton
 « Stop » distinct : l'arrêt de la minuterie de sommeil applique cette même pause (morceau et position conservés).
 
+**Séries vidéo** : reconnues d'après le nom (`S01E02`, `1x02`, `Saison 1 Épisode 2`, `S02_Episode_02`, `S01E01E02`…)
+ou les dossiers (`Ma Serie/Saison 1/Episode 01.mp4`, `Ma Serie/S01/01.mp4`), triées numériquement, épisodes
+spéciaux (saison 0) à part. Un fichier ambigu ou rangé dans un dossier générique (Download, Movies, DCIM…) reste
+une vidéo isolée. À la fin naturelle d'un épisode, le suivant disponible démarre dans le même lecteur après un
+compte à rebours de 10 s (copies du même épisode sautées, numéros absents signalés, arrêt après le dernier) ;
+réglages « Séries : enchaîner les épisodes » et « Continuer à la saison suivante ».
+
 **Métadonnées** : module natif local `modules/openplay-media` (Kotlin) qui lit MediaStore : titre, artiste,
 artiste de l'album, album, genre, numéro de piste/disque, année, dossier ; pochettes extraites vers le cache
 (vignette système, puis image intégrée au fichier) et couleurs dominantes calculées avec AndroidX Palette.

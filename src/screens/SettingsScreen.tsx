@@ -239,6 +239,7 @@ export function SettingsScreen() {
         <Row icon="swap-vertical" iconColor="#8E8E93" label="Glisser : luminosité (gauche), volume (droite)" right={<Switch value={s.videoSwipe} onValueChange={(v) => s.update({ videoSwipe: v })} {...switchColors} />} />
         <Row icon="swap-horizontal" iconColor="#8E8E93" label="Glisser horizontalement : avancer / reculer" right={<Switch value={s.videoSeekSwipe} onValueChange={(v) => s.update({ videoSeekSwipe: v })} {...switchColors} />} />
         <Row icon="play-forward" iconColor="#8E8E93" label="Séries : enchaîner les épisodes" right={<Switch value={s.videoAutoNext} onValueChange={(v) => s.update({ videoAutoNext: v })} {...switchColors} />} />
+        {s.videoAutoNext ? <Row icon="albums-outline" iconColor="#8E8E93" label="Continuer à la saison suivante" right={<Switch value={s.videoAutoNextSeason} onValueChange={(v) => s.update({ videoAutoNextSeason: v })} {...switchColors} />} /> : null}
         <Row icon="musical-notes" iconColor="#8E8E93" label="Séries : repérer le générique" right={<Switch value={s.videoIntroDetect} onValueChange={(v) => s.update({ videoIntroDetect: v })} {...switchColors} />} />
         <Row icon="play-skip-forward" iconColor="#8E8E93" label="Passer le générique automatiquement" right={<Switch value={s.videoIntroAutoSkip} onValueChange={(v) => s.update({ videoIntroAutoSkip: v })} {...switchColors} />} />
         <Row

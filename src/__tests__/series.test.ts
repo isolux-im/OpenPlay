@@ -2,7 +2,7 @@ import { useIntros } from '../store/intros';
 import { useVideoStats } from '../store/videoStats';
 import { detectIntro, inIntro, plausibleIntro } from '../video/intro';
 import { demoVideos } from '../video/library';
-import { buildSeries, episodeLabel, episodeTitle, nextEpisode, parseEpisode, previousEpisode, seriesProgress } from '../video/series';
+import { buildSeries, episodeLabel, episodeTitle, missingBetween, nextEpisode, parseEpisode, previousEpisode, seasonLabel, seriesProgress } from '../video/series';
 import type { Video } from '../video/types';
 import { summarizeWatching } from '../video/watchStats';
 
@@ -81,6 +81,82 @@ describe('reconnaissance des séries', () => {
 
   it('reconnaît la série de démonstration', () => {
     expect(buildSeries(demoVideos()).map((s) => [s.name, s.episodes.length])).toEqual([['Lagune Blues', 3]]);
+  });
+});
+
+describe('classement des séries (cahier de correction)', () => {
+  const ep = (name: string, season: number, episode: number) => ({ name, season, episode });
+
+  it('reconnaît tous les nommages du cahier', () => {
+    const cases: [string, string, ReturnType<typeof ep>][] = [
+      ['Ma.Serie.S01E01.mp4', 'Movies', ep('Ma Serie', 1, 1)],
+      ['Ma.Serie.S01E02.mkv', 'Movies', ep('Ma Serie', 1, 2)],
+      ['Ma Serie S1E3.mp4', 'Movies', ep('Ma Serie', 1, 3)],
+      ['Ma Serie 1x04.mp4', 'Movies', ep('Ma Serie', 1, 4)],
+      ['Ma Serie 1x05.mkv', 'Movies', ep('Ma Serie', 1, 5)],
+      ['Ma Serie - Saison 1 Episode 06.mp4', 'Movies', ep('Ma Serie', 1, 6)],
+      ['Ma Serie - Saison 1 Épisode 07.mp4', 'Movies', ep('Ma Serie', 1, 7)],
+      ['Ma Serie Season 2 Episode 1.mp4', 'Movies', ep('Ma Serie', 2, 1)],
+      ['Ma_Serie_S02_Episode_02.mp4', 'Movies', ep('Ma Serie', 2, 2)],
+      ['Ma Serie - S03E10 - Finale.mp4', 'Movies', ep('Ma Serie', 3, 10)],
+      ['Serie.S01E10.mp4', 'Movies', ep('Serie', 1, 10)],
+      ['Serie.1x02.mp4', 'Movies', ep('Serie', 1, 2)],
+      ['Serie.Saison.2.Episode.03.mp4', 'Movies', ep('Serie', 2, 3)],
+      ['Serie.Season.3.Episode.04.mp4', 'Movies', ep('Serie', 3, 4)],
+      ['Serie S01E120.mp4', 'Movies', ep('Serie', 1, 120)],
+      ['Serie S00E01 Spécial.mp4', 'Movies', ep('Serie', 0, 1)],
+    ];
+    for (const [file, folder, expected] of cases) expect([file, parseEpisode(file, folder)]).toEqual([file, expected]);
+    expect(parseEpisode('Serie.S01E01E02.mkv', 'Movies')).toEqual({ name: 'Serie', season: 1, episode: 1, episodeEnd: 2 });
+  });
+
+  it('utilise les dossiers Ma Serie/Saison 1 et Ma Serie/S01', () => {
+    expect(parseEpisode('Episode 01.mp4', 'Videos/Ma Serie/Saison 1')).toEqual(ep('Ma Serie', 1, 1));
+    expect(parseEpisode('Episode 01.mp4', 'Videos/Ma Serie/Saison 2')).toEqual(ep('Ma Serie', 2, 1));
+    expect(parseEpisode('01.mp4', 'Series/Ma Serie/S01')).toEqual(ep('Ma Serie', 1, 1));
+    expect(parseEpisode('02 - Le retour.mp4', 'Series/Ma Serie/S01')).toEqual(ep('Ma Serie', 1, 2));
+  });
+
+  it('n’invente pas de série pour les fichiers ambigus', () => {
+    expect(parseEpisode('Episode 01.mp4', 'Download')).toBeNull();
+    expect(parseEpisode('Video 123.mp4', 'Movies')).toBeNull();
+    expect(parseEpisode('01.mp4', 'Download')).toBeNull();
+    expect(parseEpisode('01.mp4', 'Movies/Vacances')).toBeNull(); // numéro seul hors dossier de saison
+    expect(parseEpisode('Episode 01.mp4', 'Saison 1')).toBeNull(); // dossier de saison sans parent connu
+    expect(parseEpisode('Film E 2019.mp4', 'Movies')).toBeNull();
+  });
+
+  it('regroupe les variantes et trie numériquement, saisons puis épisodes, spéciaux à part', () => {
+    const files = ['Ma Serie - S03E10 - Finale.mp4', 'Ma.Serie.S01E10.mp4', 'Ma_Serie_S02_Episode_02.mp4', 'Ma Serie S1E3.mp4', 'Ma.Serie.S01E01.mp4', 'Ma Serie S01E02.mp4', 'Ma Serie S01E09.mp4', 'Ma Serie Season 2 Episode 1.mp4', 'Ma Serie S00E01.mp4', 'Autre Serie S01E01.mp4', 'Autre Serie S01E02.mp4'];
+    const list = buildSeries(files.map((f, i) => video(String(i), f)));
+    expect(list.map((s) => s.name)).toEqual(['Autre Serie', 'Ma Serie']); // deux séries distinctes, jamais fusionnées
+    const s = list[1];
+    expect(s.episodes.map((e) => episodeLabel(s.info[e.id]))).toEqual(['S01E01', 'S01E02', 'S01E03', 'S01E09', 'S01E10', 'S02E01', 'S02E02', 'S03E10', 'S00E01']);
+    expect(s.seasons).toEqual([1, 2, 3, 0]);
+    expect(seasonLabel(0)).toBe('Épisodes spéciaux');
+    expect(episodeTitle(s.episodes[6], s.info[s.episodes[6].id])).toBe('Épisode 2');
+  });
+
+  it('épisode suivant : S01E01 → S01E02 → S01E03 → S02E01 → S02E02, puis arrêt', () => {
+    const files = ['X S02E02.mp4', 'X S01E03.mp4', 'X S01E01.mp4', 'X S02E01.mp4', 'X S01E02.mp4', 'X S00E01.mp4'];
+    const [s] = buildSeries(files.map((f) => video(f, f)));
+    const chain: string[] = [];
+    for (let cur: string | undefined = 'X S01E01.mp4'; cur; cur = nextEpisode(s, cur)?.id) chain.push(episodeLabel(s.info[cur]));
+    expect(chain).toEqual(['S01E01', 'S01E02', 'S01E03', 'S02E01', 'S02E02']); // pas d'épisode spécial, pas de retour au début
+    expect(nextEpisode(s, 'X S01E03.mp4', { crossSeason: false })).toBeNull();
+    expect(previousEpisode(s, 'X S02E01.mp4')?.id).toBe('X S01E03.mp4');
+  });
+
+  it('saute les copies du même épisode et les numéros d’un fichier multi-épisodes ; signale les absents', () => {
+    const files = ['Y S01E01.mp4', 'Y S01E01.mkv', 'Y S01E02E03.mkv', 'Y S01E04.mp4', 'Y S01E07.mp4'];
+    const [s] = buildSeries(files.map((f) => video(f, f)));
+    expect(nextEpisode(s, 'Y S01E01.mkv')?.id).toBe('Y S01E02E03.mkv');
+    expect(nextEpisode(s, 'Y S01E01.mp4')?.id).toBe('Y S01E02E03.mkv');
+    expect(nextEpisode(s, 'Y S01E02E03.mkv')?.id).toBe('Y S01E04.mp4');
+    expect(nextEpisode(s, 'Y S01E04.mp4')?.id).toBe('Y S01E07.mp4'); // épisodes manquants : le prochain disponible
+    expect(missingBetween(s, 'Y S01E04.mp4', 'Y S01E07.mp4')).toBe('S01E05, S01E06');
+    expect(missingBetween(s, 'Y S01E02E03.mkv', 'Y S01E04.mp4')).toBeNull();
+    expect(nextEpisode(s, 'Y S01E07.mp4')).toBeNull();
   });
 });
 

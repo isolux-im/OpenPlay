@@ -26,7 +26,7 @@ import { Text } from '../ui/Text';
 import { fitLabel, nextFitMode, preferredOrientation, seekSwipeDelta, swipeLevel, videoFrame, volumeStep } from './display';
 import { detectIntro, inIntro } from './intro';
 import { isFinished, resumePosition } from './library';
-import { episodeLabel, nextEpisode } from './series';
+import { episodeLabel, missingBetween, nextEpisode, type Series } from './series';
 import { importSubtitles, unlinkSubtitles, useExternalSubtitles } from './subtitleFiles';
 import { SubtitleOverlay, SubtitlePanel, trackKey, type SubtitleChoice } from './SubtitlePanel';
 import { cueTextAt } from './subtitles';
@@ -141,6 +141,13 @@ function formatRate(rate: number) {
   return `${rate.toLocaleString('fr-FR', { maximumFractionDigits: 2 })}×`;
 }
 
+/** Ouvre l'épisode suivant dans le même lecteur plein écran ; signale discrètement les numéros absents. */
+function openEpisode(series: Series | undefined, fromId: string, next: Video) {
+  const gap = series ? missingBetween(series, fromId, next.id) : null;
+  if (gap) useUi.getState().showToast(`Absent de la vidéothèque : ${gap}`);
+  useVideoPlayer.getState().open(next.id, series ? series.episodes.map((e) => e.id) : [next.id]);
+}
+
 function PlayerSurface({ video, list, restart }: { video: Video; list: string[]; restart: boolean }) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
@@ -149,6 +156,7 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   const fitMode = useSettings((s) => s.videoFit);
   const orientationMode = useSettings((s) => s.videoOrientation);
   const autoNext = useSettings((s) => s.videoAutoNext);
+  const autoNextSeason = useSettings((s) => s.videoAutoNextSeason);
   const introDetect = useSettings((s) => s.videoIntroDetect);
   const introAutoSkip = useSettings((s) => s.videoIntroAutoSkip);
   const series = useSeriesIndex().byVideo[video.id];
@@ -169,6 +177,11 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   const [rate, setRate] = useState(1);
   const [upNext, setUpNext] = useState<{ video: Video; deadline: number } | null>(null);
   const [upNextLeft, setUpNextLeft] = useState(0);
+  /** Revoir, reculer ou reprendre la lecture annule l'enchaînement proposé. */
+  const clearEnded = () => {
+    setEnded(false);
+    setUpNext(null);
+  };
   // « Auto » et « Paysage » s'appliquent dès l'ouverture ; « Selon vidéo » attend la taille de la vidéo.
   const [orientation, setOrientation] = useState<Orientation | null>(() => carriedOrientation ?? (orientationMode === 'sensor' || orientationMode === 'landscape' ? orientationMode : null));
   const [flash, setFlash] = useState<{ text: string; at: number } | null>(null);
@@ -299,7 +312,7 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   useEventListener(player, 'playingChange', ({ isPlaying }) => {
     setPlaying(isPlaying);
     if (isPlaying) {
-      setEnded(false);
+      clearEnded();
       if (musicWantsToPlay()) usePlayer.getState().pause();
     } else save(currentPosition());
   });
@@ -340,16 +353,21 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
     setEnded(true);
     setControls(true);
     save(duration || player.duration);
-    const next = series && autoNext && !inPip ? nextEpisode(series, video.id) : null;
-    if (next) {
-      setUpNext({ video: next, deadline: Date.now() + UP_NEXT_MS });
-      setUpNextLeft(Math.ceil(UP_NEXT_MS / 1000));
-    }
+    // En fenêtre flottante, l'épisode suivant est proposé au retour en plein écran (la fenêtre est liée à cette vidéo).
+    if (!inPip) proposeNext();
   });
+
+  /** Fin naturelle seulement (playToEnd) : jamais après une pause, une fermeture ou un autre choix de vidéo. */
+  function proposeNext() {
+    const next = series && autoNext ? nextEpisode(series, video.id, { crossSeason: autoNextSeason }) : null;
+    if (!next) return;
+    setUpNext({ video: next, deadline: Date.now() + UP_NEXT_MS });
+    setUpNextLeft(Math.ceil(UP_NEXT_MS / 1000));
+  }
 
   const playEpisode = (next: Video) => {
     setUpNext(null);
-    useVideoPlayer.getState().open(next.id, series ? series.episodes.map((e) => e.id) : [next.id]);
+    openEpisode(series, video.id, next);
   };
 
   // Compte à rebours de l'épisode suivant.
@@ -360,11 +378,11 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
       if (left <= 0) {
         clearInterval(t);
         setUpNext(null);
-        useVideoPlayer.getState().open(upNext.video.id, series ? series.episodes.map((e) => e.id) : [upNext.video.id]);
+        openEpisode(series, video.id, upNext.video);
       } else setUpNextLeft(Math.ceil(left / 1000));
     }, 250);
     return () => clearInterval(t);
-  }, [upNext, series]);
+  }, [upNext, series, video.id]);
 
   // Repérage du générique, quelques secondes après le début pour ne pas ralentir l'ouverture.
   useEffect(() => {
@@ -450,7 +468,7 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
     setPosition(0);
     lastPosition.current = 0;
     setResumedAt(null);
-    setEnded(false);
+    clearEnded();
     player.play();
   };
 
@@ -497,10 +515,9 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   const toggle = () => {
     tap();
     if (ended) {
-      setUpNext(null);
       player.replay();
       lastPosition.current = 0;
-      setEnded(false);
+      clearEnded();
     } else if (playing) player.pause();
     else player.play();
     touch();
@@ -618,7 +635,7 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
     setTime(player, s.target);
     setPosition(s.target);
     lastPosition.current = s.target;
-    setEnded(false);
+    clearEnded();
   };
 
   const surfaceGesture = Gesture.Race(
@@ -672,7 +689,10 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
           // Pas de fenêtre flottante pour une vidéo terminée, en erreur ou en pause.
           startsPictureInPictureAutomatically={pipSupported && playing && !ended && !error}
           onPictureInPictureStart={() => setInPip(true)}
-          onPictureInPictureStop={() => setInPip(false)}
+          onPictureInPictureStop={() => {
+            setInPip(false);
+            if (ended && !upNext) proposeNext();
+          }}
         />
       </View>
 

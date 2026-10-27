@@ -42,6 +42,8 @@ export type Settings = {
   videoSeekSwipe: boolean;
   /** Vidéo : épisode suivant d'une série lancé après un compte à rebours. */
   videoAutoNext: boolean;
+  /** Fin de saison : enchaîner sur le premier épisode de la saison suivante. */
+  videoAutoNextSeason: boolean;
   /** Vidéo : repérage du générique de début des séries (analyse du son sur l'appareil). */
   videoIntroDetect: boolean;
   /** Vidéo : générique repéré passé sans appui. */
@@ -85,6 +87,7 @@ export const DEFAULT_SETTINGS: Settings = {
   videoOrientation: 'sensor',
   videoSeekSwipe: true,
   videoAutoNext: true,
+  videoAutoNextSeason: true,
   videoIntroDetect: true,
   videoIntroAutoSkip: false,
   videoSort: 'date',

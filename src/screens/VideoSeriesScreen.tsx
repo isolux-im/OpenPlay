@@ -11,7 +11,7 @@ import { tap } from '../ui/haptics';
 import { Icon } from '../ui/Icon';
 import { Text } from '../ui/Text';
 import { GUTTER, radius, useTheme } from '../ui/theme';
-import { episodeLabel, episodeTitle, isWatched, seriesProgress, type Series } from '../video/series';
+import { episodeLabel, episodeTitle, isWatched, seasonLabel, seriesProgress, type Series } from '../video/series';
 import { useSeriesIndex } from '../video/useSeries';
 import { VideoRow } from '../video/VideoList';
 import { VideoThumb } from '../video/VideoThumb';
@@ -88,7 +88,7 @@ export function VideoSeriesScreen() {
       </View>
       {series.seasons.map((season) => (
         <View key={season}>
-          {series.seasons.length > 1 ? <SectionHeader title={`Saison ${season}`} /> : null}
+          {series.seasons.length > 1 ? <SectionHeader title={seasonLabel(season)} /> : null}
           {series.episodes
             .filter((e) => series.info[e.id].season === season)
             .map((e) => (
