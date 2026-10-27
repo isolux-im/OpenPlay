@@ -36,7 +36,19 @@ beforeEach(() => {
   useUi.setState({ librarySection: 'music' });
 });
 
-/** Vidéos : onglet Bibliothèque, puis « Vidéos » dans le sélecteur Musique | Vidéos. */
+/**
+ * Onglet Bibliothèque. Il est déjà actif au lancement (plus d'Accueil) : le toucher à nouveau revient à la racine
+ * de sa pile de façon asynchrone et pourrait refermer l'écran ouvert juste après ; on ne le touche que s'il ne l'est pas.
+ */
+async function openLibrary() {
+  const tab = screen.getByRole('tab', { name: 'Bibliothèque' });
+  if (!tab.props.accessibilityState?.selected) await fireEvent.press(tab);
+}
+
+/**
+ * Vidéos : retour à la racine de la Bibliothèque (toucher l'onglet, même actif, referme les sous-écrans), puis
+ * « Vidéos » dans le sélecteur Musique | Vidéos, attendu jusqu'à son affichage.
+ */
 async function openVideos() {
   await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
   await fireEvent.press(await screen.findByRole('radio', { name: 'Vidéos' }));
@@ -65,7 +77,7 @@ describe('application', () => {
 
   it('navigue vers un album, lance un morceau et ouvre le lecteur plein écran', async () => {
     await renderApp();
-    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    await openLibrary();
     await fireEvent.press(await screen.findByRole('button', { name: 'Albums' }));
     await fireEvent.press((await screen.findAllByRole('button', { name: /^Racines/ }))[0]);
     await fireEvent.press(await screen.findByRole('button', { name: /^Lire Lagune/ }));
@@ -88,7 +100,7 @@ describe('application', () => {
   it('ouvre le menu contextuel vitré par « ⋮ » et ajoute aux favoris', async () => {
     useUser.setState({ favorites: [] });
     await renderApp();
-    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    await openLibrary();
     await fireEvent.press(await screen.findByRole('button', { name: /^Albums/ }));
     await fireEvent.press((await screen.findAllByRole('button', { name: /^Racines/ }))[0]);
     await fireEvent.press((await screen.findAllByRole('button', { name: /^Options pour Lagune/ }))[0], { nativeEvent: { pageX: 200, pageY: 300 } });
@@ -115,7 +127,7 @@ describe('application', () => {
   it('ouvre « À découvrir » depuis la bibliothèque', async () => {
     useUser.setState({ playCounts: {}, lastPlayed: {}, history: [] });
     await renderApp();
-    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    await openLibrary();
     await fireEvent.press((await screen.findAllByRole('button', { name: /^À découvrir, \d+$/ }))[0]);
     expect(await screen.findByRole('radio', { name: 'Oubliés' })).toBeTruthy();
     expect(screen.getAllByText('Jamais écouté dans OpenPlay').length).toBeGreaterThan(0);
@@ -137,7 +149,7 @@ describe('application', () => {
 
   it('affiche l’index A–Z sur la liste des titres et y saute', async () => {
     await renderApp();
-    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    await openLibrary();
     await fireEvent.press((await screen.findAllByRole('button', { name: /^Titres, \d+$/ }))[0]);
     const strip = await screen.findByRole('adjustable', { name: 'Index alphabétique' });
     await fireEvent(strip, 'accessibilityAction', { nativeEvent: { actionName: 'increment' } });
@@ -146,7 +158,7 @@ describe('application', () => {
 
   it('réunit Musique et Vidéos dans la Bibliothèque sans perdre de section', async () => {
     await renderApp();
-    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    await openLibrary();
     expect(screen.getByRole('radio', { name: 'Musique' }).props.accessibilityState).toEqual({ selected: true });
     const musicTiles = [/^Récents/, /^Favoris/, /^Playlists/, /^Titres, \d+$/, /^À découvrir, \d+$/, /^Bilan/];
     for (const name of musicTiles) expect((await screen.findAllByRole('button', { name })).length).toBeGreaterThan(0);
@@ -318,7 +330,7 @@ describe('application', () => {
     useFolders.setState({ created: { audio: [], video: [] } });
     await renderApp();
     const track = useLibrary.getState().index.tracks.find((t) => t.id !== usePlayer.getState().queue[usePlayer.getState().index])!;
-    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    await openLibrary();
     await fireEvent.press(await screen.findByRole('button', { name: /^Dossiers/ }));
     await fireEvent.press(await screen.findByRole('button', { name: 'Nouveau dossier' }));
     await fireEvent.changeText(await screen.findByLabelText('Nom du dossier'), 'Favoris du soir');
@@ -385,10 +397,10 @@ describe('application', () => {
     // Morceau en cours : sa suppression est refusée ; on en prend deux autres.
     const [a, b] = useLibrary.getState().index.tracks.slice().sort((x, y) => x.title.localeCompare(y.title, 'fr')).filter((t) => t.id !== current);
     const total = useLibrary.getState().index.tracks.length;
-    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    await openLibrary();
     await fireEvent.press((await screen.findAllByRole('button', { name: /^Titres, \d+$/ }))[0]);
     await fireEvent.press(await screen.findByRole('button', { name: 'Sélectionner' }));
-    expect(screen.getByText('Touchez les éléments à sélectionner')).toBeTruthy();
+    expect(await screen.findByText('Touchez les éléments à sélectionner')).toBeTruthy();
     // Pendant la sélection, toucher un morceau le coche au lieu de le lire.
     await fireEvent.press(screen.getAllByRole('checkbox', { name: a.title })[0]);
     expect(screen.getByText('1 sélectionné')).toBeTruthy();
@@ -434,10 +446,10 @@ describe('application', () => {
 
   it('toucher lance la lecture ; l’appui long sélectionne (morceaux et vidéos en grille)', async () => {
     await renderApp();
-    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    await openLibrary();
     await fireEvent.press((await screen.findAllByRole('button', { name: /^Titres, \d+$/ }))[0]);
     const [first, second] = useLibrary.getState().index.tracks.slice().sort((x, y) => x.title.localeCompare(y.title, 'fr'));
-    await fireEvent.press(screen.getAllByRole('button', { name: `Lire ${first.title}, ${first.artist}` })[0]);
+    await fireEvent.press((await screen.findAllByRole('button', { name: `Lire ${first.title}, ${first.artist}` }))[0]);
     expect(usePlayer.getState().queue[usePlayer.getState().index]).toBe(first.id);
     await fireEvent(screen.getAllByRole('button', { name: `Lire ${second.title}, ${second.artist}` })[0], 'longPress');
     expect(useSelection.getState()).toMatchObject({ kind: 'audio', ids: [second.id] });
@@ -508,7 +520,7 @@ describe('application', () => {
     await act(async () => usePlayer.getState().pause());
     expect(usePlayer.getState().isPlaying).toBe(false);
     expect(mini()).toBeTruthy(); // en pause, toujours visible
-    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    await openLibrary();
     expect(mini()).toBeTruthy(); // Bibliothèque › Musique
     await fireEvent.press(await screen.findByRole('radio', { name: 'Vidéos' }));
     expect(mini()).toBeNull(); // Bibliothèque › Vidéos
@@ -516,7 +528,7 @@ describe('application', () => {
       await fireEvent.press(screen.getByRole('tab', { name: tab }));
       expect(mini()).toBeNull();
     }
-    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    await openLibrary();
     expect(mini()).toBeNull(); // la section Vidéos est restée choisie
     await fireEvent.press(screen.getByRole('radio', { name: 'Musique' }));
     expect(mini()).toBeTruthy();
@@ -529,7 +541,7 @@ describe('application', () => {
     await renderApp();
     const tracks = useLibrary.getState().index.tracks.slice(0, 3);
     useUser.setState({ history: tracks.map((t, i) => ({ trackId: t.id, at: Date.now() - i * 60_000 })) });
-    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    await openLibrary();
     await fireEvent.press((await screen.findAllByRole('button', { name: /^Récents/ }))[0]);
     await fireEvent.press((await screen.findAllByRole('button', { name: new RegExp(`^Lire ${tracks[1].title}`) }))[0]);
     expect(usePlayer.getState().queue).toEqual(tracks.map((t) => t.id));
