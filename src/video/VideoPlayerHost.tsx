@@ -11,7 +11,7 @@ import { recordDiagnostic } from '../diagnostics/crashReports';
 import { formatDuration } from '../library/text';
 import { registerVideoPauser } from '../player/mediaFocus';
 import { Scrubber } from '../player/ui/Scrubber';
-import { usePlayer } from '../store/player';
+import { musicWantsToPlay, usePlayer } from '../store/player';
 import { useSettings } from '../store/settings';
 import { useIntros } from '../store/intros';
 import { useSubtitles } from '../store/subtitles';
@@ -284,7 +284,7 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
       if (orientationMode === 'video') setOrientation((o) => o ?? preferredOrientation(video.width && video.height ? video : (player.videoTrack?.size ?? video)));
       // Fichier importé choisi : pas de piste intégrée affichée en même temps.
       if (subtitleChoice.kind !== 'embedded') setSubtitleTrack(player, null);
-      if (usePlayer.getState().isPlaying) usePlayer.getState().pause();
+      if (musicWantsToPlay()) usePlayer.getState().pause();
       player.play();
     }
     if (status === 'error') {
@@ -300,7 +300,7 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
     setPlaying(isPlaying);
     if (isPlaying) {
       setEnded(false);
-      if (usePlayer.getState().isPlaying) usePlayer.getState().pause();
+      if (musicWantsToPlay()) usePlayer.getState().pause();
     } else save(currentPosition());
   });
 

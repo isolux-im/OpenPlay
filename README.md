@@ -22,6 +22,11 @@ lecteur plein écran qui s'ouvre depuis le mini-lecteur et se ferme d'un glissem
 **Lecture** : file native ExoPlayer (expo-audio `AudioPlaylist`) qui continue en arrière-plan, avec
 notification, commandes de l'écran de verrouillage et boutons Bluetooth (lecture, pause, suivant, précédent).
 La dernière session (file, position, aléatoire, répétition) est restaurée au lancement.
+Un seul lecteur MP3 existe à la fois : changer de liste libère réellement l'ancien (pause puis `release()`),
+et la musique met la vidéo en pause (et inversement). **Pause** (mini-lecteur, lecteur plein écran, accueil,
+notification, écran verrouillé, casque) coupe le son en gardant morceau, position et file ; rien ne relance
+la lecture ensuite, ni un état natif arrivé en retard, ni une erreur de fichier. Il n'y a pas de bouton
+« Stop » distinct : l'arrêt de la minuterie de sommeil applique cette même pause (morceau et position conservés).
 
 **Métadonnées** : module natif local `modules/openplay-media` (Kotlin) qui lit MediaStore : titre, artiste,
 artiste de l'album, album, genre, numéro de piste/disque, année, dossier ; pochettes extraites vers le cache

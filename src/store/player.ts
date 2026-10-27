@@ -97,6 +97,25 @@ const LISTEN_FLUSH_SEC = 120;
 let lastSessionSave = 0;
 let lastResumeSave = 0;
 let now: () => number = () => Date.now();
+/**
+ * Intention de lecture : ce que l'utilisateur a demandé en dernier (lecture ou pause), qu'il soit
+ * passé par l'application, la notification, l'écran de verrouillage ou un casque. Les commandes de
+ * l'application la fixent ; l'état natif ne la modifie qu'en dehors de la fenêtre qui suit une
+ * commande, où il peut encore décrire l'état d'avant (événement émis avant la commande, reçu après).
+ */
+let wantsPlay = false;
+let lastCommandAt = 0;
+const COMMAND_SETTLE_MS = 1500;
+
+function command(play: boolean) {
+  wantsPlay = play;
+  lastCommandAt = Date.now();
+}
+
+/** La musique joue ou va jouer (chargement en cours) : sert à la priorité musique / vidéo. */
+export function musicWantsToPlay(): boolean {
+  return wantsPlay || usePlayer.getState().isPlaying;
+}
 
 /** Position où reprendre `id`, ou 0. */
 function resumeFor(id: string | undefined): number {
@@ -216,7 +235,9 @@ export const usePlayer = create<PlayerState>()((set, get) => {
         positionSec: resumeAt,
         durationSec: resolveTrack(queue[index])?.durationSec ?? 0,
         sourceLabel: options.label ?? null,
+        isPlaying: true,
       });
+      command(true);
       pauseVideoForMusic();
       engine.load(itemsFor(queue), index, resumeAt, true);
       announceResume(resumeAt);
@@ -227,15 +248,17 @@ export const usePlayer = create<PlayerState>()((set, get) => {
     toggle: () => (get().isPlaying ? get().pause() : get().play()),
     play: () => {
       if (!get().queue.length) return;
+      command(true);
       pauseVideoForMusic();
       engine?.play();
       set({ isPlaying: true });
     },
     pause: () => {
+      command(false);
       rememberPosition(get().queue[get().index], get().positionSec);
       flushListening();
       engine?.pause();
-      set({ isPlaying: false });
+      set({ isPlaying: false, isBuffering: false });
       persistSession();
     },
     next: () => {
@@ -254,6 +277,7 @@ export const usePlayer = create<PlayerState>()((set, get) => {
     },
     jumpTo: (i) => {
       if (i < 0 || i >= get().queue.length) return;
+      command(true);
       pauseVideoForMusic();
       engine?.skipTo(i);
       engine?.play();
@@ -276,9 +300,9 @@ export const usePlayer = create<PlayerState>()((set, get) => {
       set({ shuffle: !shuffle, queue: newQueue, index: newIndex });
       if (queue.length <= INCREMENTAL_REORDER_LIMIT) rebuildAround(queue, index, newQueue, newIndex);
       else if (engine) {
-        const { positionSec, isPlaying } = get();
+        const { positionSec } = get();
         reloadUntil = Date.now() + 2000;
-        engine.load(itemsFor(newQueue), newIndex, positionSec, isPlaying);
+        engine.load(itemsFor(newQueue), newIndex, positionSec, wantsPlay);
         announceNowPlaying();
       }
       persistSession();
@@ -354,6 +378,7 @@ export const usePlayer = create<PlayerState>()((set, get) => {
       const index = Math.max(0, queue.indexOf(currentId));
       const positionSec = queue[index] === currentId ? session.positionSec : 0;
       countedCurrent = true;
+      command(false);
       set({
         queue,
         originalQueue: session.originalQueue.filter(exists),
@@ -400,12 +425,19 @@ export function connectPlayer(
   unsubscribers.push(
     e.onStatus((s) => {
       const state = store.getState();
+      if (Date.now() - lastCommandAt < COMMAND_SETTLE_MS) {
+        // Juste après une commande, un état contraire est périmé. Après une pause, s'il dit « en lecture »,
+        // la pause est réappliquée (sans effet si le son est déjà coupé) : rien ne relance la musique.
+        if (!wantsPlay && s.playing) e.pause();
+      } else if (s.playing) wantsPlay = true;
+      else if (!s.isBuffering) wantsPlay = false; // pause depuis la notification, fin de file, perte du focus audio
+      const playing = wantsPlay && (s.playing || s.isBuffering || Date.now() - lastCommandAt < COMMAND_SETTLE_MS);
       // En arrière-plan, la position affichée n'est rafraîchie que toutes les 10 s (moins de rendus) ;
       // le comptage des écoutes, lui, continue à chaque mise à jour.
       const background = AppState.currentState === 'background';
-      if (!background || s.playing !== state.isPlaying || s.isBuffering !== state.isBuffering || Math.abs(s.positionSec - state.positionSec) >= 10) {
+      if (!background || playing !== state.isPlaying || s.isBuffering !== state.isBuffering || Math.abs(s.positionSec - state.positionSec) >= 10) {
         store.setState({
-          isPlaying: s.playing,
+          isPlaying: playing,
           isBuffering: s.isBuffering,
           positionSec: s.positionSec,
           durationSec: s.durationSec > 0 ? s.durationSec : state.durationSec,
@@ -486,15 +518,18 @@ export function connectPlayer(
       recordDiagnostic('Fichier audio illisible', `${title} (${track?.mimeType ?? 'type inconnu'}) : ${message}`);
       consecutiveErrors += 1;
       const nextIndex = at < state.queue.length - 1 ? at + 1 : state.repeat === 'all' ? 0 : -1;
-      if (nextIndex >= 0 && nextIndex !== at && consecutiveErrors < MAX_CONSECUTIVE_ERRORS) {
+      // Après une pause ou un arrêt manuels, une erreur tardive ne relance jamais la lecture.
+      if (wantsPlay && nextIndex >= 0 && nextIndex !== at && consecutiveErrors < MAX_CONSECUTIVE_ERRORS) {
         useUi.getState().showToast(`« ${title} » est illisible : morceau suivant`);
         store.setState({ index: nextIndex, positionSec: 0, durationSec: resolveTrack(state.queue[nextIndex])?.durationSec ?? 0, isPlaying: true });
         // Le moteur repart d'un lecteur neuf, positionné sur le morceau suivant.
+        command(true);
         e.skipTo(nextIndex);
         e.play();
       } else {
         // On s'arrête : le lecteur neuf ne sera créé qu'à la prochaine demande de lecture (pas de boucle d'échecs).
         useUi.getState().showToast(`Lecture impossible : « ${title} » est absent ou illisible`);
+        command(false);
         store.setState({ isPlaying: false, positionSec: 0 });
         consecutiveErrors = 0;
       }
@@ -518,6 +553,8 @@ export function disconnectPlayer() {
   lastSessionSave = 0;
   lastResumeSave = 0;
   reloadUntil = 0;
+  wantsPlay = false;
+  lastCommandAt = 0;
   now = () => Date.now();
 }
 

@@ -98,22 +98,27 @@ export class ExpoPlaylistEngine implements PlaybackEngine {
         playlist.playbackRate = rate;
       });
     }
+    // Un événement déjà en file d'attente quand le lecteur a été remplacé n'est plus relayé.
+    const live = () => !this.released && this.playlist === playlist;
     this.subscriptions = [
       playlist.addListener('playlistStatusUpdate', (s) => {
+        if (!live()) return;
         if (s.currentIndex >= 0) this.current = s.currentIndex;
         const status = { playing: s.playing, isBuffering: s.isBuffering, positionSec: s.currentTime, durationSec: s.duration, index: s.currentIndex };
-        this.statusListeners.forEach((l) => l(status));
         // ExoPlayer signale ses échecs dans la mise à jour d'état (champ « error », absent des types publiés).
+        // L'erreur est relayée avant l'état : cet arrêt n'est pas une pause demandée par l'utilisateur.
         const error = (s as { error?: { message?: string | null } | string | null }).error;
-        if (!error) return;
-        const message = (typeof error === 'string' ? error : error.message) || 'Erreur de lecture';
+        const message = error ? (typeof error === 'string' ? error : error.message) || 'Erreur de lecture' : null;
         const key = `${s.currentIndex}:${message}`;
-        if (key === this.lastError) return;
-        this.lastError = key;
-        this.failed = true;
-        this.errorListeners.forEach((l) => l({ index: s.currentIndex, message }));
+        if (message && key !== this.lastError) {
+          this.lastError = key;
+          this.failed = true;
+          this.errorListeners.forEach((l) => l({ index: s.currentIndex, message }));
+        }
+        if (live()) this.statusListeners.forEach((l) => l(status));
       }),
       playlist.addListener('trackChanged', (e) => {
+        if (!live()) return;
         this.lastError = null;
         this.current = e.currentIndex;
         this.trackListeners.forEach((l) => l(e.currentIndex));
@@ -136,15 +141,35 @@ export class ExpoPlaylistEngine implements PlaybackEngine {
   }
 
   /**
+   * Arrête et libère un lecteur natif. Dans expo-audio 58, `destroy()` retire seulement les commandes
+   * de l'écran de verrouillage : l'ExoPlayer continue de jouer jusqu'à ce que l'objet soit libéré
+   * (`release()`, sinon le ramasse-miettes, bien plus tard). Sans pause ni libération explicites,
+   * l'ancien morceau restait audible en même temps que le nouveau, hors d'atteinte des commandes.
+   */
+  private dispose(playlist: AudioPlaylist) {
+    this.subscriptions.forEach((sub) => sub.remove());
+    this.subscriptions = [];
+    const run = (action: string, step: () => void) => {
+      try {
+        step();
+      } catch (e) {
+        recordDiagnostic(`Libération du lecteur : « ${action} » en échec`, describeError(e));
+      }
+    };
+    run('pause', () => playlist.pause());
+    run('destroy', () => playlist.destroy());
+    run('release', () => playlist.release());
+  }
+
+  /**
    * Remplace le lecteur natif par un lecteur neuf chargé de `this.items`, positionné sur `index`
    * (sans lancer la lecture). Sert au chargement d'une file et à la reprise après une erreur.
    * Charger la file à la création évite un appel synchrone au fil principal, un événement d'état et
    * un recalcul de la file ExoPlayer pour chaque morceau (des milliers pour « Tous les titres »).
    */
   private rebuild(index: number) {
-    this.subscriptions.forEach((sub) => sub.remove());
-    this.subscriptions = [];
-    this.guard('remplacement du lecteur', () => this.playlist.destroy());
+    if (this.released) return;
+    this.dispose(this.playlist);
     this.lockScreenActive = false;
     this.failed = false;
     this.lastError = null;
@@ -276,12 +301,7 @@ export class ExpoPlaylistEngine implements PlaybackEngine {
   release() {
     if (this.released) return;
     this.released = true;
-    this.subscriptions.forEach((sub) => sub.remove());
-    try {
-      this.playlist.destroy();
-    } catch (e) {
-      recordDiagnostic('Libération du lecteur en échec', describeError(e));
-    }
+    this.dispose(this.playlist);
   }
 }
 
