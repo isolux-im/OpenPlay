@@ -90,7 +90,7 @@ export function PlaylistScreen() {
       </ArtworkGlow>
 
       {entries.length === 0 ? (
-        <EmptyState icon="musical-notes" title="Playlist vide" message="Ajoutez des morceaux depuis la bibliothèque ou ici." action={{ label: 'Ajouter des morceaux', onPress: () => navigation.navigate('AddSongs', { playlistId: playlist.id }) }} />
+        <EmptyState icon="musical-notes" title="Playlist vide" message="Ajoutez des morceaux depuis l’onglet Audios ou ici." action={{ label: 'Ajouter des morceaux', onPress: () => navigation.navigate('AddSongs', { playlistId: playlist.id }) }} />
       ) : editing ? (
         entries.map((e, k) => (
           <DraggableRow key={`${e.track.id}-${e.i}`} index={e.i} count={playlist.trackIds.length} rowHeight={TRACK_ROW_HEIGHT} handleColor={colors.tertiaryText} onMove={(from, to) => movePlaylistTrack(playlist.id, from, to)}>

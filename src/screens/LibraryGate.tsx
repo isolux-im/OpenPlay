@@ -41,7 +41,7 @@ export function LibraryGate({ children, emptyHint = true }: { children: ReactNod
       <EmptyState
         icon="lock-closed-outline"
         title="Accès refusé"
-        message="Autorisez « Musique et audio » dans les paramètres Android pour afficher votre bibliothèque."
+        message="Autorisez « Musique et audio » dans les paramètres Android pour afficher vos audios."
         action={{ label: 'Ouvrir les paramètres', onPress: () => Linking.openSettings() }}
       />
     );

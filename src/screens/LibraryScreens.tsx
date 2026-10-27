@@ -30,7 +30,7 @@ import { FolderActions, NewFolderRow } from './NewFolderScreen';
 import { useFolders } from '../store/folders';
 
 /** Onglet Musique : raccourcis, mix, albums, playlists et parcours de toute la bibliothèque musicale. */
-export function LibraryScreen({ title = 'Musique' }: { title?: string } = {}) {
+export function LibraryScreen({ title = 'Audios' }: { title?: string } = {}) {
   const navigation = useAppNavigation();
   const index = useLibrary((s) => s.index);
   const favorites = useUser((s) => s.favorites.length);
@@ -176,7 +176,7 @@ export function SongsScreen() {
   return (
     <TrackCollectionScreen
       title="Titres"
-      backLabel="Musique"
+      backLabel="Audios"
       tracks={sorted}
       alphabetKey={sort === 'title' ? alphabetByTitle : sort === 'artist' ? alphabetByArtist : undefined}
       label="Tous les titres"
@@ -215,7 +215,7 @@ export function ArtistsScreen() {
     <ListScreen
       title="Artistes"
       back
-      backLabel="Musique"
+      backLabel="Audios"
       data={index.artists}
       alphabet={alphabet}
       keyExtractor={(a) => a.id}
@@ -229,7 +229,7 @@ export function ArtistsScreen() {
 export function AlbumsScreen() {
   const albums = useLibrary((s) => s.index.albums);
   return (
-    <ScrollScreen title="Albums" back backLabel="Musique">
+    <ScrollScreen title="Albums" back backLabel="Audios">
       {albums.length ? <Grid data={albums} keyOf={(a) => a.id} render={(a) => <AlbumGridCard album={a} />} /> : <EmptyState icon="albums-outline" title="Aucun album" />}
     </ScrollScreen>
   );
@@ -239,7 +239,7 @@ export function GenresScreen() {
   const navigation = useAppNavigation();
   const genres = useLibrary((s) => s.index.genres);
   return (
-    <ScrollScreen title="Genres" back backLabel="Musique">
+    <ScrollScreen title="Genres" back backLabel="Audios">
       <View style={styles.tiles}>
         {genres.map((g) => (
           <GenreTile key={g.id} genre={g} onPress={() => navigation.push('Genre', { id: g.id })} />
@@ -301,7 +301,7 @@ export function FoldersScreen() {
       </View>
     </Pressable>
   );
-  return <ListScreen title="Dossiers" back backLabel="Musique" header={<NewFolderRow kind="audio" />} data={folders} keyExtractor={(f) => f.id} renderItem={renderItem} ListEmptyComponent={<EmptyState icon="folder-outline" title="Aucun dossier" />} />;
+  return <ListScreen title="Dossiers" back backLabel="Audios" header={<NewFolderRow kind="audio" />} data={folders} keyExtractor={(f) => f.id} renderItem={renderItem} ListEmptyComponent={<EmptyState icon="folder-outline" title="Aucun dossier" />} />;
 }
 
 export function FolderScreen() {
@@ -314,7 +314,7 @@ export function FolderScreen() {
   const name = folder?.name ?? (created ? params.id.split('/').pop() : undefined);
   const hide = () =>
     folder &&
-    Alert.alert('Masquer ce dossier ?', `« ${folder.path} » et ses sous-dossiers n'apparaîtront plus dans la bibliothèque. Aucun fichier n'est supprimé ; vous pourrez le réafficher dans Paramètres › Dossiers masqués.`, [
+    Alert.alert('Masquer ce dossier ?', `« ${folder.path} » et ses sous-dossiers n'apparaîtront plus dans OpenPlay. Aucun fichier n'est supprimé ; vous pourrez le réafficher dans Paramètres › Dossiers masqués.`, [
       { text: 'Annuler', style: 'cancel' },
       {
         text: 'Masquer',
@@ -367,7 +367,7 @@ export function HistoryScreen() {
     <ScrollScreen
       title="Historique"
       back
-      backLabel="Musique"
+      backLabel="Audios"
       right={
         history.length ? (
           <Pressable onPress={clearHistory} hitSlop={10} accessibilityRole="button">
@@ -433,7 +433,7 @@ export function SmartPlaylistScreen() {
     favorites: 'Ajoutez des favoris pour remplir cette playlist.',
     mostPlayed: 'Écoutez de la musique : vos titres les plus joués apparaîtront ici.',
     recentlyAdded: 'Aucun morceau ajouté récemment.',
-    rediscover: 'Vous avez écouté toute votre bibliothèque ces 30 derniers jours !',
+    rediscover: 'Vous avez écouté tous vos audios ces 30 derniers jours !',
   };
   return <TrackCollectionScreen title={meta.title} tracks={tracks} emptyIcon={meta.icon} emptyTitle="Rien pour l'instant" emptyMessage={messages[params.kind]} subtitle="Playlist automatique" />;
 }

@@ -80,7 +80,7 @@ function VideosRoot() {
 }
 
 function MusicRoot() {
-  return <LibraryScreen title="Musique" />;
+  return <LibraryScreen title="Audios" />;
 }
 
 /** Une pile par onglet, avec le même jeu d'écrans de détail : la barre d'onglets reste visible. */

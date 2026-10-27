@@ -146,7 +146,7 @@ export function PlaylistsScreen({ back = false }: { back?: boolean } = {}) {
     <ScrollScreen
       title="Playlists"
       back={back}
-      backLabel={back ? 'Musique' : undefined}
+      backLabel={back ? 'Audios' : undefined}
       titleRight={
         <>
           <HeaderButton icon="search-outline" label="Rechercher" onPress={() => goToTab('SearchTab')} />

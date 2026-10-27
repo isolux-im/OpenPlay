@@ -19,8 +19,8 @@ import { Text } from '../ui/Text';
 import { useTheme } from '../ui/theme';
 
 const TABS: Record<string, { label: string; icon: IconName; activeIcon: IconName }> = {
-  VideosTab: { label: 'Vidéo', icon: 'film-outline', activeIcon: 'film' },
-  MusicTab: { label: 'Musique', icon: 'musical-notes-outline', activeIcon: 'musical-notes' },
+  VideosTab: { label: 'Vidéos', icon: 'film-outline', activeIcon: 'film' },
+  MusicTab: { label: 'Audios', icon: 'musical-notes-outline', activeIcon: 'musical-notes' },
   SearchTab: { label: 'Recherche', icon: 'search-outline', activeIcon: 'search' },
   SettingsTab: { label: 'Paramètres', icon: 'settings-outline', activeIcon: 'settings' },
 };

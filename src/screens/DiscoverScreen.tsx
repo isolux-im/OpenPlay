@@ -155,7 +155,7 @@ export function DiscoverScreen() {
     <ListScreen
       title="À découvrir"
       back
-      subtitle="Votre bibliothèque, à redécouvrir"
+      subtitle="Vos audios, à redécouvrir"
       data={rows}
       keyExtractor={(r) => r.key}
       renderItem={renderItem}

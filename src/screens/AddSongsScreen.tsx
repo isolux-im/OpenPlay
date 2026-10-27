@@ -79,7 +79,7 @@ export function AddSongsScreen() {
       header={
         <View style={[styles.search, { backgroundColor: colors.fill }]}>
           <Icon name="search" size={18} color={colors.secondaryText} />
-          <TextInput value={query} onChangeText={setQuery} placeholder="Rechercher dans la bibliothèque" placeholderTextColor={colors.secondaryText} style={[styles.input, { color: colors.text }]} accessibilityLabel="Rechercher" />
+          <TextInput value={query} onChangeText={setQuery} placeholder="Rechercher un morceau" placeholderTextColor={colors.secondaryText} style={[styles.input, { color: colors.text }]} accessibilityLabel="Rechercher" />
         </View>
       }
     />

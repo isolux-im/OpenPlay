@@ -47,7 +47,7 @@ export function SearchScreen() {
           style={[styles.input, { color: colors.text }]}
           returnKeyType="search"
           autoCorrect={false}
-          accessibilityLabel="Rechercher dans la bibliothèque"
+          accessibilityLabel="Rechercher dans OpenPlay"
         />
         {query ? (
           <Pressable onPress={() => setQuery('')} hitSlop={10} accessibilityRole="button" accessibilityLabel="Effacer la recherche">

@@ -88,7 +88,7 @@ export const useLibrary = create<LibraryState>()((set, get) => ({
         : demoTracks().filter((t) => t.durationSec >= minDurationSec);
       set({ allTracks: tracks, index: indexFor(tracks), status: 'ready', scannedAt: Date.now(), isDemo: isDemoMode() });
     } catch {
-      set({ status: 'error', error: 'Impossible de lire la bibliothèque musicale.' });
+      set({ status: 'error', error: 'Impossible de lire les audios.' });
     }
   },
 

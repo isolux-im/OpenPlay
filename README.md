@@ -10,14 +10,14 @@ branche `archive/kotlin-native`.
 photos et vidéos) ; un écran explique pourquoi et permet de redemander. Refusé, l'accès reste proposé dans les
 onglets Vidéo et Musique.
 
-**Navigation** : quatre onglets, à la manière de VLC — Vidéo, Musique, Recherche, Paramètres —, une pile d'écrans
+**Navigation** : quatre onglets, à la manière de VLC — Vidéos, Audios, Recherche, Paramètres —, une pile d'écrans
 par onglet (la barre reste visible sur les fiches album/artiste), mini-lecteur flottant au-dessus de la barre,
 lecteur plein écran qui s'ouvre depuis le mini-lecteur et se ferme d'un glissement vers le bas.
 
 | Écran | Contenu |
 |---|---|
-| Vidéo | Même organisation que Musique : recherche, tuiles Récentes, Favoris, Playlists, Toutes, Continuer, Bilan ; « Continuer à regarder » ; Parcourir (Toutes les vidéos, Séries, Playlists vidéo, Dossiers) ; lecteur vidéo et mini-lecteur. Vidéos classées automatiquement par nom (ordre alphabétique, 2 avant 10), sans « Trier par » |
-| Musique | Mix pour vous (titres phares, genre favori, à redécouvrir, aléatoire), Récents, Favoris, Playlists, Titres (tri titre/artiste/album/date), Artistes, Albums, Genres, Dossiers, À découvrir, Bilan d'écoute ; fiches album et artiste |
+| Vidéos | Même organisation que Musique : recherche, tuiles Récentes, Favoris, Playlists, Toutes, Continuer, Bilan ; « Continuer à regarder » ; Parcourir (Toutes les vidéos, Séries, Playlists vidéo, Dossiers) ; lecteur vidéo et mini-lecteur. Vidéos classées automatiquement par nom (ordre alphabétique, 2 avant 10), sans « Trier par » |
+| Audios | Mix pour vous (titres phares, genre favori, à redécouvrir, aléatoire), Récents, Favoris, Playlists, Titres (tri titre/artiste/album/date), Artistes, Albums, Genres, Dossiers, À découvrir, Bilan d'écoute ; fiches album et artiste |
 | Musique › Playlists | Création, renommage, suppression, ajout de morceaux, réordonnancement par glisser-déposer ; playlists automatiques (favoris, plus écoutés, ajoutés récemment, à redécouvrir) |
 | Recherche | Recherche instantanée sans accents ni casse (morceaux, artistes, albums, playlists), meilleur résultat, recherches récentes, genres |
 | Paramètres | Thème clair/sombre/système, couleur d'accent, lecteur coloré, analyse et durée minimale, reprise au lancement, haptique, minuterie, historique |

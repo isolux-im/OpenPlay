@@ -64,7 +64,7 @@ export function MixesSection() {
     const u = uniqueDiscover(discover);
     const re = [...u.never, ...u.forgotten, ...u.rare].map((i) => i.track).slice(0, 60);
     if (re.length >= 3) out.push({ key: 'rediscover', title: 'À découvrir', subtitle: 'Jamais ou peu écoutés', icon: 'sparkles-outline', tracks: shuffled(re) });
-    if (index.tracks.length) out.push({ key: 'shuffle', title: 'Mix aléatoire', subtitle: 'Toute la bibliothèque', icon: 'shuffle-outline', tracks: shuffled(index.tracks).slice(0, 100) });
+    if (index.tracks.length) out.push({ key: 'shuffle', title: 'Mix aléatoire', subtitle: 'Tous vos audios', icon: 'shuffle-outline', tracks: shuffled(index.tracks).slice(0, 100) });
     return out;
   }, [index, playCounts, discover]);
   if (!mixes.length) return null;

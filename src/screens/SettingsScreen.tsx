@@ -176,7 +176,7 @@ export function SettingsScreen() {
         <Row icon="color-palette" iconColor="#AF52DE" label="Lecteur aux couleurs de la pochette" right={<Switch value={s.coloredPlayer} onValueChange={(v) => s.update({ coloredPlayer: v })} {...switchColors} />} last />
       </Group>
 
-      <Group title="Bibliothèque musicale" footer={isDemo ? 'Aperçu : bibliothèque de démonstration (le module Android est absent sur cette plateforme).' : `Les fichiers de moins de ${s.minDurationSec} s (sonneries, notifications) sont ignorés.`}>
+      <Group title="Audios" footer={isDemo ? 'Aperçu : audios de démonstration (le module Android est absent sur cette plateforme).' : `Les fichiers de moins de ${s.minDurationSec} s (sonneries, notifications) sont ignorés.`}>
         <Row icon="musical-notes" iconColor="#FF2D55" label="Morceaux" detail={String(index.tracks.length)} />
         <Row icon="time" iconColor="#FF9500" label="Durée totale" detail={formatTotalDuration(totalDuration)} />
         <Row
@@ -186,7 +186,7 @@ export function SettingsScreen() {
           detail={scannedAt ? new Date(scannedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : undefined}
           onPress={async () => {
             await scan(s.minDurationSec);
-            showToast('Bibliothèque musicale à jour');
+            showToast('Audios à jour');
           }}
         />
         <Row icon="eye-off" iconColor="#8E8E93" label="Dossiers masqués" detail={s.excludedFolders.length ? String(s.excludedFolders.length) : 'Aucun'} onPress={() => navigation.navigate('ExcludedFolders')} />
@@ -218,7 +218,7 @@ export function SettingsScreen() {
 
       <Group
         title="Vidéos"
-        footer={`Orientation : « Auto » suit la position du téléphone pendant la lecture, comme VLC (vertical = portrait, horizontal = paysage), même si la rotation automatique d’Android est désactivée ; « Portrait » et « Paysage » bloquent l’écran ; « Selon vidéo » choisit d’après la vidéo. Le bouton du lecteur passe de l’automatique au paysage puis au portrait verrouillés.\n\nMini-lecteur : le bouton du lecteur réduit la vidéo dans une petite fenêtre déplaçable, à l’intérieur d’OpenPlay, pour continuer à parcourir la bibliothèque. Fenêtre flottante Android (PiP) : la touche Retour du téléphone pendant une vidéo en plein écran quitte OpenPlay et la vidéo continue au-dessus des autres applications (Android 8 et plus ; aussi avec la touche Accueil sur Android 12 et plus). Désactivée, le Retour ouvre le mini-lecteur.\n\nGénérique : OpenPlay compare le son du début de deux épisodes d’une même série, sur l’appareil ; rien n’est envoyé.`}>
+        footer={`Orientation : « Auto » suit la position du téléphone pendant la lecture, comme VLC (vertical = portrait, horizontal = paysage), même si la rotation automatique d’Android est désactivée ; « Portrait » et « Paysage » bloquent l’écran ; « Selon vidéo » choisit d’après la vidéo. Le bouton du lecteur passe de l’automatique au paysage puis au portrait verrouillés.\n\nMini-lecteur : le bouton du lecteur réduit la vidéo dans une petite fenêtre déplaçable, à l’intérieur d’OpenPlay, pour continuer à parcourir vos vidéos. Fenêtre flottante Android (PiP) : la touche Retour du téléphone pendant une vidéo en plein écran quitte OpenPlay et la vidéo continue au-dessus des autres applications (Android 8 et plus ; aussi avec la touche Accueil sur Android 12 et plus). Désactivée, le Retour ouvre le mini-lecteur.\n\nGénérique : OpenPlay compare le son du début de deux épisodes d’une même série, sur l’appareil ; rien n’est envoyé.`}>
         <View style={styles.block}>
           <Text variant="subhead" tone="secondary" style={{ marginBottom: 8 }}>
             Orientation pendant la lecture

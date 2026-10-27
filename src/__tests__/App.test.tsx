@@ -40,14 +40,14 @@ beforeEach(() => {
  * refermer l'écran ouvert juste après : on ne le touche que s'il n'est pas actif.
  */
 async function openLibrary() {
-  const tab = screen.getByRole('tab', { name: 'Musique' });
+  const tab = screen.getByRole('tab', { name: 'Audios' });
   if (!tab.props.accessibilityState?.selected) await fireEvent.press(tab);
   await screen.findAllByRole('button', { name: /^Titres, \d+$/ });
 }
 
 /** Onglet Vidéo, à sa racine, attendue jusqu'à l'affichage de sa recherche et de ses sous-menus. */
 async function openVideos() {
-  const tab = screen.getByRole('tab', { name: 'Vidéo' });
+  const tab = screen.getByRole('tab', { name: 'Vidéos' });
   if (!tab.props.accessibilityState?.selected) await fireEvent.press(tab);
   // Onglet déjà actif : retour explicite à la racine (le retour en tête différé de l'onglet refermerait l'écran ouvert ensuite).
   for (let i = 0; i < 6 && !screen.queryByLabelText('Rechercher une vidéo'); i++) {
@@ -75,10 +75,10 @@ async function renderApp() {
 }
 
 describe('application', () => {
-  it('affiche quatre onglets (Vidéo, Musique, Recherche, Paramètres) et s’ouvre sur Vidéo', async () => {
+  it('affiche quatre onglets (Vidéos, Audios, Recherche, Paramètres), sans Bibliothèque, et s’ouvre sur Vidéos', async () => {
     await renderApp();
-    expect(screen.getAllByRole('tab').map((t) => t.props.accessibilityLabel)).toEqual(['Vidéo', 'Musique', 'Recherche', 'Paramètres']);
-    expect(screen.getByRole('tab', { name: 'Vidéo' }).props.accessibilityState).toMatchObject({ selected: true });
+    expect(screen.getAllByRole('tab').map((t) => t.props.accessibilityLabel)).toEqual(['Vidéos', 'Audios', 'Recherche', 'Paramètres']);
+    expect(screen.getByRole('tab', { name: 'Vidéos' }).props.accessibilityState).toMatchObject({ selected: true });
     expect(await screen.findByLabelText('Rechercher une vidéo')).toBeTruthy();
     expect(screen.queryByRole('tab', { name: 'Bibliothèque' })).toBeNull();
     expect(screen.queryByRole('tab', { name: 'Playlists' })).toBeNull();
@@ -106,7 +106,7 @@ describe('application', () => {
   it('recherche instantanément dans la bibliothèque', async () => {
     await renderApp();
     await fireEvent.press(screen.getByRole('tab', { name: 'Recherche' }));
-    await fireEvent.changeText(await screen.findByLabelText('Rechercher dans la bibliothèque'), 'neon');
+    await fireEvent.changeText(await screen.findByLabelText('Rechercher dans OpenPlay'), 'neon');
     expect(await screen.findByText('Meilleur résultat')).toBeTruthy();
     expect(screen.getAllByText('Neon Drift').length).toBeGreaterThan(0);
   });
@@ -180,7 +180,7 @@ describe('application', () => {
     // Playlists musicales intégrées à Musique (plus d'onglet Playlists).
     await fireEvent.press((await screen.findAllByRole('button', { name: /^Playlists, \d+$/ }))[0]);
     expect((await screen.findAllByRole('button', { name: 'Nouvelle playlist' })).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('tab', { name: 'Musique' })[0].props.accessibilityState).toMatchObject({ selected: true });
+    expect(screen.getAllByRole('tab', { name: 'Audios' })[0].props.accessibilityState).toMatchObject({ selected: true });
     await fireEvent.press(screen.getAllByRole('button', { name: 'Retour' }).at(-1)!);
     // Vidéo : la vidéothèque complète (recherche, sections, séries, playlists vidéo, bilan de visionnage).
     await openVideos();
@@ -557,7 +557,7 @@ describe('application', () => {
       await fireEvent.press((await screen.findAllByRole('button', { name: /^Favoris, \d+$/ }))[0]);
       expect(await screen.findByText('Aucun favori')).toBeTruthy();
       await fireEvent.press((await screen.findAllByRole('button', { name: 'Retour' })).at(-1)!);
-      expect(screen.getByRole('tab', { name: 'Vidéo' }).props.accessibilityState).toMatchObject({ selected: true });
+      expect(screen.getByRole('tab', { name: 'Vidéos' }).props.accessibilityState).toMatchObject({ selected: true });
       // Commandes du mini-lecteur sur la même session et le même lecteur natif.
       await act(async () => player.emit('playingChange', { isPlaying: true }));
       await fireEvent.press(screen.getByRole('button', { name: 'Pause' }));
@@ -605,7 +605,7 @@ describe('application', () => {
         expect(screen.getByRole('button', { name: 'Fermer la vidéo' })).toBeTruthy();
         expect(players.at(-1)).toBe(player);
         // Derrière le lecteur restauré (fenêtre modale), l'onglet et l'écran d'origine n'ont pas changé.
-        expect(screen.getByRole('tab', { name: 'Vidéo', includeHiddenElements: true }).props.accessibilityState).toMatchObject({ selected: true });
+        expect(screen.getByRole('tab', { name: 'Vidéos', includeHiddenElements: true }).props.accessibilityState).toMatchObject({ selected: true });
         expect(screen.getAllByText('Concert au Bénin', { includeHiddenElements: true }).length).toBeGreaterThan(0);
 
         // PiP désactivé dans les réglages : repli sur le mini-lecteur interne, avec un message.
@@ -674,7 +674,7 @@ describe('application', () => {
     await act(async () => usePlayer.getState().pause());
     expect(usePlayer.getState().isPlaying).toBe(false);
     expect(mini()).toBeTruthy(); // en pause, toujours visible
-    for (const tab of ['Vidéo', 'Recherche', 'Paramètres']) {
+    for (const tab of ['Vidéos', 'Recherche', 'Paramètres']) {
       await fireEvent.press(screen.getByRole('tab', { name: tab }));
       expect(mini()).toBeNull();
     }

@@ -38,7 +38,7 @@ export function ExcludedFoldersScreen() {
       keyExtractor={(f) => f.path}
       header={
         <Text variant="footnote" tone="secondary" style={styles.intro}>
-          Désactivez un dossier pour le masquer de la bibliothèque, des recherches et des suggestions (notes vocales, enregistrements, sonneries…). Ses sous-dossiers sont masqués avec lui. Aucun fichier n’est supprimé.
+          Désactivez un dossier pour le masquer d’OpenPlay, des recherches et des suggestions (notes vocales, enregistrements, sonneries…). Ses sous-dossiers sont masqués avec lui. Aucun fichier n’est supprimé.
         </Text>
       }
       renderItem={({ item }) => {
@@ -66,7 +66,7 @@ export function ExcludedFoldersScreen() {
           </View>
         );
       }}
-      ListEmptyComponent={<EmptyState icon="folder-outline" title="Aucun dossier" message="Lancez une analyse de la bibliothèque." />}
+      ListEmptyComponent={<EmptyState icon="folder-outline" title="Aucun dossier" message="Lancez une analyse des audios." />}
     />
   );
 }

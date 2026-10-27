@@ -94,7 +94,7 @@ export function MediaOnboardingScreen({ onContinue, onLater, autoStart = false }
           OpenPlay utilise les fichiers audio et vidéo de votre téléphone pour vous permettre d’écouter vos musiques et de regarder vos vidéos hors ligne.
         </Text>
         <View style={[styles.card, { backgroundColor: colors.card }]}>
-          <Point icon="musical-notes" title="Musique et audio" text="Vos MP3, M4A, FLAC… pour la bibliothèque musicale." />
+          <Point icon="musical-notes" title="Musique et audio" text="Vos MP3, M4A, FLAC… pour l'onglet Audios." />
           <View style={[styles.sep, { backgroundColor: colors.separator }]} />
           <Point icon="film" title="Vidéos" text="Vos MP4 et autres vidéos. Android peut vous proposer de n’en autoriser qu’une partie." />
         </View>
