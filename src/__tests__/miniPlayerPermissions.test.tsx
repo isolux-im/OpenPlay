@@ -10,8 +10,6 @@ jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({
 
 describe('visibilité du mini-lecteur musical', () => {
   it('suit l’onglet et la section, jamais la lecture ou la pause', () => {
-    expect(miniPlayerVisible('HomeTab', 'Home', 'videos')).toBe(true);
-    expect(miniPlayerVisible('HomeTab', 'Album', 'music')).toBe(true);
     expect(miniPlayerVisible('LibraryTab', 'Library', 'music')).toBe(true);
     expect(miniPlayerVisible('LibraryTab', undefined, 'music')).toBe(true);
     expect(miniPlayerVisible('LibraryTab', 'Library', 'videos')).toBe(false);
@@ -22,9 +20,10 @@ describe('visibilité du mini-lecteur musical', () => {
     // Écrans vidéo, où qu'ils soient ouverts.
     for (const s of ['VideoFolder', 'VideoSeries', 'VideoStats']) {
       expect(miniPlayerVisible('LibraryTab', s, 'videos')).toBe(false);
-      expect(miniPlayerVisible('HomeTab', s, 'music')).toBe(false);
+      expect(miniPlayerVisible('LibraryTab', s, 'music')).toBe(false);
     }
     for (const tab of ['SearchTab', 'PlaylistsTab', 'SettingsTab']) expect(miniPlayerVisible(tab, undefined, 'music')).toBe(false);
+    expect(miniPlayerVisible('HomeTab', undefined, 'music')).toBe(false); // onglet Accueil supprimé
   });
 });
 

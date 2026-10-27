@@ -53,11 +53,13 @@ async function renderApp() {
 }
 
 describe('application', () => {
-  it('affiche les cinq onglets et l’accueil avec la bibliothèque', async () => {
+  it('affiche quatre onglets, sans Accueil, et s’ouvre sur la Bibliothèque avec « Mix pour vous »', async () => {
     await renderApp();
-    // Ordre de la maquette.
-    expect(screen.getAllByRole('tab').map((t) => t.props.accessibilityLabel)).toEqual(['Accueil', 'Bibliothèque', 'Recherche', 'Playlists', 'Paramètres']);
+    expect(screen.getAllByRole('tab').map((t) => t.props.accessibilityLabel)).toEqual(['Bibliothèque', 'Recherche', 'Playlists', 'Paramètres']);
+    expect(screen.getByRole('tab', { name: 'Bibliothèque' }).props.accessibilityState).toMatchObject({ selected: true });
+    // « Mix pour vous », autrefois sur l'Accueil, est conservé en tête de Bibliothèque › Musique.
     expect(await screen.findByText('Mix pour vous')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Lancer Mix aléatoire' })).toBeTruthy();
     expect(screen.getAllByText('Lumières du Sud').length).toBeGreaterThan(0);
   });
 
@@ -493,7 +495,7 @@ describe('application', () => {
     for (const g of ['Lecture', 'À découvrir', 'Paroles en ligne', 'Informations']) expect(screen.getByRole('button', { name: `En savoir plus : ${g}` })).toBeTruthy();
   });
 
-  it('n’affiche le mini-lecteur que dans Accueil et Bibliothèque › Musique, en lecture comme en pause', async () => {
+  it('n’affiche le mini-lecteur que dans Bibliothèque › Musique, en lecture comme en pause', async () => {
     useUser.setState({ session: null });
     usePlaybackSession.setState({ session: null, saved: true });
     usePlaybackPosition.setState({ trackId: null, positionSec: 0 });
@@ -502,7 +504,7 @@ describe('application', () => {
     expect(mini()).toBeNull(); // aucun morceau chargé
     const t = useLibrary.getState().index.tracks[0];
     await act(async () => usePlayer.getState().playTracks([t.id], 0));
-    expect(mini()).toBeTruthy(); // Accueil
+    expect(mini()).toBeTruthy(); // Bibliothèque › Musique, à l'ouverture
     await act(async () => usePlayer.getState().pause());
     expect(usePlayer.getState().isPlaying).toBe(false);
     expect(mini()).toBeTruthy(); // en pause, toujours visible
@@ -519,8 +521,6 @@ describe('application', () => {
     await fireEvent.press(screen.getByRole('radio', { name: 'Musique' }));
     expect(mini()).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Lecture' })).toBeTruthy(); // toujours en pause
-    await fireEvent.press(screen.getByRole('tab', { name: 'Accueil' }));
-    expect(mini()).toBeTruthy();
     // Masquer l'interface n'arrête rien : morceau, file et position conservés.
     expect(usePlayer.getState().queue[usePlayer.getState().index]).toBe(t.id);
   });

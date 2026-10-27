@@ -9,7 +9,6 @@ import { ArtistScreen } from '../screens/ArtistScreen';
 import { DiscoverScreen } from '../screens/DiscoverScreen';
 import { EditTrackScreen } from '../screens/EditTrackScreen';
 import { ExcludedFoldersScreen } from '../screens/ExcludedFoldersScreen';
-import { HomeScreen } from '../screens/HomeScreen';
 import { LibraryHome } from '../screens/LibraryHome';
 import {
   AlbumsScreen,
@@ -67,7 +66,7 @@ const SHARED: { name: keyof AnyStackParams; component: ComponentType }[] = [
 ];
 
 /** Une pile par onglet, avec le même jeu d'écrans de détail : la barre d'onglets reste visible. */
-function makeStack(rootName: 'Home' | 'Library' | 'Playlists' | 'Search' | 'Settings', root: ComponentType) {
+function makeStack(rootName: 'Library' | 'Playlists' | 'Search' | 'Settings', root: ComponentType) {
   const Stack = createNativeStackNavigator<AnyStackParams>();
   function TabStack() {
     const { colors } = useTheme();
@@ -86,7 +85,6 @@ function makeStack(rootName: 'Home' | 'Library' | 'Playlists' | 'Search' | 'Sett
   return TabStack;
 }
 
-const HomeStack = makeStack('Home', HomeScreen);
 // Bibliothèque : Musique et Vidéos réunies derrière le sélecteur Musique | Vidéos.
 const LibraryStack = makeStack('Library', LibraryHome);
 const PlaylistsStack = makeStack('Playlists', PlaylistsScreen);
@@ -103,7 +101,6 @@ export function RootNavigator() {
   return (
     <NavigationContainer ref={navigationRef} theme={navTheme}>
       <Tab.Navigator tabBar={(props) => <TabBar {...props} />} screenOptions={{ headerShown: false, animation: 'fade' }}>
-        <Tab.Screen name="HomeTab" component={HomeStack} />
         <Tab.Screen name="LibraryTab" component={LibraryStack} />
         <Tab.Screen name="SearchTab" component={SearchStack} />
         <Tab.Screen name="PlaylistsTab" component={PlaylistsStack} />

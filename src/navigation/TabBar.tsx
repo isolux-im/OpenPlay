@@ -19,7 +19,6 @@ import { Text } from '../ui/Text';
 import { useTheme } from '../ui/theme';
 
 const TABS: Record<string, { label: string; icon: IconName; activeIcon: IconName }> = {
-  HomeTab: { label: 'Accueil', icon: 'home-outline', activeIcon: 'home' },
   LibraryTab: { label: 'Bibliothèque', icon: 'library-outline', activeIcon: 'library' },
   SearchTab: { label: 'Recherche', icon: 'search-outline', activeIcon: 'search' },
   PlaylistsTab: { label: 'Playlists', icon: 'list-outline', activeIcon: 'list' },
@@ -30,12 +29,11 @@ const TABS: Record<string, { label: string; icon: IconName; activeIcon: IconName
 const VIDEO_ROUTES = new Set(['VideoFolder', 'VideoSeries', 'VideoStats', 'VideoPlaylist']);
 
 /**
- * Le mini-lecteur musical n'apparaît que dans Accueil et Bibliothèque › Musique (sous-écrans compris),
+ * Le mini-lecteur musical n'apparaît que dans Bibliothèque › Musique (sous-écrans compris),
  * qu'un morceau soit en lecture ou en pause. Ailleurs, seule son interface est masquée : la lecture continue.
  */
 export function miniPlayerVisible(tab: string | undefined, screen: string | undefined, librarySection: 'music' | 'videos'): boolean {
   if (screen && VIDEO_ROUTES.has(screen)) return false;
-  if (tab === 'HomeTab') return true;
   if (tab !== 'LibraryTab') return false;
   // Racine de la Bibliothèque : dépend du sélecteur Musique | Vidéos ; sous-écrans musicaux : visibles.
   return !screen || screen === 'Library' ? librarySection === 'music' : true;

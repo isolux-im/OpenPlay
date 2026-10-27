@@ -30,14 +30,12 @@ export type SharedStackParams = {
   NewFolder: { kind: 'audio' | 'video'; folder: string };
 };
 
-export type HomeStackParams = SharedStackParams & { Home: undefined };
 export type LibraryStackParams = SharedStackParams & { Library: undefined };
 export type PlaylistsStackParams = SharedStackParams & { Playlists: undefined };
 export type SearchStackParams = SharedStackParams & { Search: undefined };
 export type SettingsStackParams = SharedStackParams & { Settings: undefined };
 
 export type TabParams = {
-  HomeTab: NavigatorScreenParams<HomeStackParams>;
   LibraryTab: NavigatorScreenParams<LibraryStackParams>;
   PlaylistsTab: NavigatorScreenParams<PlaylistsStackParams>;
   SearchTab: NavigatorScreenParams<SearchStackParams>;
@@ -45,7 +43,6 @@ export type TabParams = {
 };
 
 export type AnyStackParams = SharedStackParams & {
-  Home: undefined;
   Library: undefined;
   Playlists: undefined;
   Search: undefined;

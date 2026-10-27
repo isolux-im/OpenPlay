@@ -25,6 +25,7 @@ import { TrackCollectionScreen } from './TrackCollectionScreen';
 import { useNow } from '../ui/useNow';
 import { useDiscover } from './DiscoverScreen';
 import { LibraryGate } from './LibraryGate';
+import { MixesSection } from './MixesSection';
 import { FolderActions, NewFolderRow } from './NewFolderScreen';
 import { useFolders } from '../store/folders';
 
@@ -73,6 +74,8 @@ export function LibraryScreen({ switcher }: { switcher?: ReactNode } = {}) {
             <QuickTile icon="stats-chart-outline" label="Bilan" onPress={() => navigation.navigate('Stats')} />
           </View>
         </View>
+
+        <MixesSection />
 
         {recentAlbums.length ? (
           <>

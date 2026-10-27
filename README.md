@@ -6,14 +6,13 @@ branche `archive/kotlin-native`.
 
 ## Fonctions
 
-**Navigation** : cinq onglets (Accueil, Bibliothèque, Playlists, Recherche, Paramètres), une pile d'écrans
+**Navigation** : quatre onglets (Bibliothèque, Recherche, Playlists, Paramètres ; plus d'Accueil), une pile d'écrans
 par onglet (la barre reste visible sur les fiches album/artiste), mini-lecteur flottant au-dessus de la barre,
 lecteur plein écran qui s'ouvre depuis le mini-lecteur et se ferme d'un glissement vers le bas.
 
 | Écran | Contenu |
 |---|---|
-| Accueil | Reprendre la lecture, Mix pour vous (titres phares, genre favori, à redécouvrir, aléatoire), écoutés récemment, favoris, ajoutés récemment, playlists, albums |
-| Bibliothèque | Favoris, Titres (tri titre/artiste/album/date), Artistes, Albums, Genres, Dossiers, Historique ; fiches album et artiste |
+| Bibliothèque | Mix pour vous (titres phares, genre favori, à redécouvrir, aléatoire), Favoris, Titres (tri titre/artiste/album/date), Artistes, Albums, Genres, Dossiers, Historique ; fiches album et artiste ; Vidéos |
 | Playlists | Création, renommage, suppression, ajout de morceaux, réordonnancement par glisser-déposer ; playlists automatiques (favoris, plus écoutés, ajoutés récemment, à redécouvrir) |
 | Recherche | Recherche instantanée sans accents ni casse (morceaux, artistes, albums, playlists), meilleur résultat, recherches récentes, genres |
 | Paramètres | Thème clair/sombre/système, couleur d'accent, lecteur coloré, analyse et durée minimale, reprise au lancement, haptique, minuterie, historique |
@@ -118,7 +117,7 @@ modules/openplay-media/      module natif Kotlin (MediaStore, pochettes, couleur
 src/
   App.tsx                    polices, thème, démarrage (bibliothèque, moteur, session)
   navigation/                onglets, piles, barre d'onglets + mini-lecteur
-  screens/                   Accueil, Bibliothèque (+ sous-écrans), Playlists, Recherche, Paramètres, détails
+  screens/                   Bibliothèque (+ sous-écrans), Playlists, Recherche, Paramètres, détails
   player/                    moteur (expo-audio / simulé), file, paroles .lrc, lecteur plein écran
   store/                     zustand : bibliothèque, lecteur, données utilisateur et réglages (persistés)
   library/                   conversion MediaStore, index, recherche, sélecteurs, pochettes
