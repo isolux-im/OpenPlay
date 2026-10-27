@@ -14,7 +14,6 @@ export type Video = {
   folder: string;
 };
 
-export type VideoSort = 'name' | 'date' | 'duration' | 'size';
 
 /** Suivi local d'une vidéo regardée (jamais transmis à LRCLIB, Groq ni à un serveur). */
 export type VideoHistoryEntry = { positionSec: number; durationSec: number; watchedAt: number; finished: boolean };

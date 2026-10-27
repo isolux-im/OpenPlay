@@ -1,6 +1,6 @@
 import type { NativeVideo } from '../../modules/openplay-media';
 import { compareText, normalizeText } from '../library/text';
-import type { Video, VideoHistoryEntry, VideoSort } from './types';
+import type { Video, VideoHistoryEntry } from './types';
 
 export function videoFromNative(n: NativeVideo): Video {
   const filename = n.filename ?? n.title ?? 'Vidéo';
@@ -21,18 +21,9 @@ export function videoFromNative(n: NativeVideo): Video {
   };
 }
 
-export function sortVideos(videos: Video[], sort: VideoSort): Video[] {
-  const list = [...videos];
-  switch (sort) {
-    case 'name':
-      return list.sort((a, b) => compareText(a.title, b.title));
-    case 'date':
-      return list.sort((a, b) => b.addedAt - a.addedAt);
-    case 'duration':
-      return list.sort((a, b) => b.durationSec - a.durationSec);
-    case 'size':
-      return list.sort((a, b) => b.sizeBytes - a.sizeBytes);
-  }
+/** Vidéos par nom, ordre alphabétique et numérique (2 avant 10) : le seul classement, automatique. */
+export function sortVideos(videos: Video[]): Video[] {
+  return [...videos].sort((a, b) => compareText(a.title, b.title));
 }
 
 export function searchVideos(videos: Video[], query: string): Video[] {

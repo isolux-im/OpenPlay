@@ -123,7 +123,7 @@ export function VideosScreen({ title = 'Vidéos' }: { title?: string } = {}) {
     useVideos.getState().init();
   }, []);
 
-  const results = useMemo(() => (deferred.trim() ? sortVideos(searchVideos(videos, deferred), 'name') : []), [videos, deferred]);
+  const results = useMemo(() => (deferred.trim() ? sortVideos(searchVideos(videos, deferred)) : []), [videos, deferred]);
   const resultIds = useMemo(() => results.map((v) => v.id), [results]);
   useSelectable('video', resultIds);
   const resume = useMemo(() => continueWatching(videos, entries), [videos, entries]);
@@ -250,9 +250,9 @@ export function VideoCollectionScreen() {
       case 'recent':
         return recentlyWatched(videos, entries);
       case 'favorites':
-        return sortVideos(videos.filter((v) => favorites.includes(v.id)), 'name');
+        return sortVideos(videos.filter((v) => favorites.includes(v.id)));
       default:
-        return sortVideos(videos, 'name');
+        return sortVideos(videos);
     }
   }, [params.section, videos, entries, favorites]);
   const meta = COLLECTIONS[params.section];
@@ -342,7 +342,7 @@ export function VideoFolderScreen() {
   const { params } = useRoute<RouteProp<SharedStackParams, 'VideoFolder'>>();
   const videos = useVideos((s) => s.videos);
   // Classement automatique par nom (ordre alphabétique).
-  const list = useMemo(() => sortVideos(videos.filter((v) => v.folder === params.folder), 'name'), [videos, params.folder]);
+  const list = useMemo(() => sortVideos(videos.filter((v) => v.folder === params.folder)), [videos, params.folder]);
   return (
     <VideoList
       title={params.folder.split('/').pop() || params.folder}

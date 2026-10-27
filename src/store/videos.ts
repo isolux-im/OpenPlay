@@ -94,7 +94,7 @@ export const useVideos = create<State>()((set, get) => ({
   applyFileChanges: (changed, added = []) => {
     const map = new Map(changed.map((v) => [v.id, v]));
     // Toujours par ordre alphabétique (renommage, copie : la liste reste triée).
-    const videos = sortVideos([...get().videos.map((v) => map.get(v.id) ?? v), ...added], 'name');
+    const videos = sortVideos([...get().videos.map((v) => map.get(v.id) ?? v), ...added]);
     const byId: Record<string, Video> = {};
     for (const v of videos) byId[v.id] = v;
     set({ videos, byId });
@@ -124,7 +124,7 @@ async function runScan() {
   set((s) => ({ status: s.status === 'ready' ? 'ready' : 'loading' }));
   try {
     // Classement automatique par nom, dans l'ordre alphabétique (2 avant 10), dès l'import.
-    const videos = sortVideos(OpenPlayMedia?.queryVideosAsync ? (await OpenPlayMedia.queryVideosAsync()).map(videoFromNative) : demoVideos(), 'name');
+    const videos = sortVideos(OpenPlayMedia?.queryVideosAsync ? (await OpenPlayMedia.queryVideosAsync()).map(videoFromNative) : demoVideos());
     const byId: Record<string, Video> = {};
     for (const v of videos) byId[v.id] = v;
     set({ videos, byId, status: 'ready', isDemo: isDemo() });

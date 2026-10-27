@@ -21,11 +21,9 @@ describe('vidéothèque', () => {
     expect(formatResolution({ width: 0, height: 0 })).toBeNull();
   });
 
-  it('trie par nom, date, durée et taille, et cherche sans accents', () => {
-    expect(sortVideos(videos, 'duration')[0].title).toBe('Mariage de Koffi');
-    expect(sortVideos(videos, 'size')[0].title).toBe('Mariage de Koffi');
-    expect(sortVideos(videos, 'name')[0].title).toBe('Anniversaire');
-    expect(sortVideos(videos, 'date')[0].id).toBe(a.id);
+  it('classe par nom uniquement (ordre alphabétique), et cherche sans accents', () => {
+    expect(sortVideos(videos)[0].title).toBe('Anniversaire');
+    expect(sortVideos(videos).at(-1)!.title).toBe('Mariage de Koffi');
     expect(searchVideos(videos, 'ganvie').map((v) => v.title)).toEqual(['Documentaire Ganvié']);
     expect(videoFolders(videos).find((f) => f.folder === 'Movies/Cours')?.count).toBe(2);
   });

@@ -183,7 +183,7 @@ describe('ordre alphabétique et numérique', () => {
   it('classe les vidéos par nom dès l’import, sans réglage « Trier par » (ancien réglage retiré)', () => {
     expect(migrateSettings({ videoSort: 'date', videoLayout: 'list' }, 3)).toEqual({ videoLayout: 'list' });
     const titles = useVideos.getState().videos.map((v) => v.title);
-    expect(titles).toEqual(sortVideos(useVideos.getState().videos, 'name').map((v) => v.title));
+    expect(titles).toEqual(sortVideos(useVideos.getState().videos).map((v) => v.title));
     expect(titles.indexOf('Cours de guitare — leçon 1')).toBeLessThan(titles.indexOf('Cours de guitare — leçon 2'));
     expect(titles[0]).toBe('Anniversaire');
   });
