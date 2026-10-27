@@ -10,6 +10,8 @@ import { useSettings } from '../store/settings';
 import { useUi } from '../store/ui';
 import { usePlaybackPosition, usePlaybackSession } from '../store/session';
 import { useUser } from '../store/user';
+import { State } from 'react-native-gesture-handler';
+import { fireGestureHandler, getByGestureTestId } from 'react-native-gesture-handler/jest-utils';
 import { useVideoPlayer } from '../store/videoPlayer';
 import { useVideoPlaylists } from '../store/videoPlaylists';
 import { useSelection } from '../store/selection';
@@ -586,6 +588,33 @@ describe('application', () => {
       await fireEvent.press(screen.getByRole('button', { name: 'Mini-lecteur' }));
       await fireEvent.press(screen.getByRole('button', { name: 'Fermer le mini-lecteur' }));
       expect(useVideoPlayer.getState().session).toBeNull();
+    });
+
+    it('mini-lecteur déplacé puis plein écran, trois fois : le plein écran couvre tout l’écran, sans décalage', async () => {
+      await renderApp();
+      await act(async () => useVideoPlayer.getState().open('demo-video-1', ['demo-video-1']));
+      expect(await screen.findByRole('button', { name: 'Fermer la vidéo' })).toBeTruthy();
+      const player = players.at(-1)!;
+      let last: { left: number; top: number } | null = null;
+      for (const [dx, dy] of [[-120, -260], [40, 90], [-300, -500]]) {
+        await fireEvent.press(screen.getByRole('button', { name: 'Mini-lecteur' }));
+        const before = StyleSheet.flatten(screen.getByTestId('video-mini').props.style);
+        if (last) expect({ left: before.left, top: before.top }).toEqual(last); // position conservée d'une fois à l'autre
+        await act(async () =>
+          fireGestureHandler(getByGestureTestId('video-mini-drag'), [{ state: State.BEGAN }, { state: State.ACTIVE, translationX: 0, translationY: 0 }, { state: State.ACTIVE, translationX: dx, translationY: dy }, { state: State.END, translationX: dx, translationY: dy }]),
+        );
+        const moved = StyleSheet.flatten(screen.getByTestId('video-mini').props.style);
+        expect([moved.left, moved.top]).not.toEqual([before.left, before.top]); // la fenêtre suit le doigt
+        expect(moved.left).toBeGreaterThanOrEqual(8); // et reste dans l'écran
+        last = { left: moved.left, top: moved.top };
+
+        await fireEvent.press(screen.getByRole('button', { name: 'Plein écran' }));
+        expect(await screen.findByRole('button', { name: 'Fermer la vidéo' })).toBeTruthy();
+        const full = StyleSheet.flatten(screen.getByTestId('video-fullscreen').props.style);
+        expect(full).toMatchObject({ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 });
+        expect([full.width, full.height, full.transform]).toEqual([undefined, undefined, undefined]);
+      }
+      expect(players.at(-1)).toBe(player); // même lecteur du début à la fin
     });
 
     it('Mode B : la touche Retour du téléphone passe en PiP Android, puis le lecteur est restauré au retour', async () => {

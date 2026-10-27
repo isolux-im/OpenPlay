@@ -4,7 +4,6 @@ import { VideoView, isPictureInPictureSupported, useVideoPlayer as useNativeVide
 import { useEffect, useRef, useState } from 'react';
 import { BackHandler, PixelRatio, Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { OpenPlayMedia } from '../../modules/openplay-media';
@@ -741,31 +740,22 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   const miniBox = miniFrame({ width, height }, video.width && video.height ? video : trackSize);
   const miniBounds = { minX: 8, maxX: width - miniBox.width - 8, minY: insets.top + 8, maxY: height - miniBox.height - insets.bottom - 72 };
   // Mini-lecteur déplaçable au doigt, gardé dans l'écran (au-dessus de la barre d'onglets).
-  const miniX = useSharedValue(Number.NaN);
-  const miniY = useSharedValue(Number.NaN);
-  const dragStart = useSharedValue({ x: 0, y: 0 });
+  // Position tenue par React (état), jamais posée directement sur la vue native : en repassant en plein écran,
+  // le cadre n'en garde rien (une position posée par l'animation y restait et décalait le plein écran).
+  const [miniPos, setMiniPos] = useState<{ x: number; y: number } | null>(null);
+  const dragStart = useRef({ x: 0, y: 0 });
   const floating = mini && !inPip;
-  const miniStyle = useAnimatedStyle(() => {
-    // Plein écran : position remise à zéro (une valeur posée sur la vue native y resterait sinon).
-    if (!floating) return { left: 0, top: 0 };
-    const x = Number.isNaN(miniX.get()) ? miniBounds.maxX : miniX.get();
-    const y = Number.isNaN(miniY.get()) ? miniBounds.maxY - 84 : miniY.get();
-    // Position (left / top), pas une transformation : la surface vidéo native d'Android (SurfaceView) ne suit pas
-    // les transformations, l'image resterait ailleurs que la fenêtre.
-    return { left: Math.min(Math.max(x, miniBounds.minX), miniBounds.maxX), top: Math.min(Math.max(y, miniBounds.minY), miniBounds.maxY) };
-  });
+  const clampMini = (x: number, y: number) => ({ x: Math.min(Math.max(x, miniBounds.minX), miniBounds.maxX), y: Math.min(Math.max(y, miniBounds.minY), miniBounds.maxY) });
+  const miniAt = clampMini(miniPos?.x ?? miniBounds.maxX, miniPos?.y ?? miniBounds.maxY - 84);
   const miniDrag = Gesture.Pan()
-    .enabled(mini && !inPip)
+    .withTestId('video-mini-drag')
+    .runOnJS(true)
+    .enabled(floating)
     .minDistance(6)
     .onStart(() => {
-      const x = Number.isNaN(miniX.get()) ? miniBounds.maxX : miniX.get();
-      const y = Number.isNaN(miniY.get()) ? miniBounds.maxY - 84 : miniY.get();
-      dragStart.set({ x: Math.min(Math.max(x, miniBounds.minX), miniBounds.maxX), y: Math.min(Math.max(y, miniBounds.minY), miniBounds.maxY) });
+      dragStart.current = miniAt;
     })
-    .onUpdate((e) => {
-      miniX.set(Math.min(Math.max(dragStart.get().x + e.translationX, miniBounds.minX), miniBounds.maxX));
-      miniY.set(Math.min(Math.max(dragStart.get().y + e.translationY, miniBounds.minY), miniBounds.maxY));
-    });
+    .onUpdate((e) => setMiniPos(clampMini(dragStart.current.x + e.translationX, dragStart.current.y + e.translationY)));
 
   const frame = videoFrame(fitMode, { width, height }, video.width && video.height ? video : trackSize, PixelRatio.get());
   const pipSupported = pipEnabled && pipAvailable();
@@ -775,13 +765,12 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
 
   return (
     <GestureDetector gesture={miniDrag}>
-    <Animated.View
-      // Vue d'encadrement neuve à chaque changement de mode : aucune position, taille ou transformation posée sur
-      // la vue native Android par le mini-lecteur ne subsiste en plein écran (sinon le plein écran restait décalé
-      // et ne couvrait qu'une partie de l'écran). Le lecteur natif, lui, est conservé : lecture, position, pistes.
+    <View
+      // Vue d'encadrement neuve à chaque changement de mode, et styles fixes en plein écran (tout l'écran, sans
+      // position ni taille héritées du mini-lecteur). Le lecteur natif, lui, est conservé : lecture, position, pistes.
       key={floating ? 'mini' : 'fullscreen'}
       testID={floating ? 'video-mini' : 'video-fullscreen'}
-      style={floating ? [styles.mini, { width: miniBox.width, height: miniBox.height }, miniStyle] : [styles.root, miniStyle]}
+      style={floating ? [styles.mini, { left: miniAt.x, top: miniAt.y, width: miniBox.width, height: miniBox.height }] : styles.root}
       accessibilityViewIsModal={!mini}
       accessibilityLabel={mini ? `Mini-lecteur : ${video.title}` : undefined}>
       <StatusBar hidden={!inPip && !mini} style="light" />
@@ -1018,7 +1007,7 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
       ) : null}
       </>
       )}
-    </Animated.View>
+    </View>
     </GestureDetector>
   );
 }
