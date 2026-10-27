@@ -3,6 +3,7 @@ import { View } from 'react-native';
 
 import { EmptyState, PlayShuffleButtons } from '../components/Blocks';
 import { ListScreen } from '../components/Screen';
+import { SelectButton } from '../components/SelectButton';
 import { TRACK_ROW_HEIGHT, TrackRow } from '../components/TrackRow';
 import { formatTotalDuration, pluralize } from '../library/text';
 import { useUi } from '../store/ui';
@@ -11,6 +12,7 @@ import type { IconName } from '../ui/Icon';
 import { Text } from '../ui/Text';
 import { GUTTER } from '../ui/theme';
 import { collectionMeta, usePlayList } from './common';
+import { useSelectable } from '../store/selection';
 
 type Props = {
   title: string;
@@ -34,6 +36,7 @@ export function TrackCollectionScreen({ title, tracks, label, backLabel, subtitl
   const total = tracks.reduce((s, t) => s + t.durationSec, 0);
   const alphabet = useMemo(() => (alphabetKey ? { keys: tracks.map(alphabetKey), rowHeight: TRACK_ROW_HEIGHT } : undefined), [tracks, alphabetKey]);
   const openPicker = useUi((s) => s.openPlaylistPicker);
+  useSelectable('audio', useMemo(() => tracks.map((t) => t.id), [tracks]));
   const renderItem = useCallback(
     ({ item, index }: { item: Track; index: number }) => <TrackRow track={item} number={index + 1} artwork showDuration onPress={() => playAt(index)} subtitle={rowSubtitle?.(item)} />,
     [playAt, rowSubtitle],
@@ -45,6 +48,7 @@ export function TrackCollectionScreen({ title, tracks, label, backLabel, subtitl
       back
       backLabel={backLabel}
       right={right}
+      titleRight={tracks.length ? <SelectButton kind="audio" /> : undefined}
       subtitle={subtitle ?? (tracks.length ? collectionMeta(tracks) : undefined)}
       data={tracks}
       alphabet={alphabet}

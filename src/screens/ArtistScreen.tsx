@@ -13,6 +13,7 @@ import { useUser } from '../store/user';
 import { Text } from '../ui/Text';
 import { GUTTER } from '../ui/theme';
 import { ArtworkGlow, usePlayList } from './common';
+import { useSelectable } from '../store/selection';
 
 export function ArtistScreen() {
   const { params } = useRoute<RouteProp<SharedStackParams, 'Artist'>>();
@@ -21,6 +22,7 @@ export function ArtistScreen() {
   const playCounts = useUser((s) => s.playCounts);
   const artist = index.artistsById[params.id];
   const tracks = artist ? artist.trackIds.map((id) => index.byId[id]).filter(Boolean) : [];
+  useSelectable('audio', tracks.map((t) => t.id));
   const { play, shuffle, playAt } = usePlayList(tracks, artist?.name ?? null);
   const top = [...tracks].sort((a, b) => (playCounts[b.id] ?? 0) - (playCounts[a.id] ?? 0)).slice(0, 5);
   const topPlay = usePlayList(top, artist ? `${artist.name} — Top titres` : null);

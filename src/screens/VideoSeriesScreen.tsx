@@ -1,4 +1,5 @@
 import { useRoute, type RouteProp } from '@react-navigation/native';
+import { useMemo } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { EmptyState, SectionHeader } from '../components/Blocks';
@@ -16,6 +17,7 @@ import { episodeLabel, episodeTitle, isWatched, seasonLabel, seriesProgress, typ
 import { useSeriesIndex } from '../video/useSeries';
 import { VideoRow } from '../video/VideoList';
 import { VideoThumb } from '../video/VideoThumb';
+import { useSelectable } from '../store/selection';
 
 /** Progression d'une série (barre fine). */
 export function SeriesBar({ watched, total }: { watched: number; total: number }) {
@@ -75,6 +77,8 @@ export function VideoSeriesScreen() {
   const series = useSeriesIndex().byKey[params.key];
   const history = useVideoHistory((s) => s.entries);
   const { colors } = useTheme();
+  const episodeIds = useMemo(() => series?.episodes.map((e) => e.id) ?? [], [series]);
+  useSelectable('video', episodeIds);
   if (!series) {
     return (
       <ScrollScreen title="Série" back largeTitle={false}>

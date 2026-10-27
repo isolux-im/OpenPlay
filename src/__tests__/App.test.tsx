@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { Alert } from 'react-native';
 import * as ExpoVideo from 'expo-video';
 
 import App from '../App';
@@ -11,6 +12,7 @@ import { usePlaybackPosition, usePlaybackSession } from '../store/session';
 import { useUser } from '../store/user';
 import { useVideoPlayer } from '../store/videoPlayer';
 import { useVideoPlaylists } from '../store/videoPlaylists';
+import { useSelection } from '../store/selection';
 import { useVideos } from '../store/videos';
 
 jest.mock('react-native-safe-area-context', () => {
@@ -345,6 +347,60 @@ describe('application', () => {
     const inFolder = useVideos.getState().videos.filter((v) => v.folder === 'Movies/Animés');
     expect(inFolder.map((v) => v.filename).sort()).toEqual(['Lagune Blues S01E01.mp4', 'Lagune Blues S01E02.mp4', 'Lagune Blues S01E03.mp4']);
     expect(useVideos.getState().byId['demo-video-9'].folder).toBe('Movies/Séries/Lagune Blues'); // originaux en place
+  });
+
+  it('sélectionne un ou plusieurs morceaux, tout sélectionner, puis supprime la sélection', async () => {
+    await renderApp();
+    const current = usePlayer.getState().queue[usePlayer.getState().index];
+    const queueBefore = usePlayer.getState().queue;
+    // Morceau en cours : sa suppression est refusée ; on en prend deux autres.
+    const [a, b] = useLibrary.getState().index.tracks.slice().sort((x, y) => x.title.localeCompare(y.title, 'fr')).filter((t) => t.id !== current);
+    const total = useLibrary.getState().index.tracks.length;
+    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    await fireEvent.press((await screen.findAllByRole('button', { name: /^Titres, \d+$/ }))[0]);
+    await fireEvent.press(await screen.findByRole('button', { name: 'Sélectionner' }));
+    expect(screen.getByText('Touchez les éléments à sélectionner')).toBeTruthy();
+    // Pendant la sélection, toucher un morceau le coche au lieu de le lire.
+    await fireEvent.press(screen.getAllByRole('checkbox', { name: a.title })[0]);
+    expect(screen.getByText('1 sélectionné')).toBeTruthy();
+    expect(usePlayer.getState().queue).toBe(queueBefore);
+    await fireEvent.press(screen.getAllByRole('checkbox', { name: b.title })[0]);
+    expect(screen.getByText('2 sélectionnés')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Renommer' }).props.accessibilityState.disabled).toBe(true); // un seul élément
+    await fireEvent.press(screen.getByRole('button', { name: 'Tout sélectionner' }));
+    expect(useSelection.getState().ids).toHaveLength(total);
+    await fireEvent.press(screen.getByRole('button', { name: 'Tout désélectionner' }));
+    expect(screen.getByText('Touchez les éléments à sélectionner')).toBeTruthy();
+    await fireEvent.press(screen.getAllByRole('checkbox', { name: a.title })[0]);
+    await fireEvent.press(screen.getAllByRole('checkbox', { name: b.title })[0]);
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation((_t, _m, buttons) => buttons?.find((x) => x.style === 'destructive')?.onPress?.());
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Supprimer' }));
+    });
+    alert.mockRestore();
+    expect(useLibrary.getState().index.byId[a.id]).toBeUndefined();
+    expect(useLibrary.getState().index.byId[b.id]).toBeUndefined();
+    expect(useLibrary.getState().index.tracks).toHaveLength(total - 2);
+    expect(useSelection.getState().kind).toBeNull(); // la sélection se ferme après l'opération
+  });
+
+  it('sélectionne des vidéos depuis le menu et les déplace ensemble', async () => {
+    useSettings.setState({ videoLayout: 'list' });
+    await renderApp();
+    await openVideos();
+    await fireEvent.press((await screen.findAllByRole('button', { name: 'Options pour Clip — Lagune' }))[0]);
+    await fireEvent.press(await screen.findByRole('menuitem', { name: 'Sélectionner' }));
+    expect(screen.getByText('1 sélectionné')).toBeTruthy();
+    await fireEvent.press(screen.getAllByRole('checkbox', { name: 'Clip — Neon Drift' })[0]);
+    expect(useVideoPlayer.getState().session).toBeNull(); // aucune lecture pendant la sélection
+    await fireEvent.press(screen.getByRole('button', { name: 'Déplacer' }));
+    await act(async () => {
+      await fireEvent.press(await screen.findByRole('button', { name: 'Dossier Movies/Concerts' }));
+    });
+    const byId = useVideos.getState().byId;
+    expect([byId['demo-video-4'].folder, byId['demo-video-5'].folder]).toEqual(['Movies/Concerts', 'Movies/Concerts']);
+    expect(useSelection.getState().kind).toBeNull();
+    useSettings.setState({ videoLayout: 'grid' });
   });
 
   it('enchaînement désactivé : la fin d’un épisode ne lance rien', async () => {

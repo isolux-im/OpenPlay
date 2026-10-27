@@ -13,6 +13,7 @@ import { useUi } from '../store/ui';
 import { Text } from '../ui/Text';
 import { GUTTER } from '../ui/theme';
 import { ArtworkGlow, CollectionHeader, collectionMeta, usePlayList } from './common';
+import { useSelectable } from '../store/selection';
 
 export function AlbumScreen() {
   const { params } = useRoute<RouteProp<SharedStackParams, 'Album'>>();
@@ -23,6 +24,7 @@ export function AlbumScreen() {
   const openAlbumMenu = useUi((s) => s.openAlbumMenu);
   const tracks = album ? album.trackIds.map((id) => index.byId[id]).filter(Boolean) : [];
   const { playAt, play, shuffle } = usePlayList(tracks, album?.title ?? null);
+  useSelectable('audio', tracks.map((t) => t.id));
 
   if (!album) return <ScrollScreen title="Album" back largeTitle={false}><EmptyState icon="albums-outline" title="Album introuvable" /></ScrollScreen>;
 

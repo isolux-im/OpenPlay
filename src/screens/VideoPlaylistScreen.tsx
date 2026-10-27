@@ -19,6 +19,7 @@ import { useSeriesIndex } from '../video/useSeries';
 import { VideoRow } from '../video/VideoList';
 import { VideoThumb } from '../video/VideoThumb';
 import { SeriesRow } from './VideoSeriesScreen';
+import { useSelectable } from '../store/selection';
 
 /** Ligne d'une playlist vidéo (liste des playlists, section « Playlists » des Vidéos). */
 export function VideoPlaylistRow({ playlist, onPress }: { playlist: VideoPlaylist; onPress: () => void }) {
@@ -103,6 +104,7 @@ export function VideoPlaylistScreen() {
   const { byKey } = useSeriesIndex();
   const resolved = useMemo(() => (playlist ? resolvePlaylist(playlist, byKey, videosById) : []), [playlist, byKey, videosById]);
   const ids = useMemo(() => playlistVideoIds(resolved), [resolved]);
+  useSelectable('video', ids);
 
   if (!playlist) {
     return (

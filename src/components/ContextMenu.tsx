@@ -8,6 +8,7 @@ import { copyTracks, copyVideos, deleteVideosFromDevice, moveTracks, moveVideos,
 import { describePlaylist, playlistVideoIds, resolvePlaylist, useVideoPlaylists } from '../store/videoPlaylists';
 import { seriesProgress } from '../video/series';
 import { useSeriesIndex } from '../video/useSeries';
+import { useSelection } from '../store/selection';
 import { formatDuration, formatTotalDuration, pluralize } from '../library/text';
 import { useSubtitles } from '../store/subtitles';
 import { useVideoHistory } from '../store/videoHistory';
@@ -173,6 +174,7 @@ function useMenuModel(target: ContextTarget): Model | null {
               { icon: 'refresh-outline', label: 'Recommencer', onPress: () => open(video.id, target.list, { restart: true }) },
             ]
           : [{ icon: 'play-outline', label: 'Lire', onPress: () => open(video.id, target.list, { restart: true }) }],
+        [{ icon: 'checkmark-circle-outline', label: 'Sélectionner', onPress: () => useSelection.getState().start('video', video.id) }],
         [
           {
             icon: videoFavorite ? 'heart-dislike-outline' : 'heart-outline',
@@ -304,6 +306,7 @@ function useMenuModel(target: ContextTarget): Model | null {
       header: <MenuHeader art={<Artwork track={track} size={44} rounded={8} />} title={track.title} subtitle={`${track.artist} · ${formatDuration(track.durationSec)}`} />,
       groups: [
         playItems([track.id], null, false),
+        [{ icon: 'checkmark-circle-outline', label: 'Sélectionner', onPress: () => useSelection.getState().start('audio', track.id) }],
         [
           { icon: 'add-circle-outline', label: 'Ajouter à une playlist', keepOpen: true, onPress: () => openPlaylistPicker([track.id]) },
           favoriteItem([track.id], favorites, toggleFavorite, showToast),

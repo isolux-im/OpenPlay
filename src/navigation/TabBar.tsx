@@ -7,9 +7,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Artwork } from '../components/Artwork';
 import { PressableScale } from '../components/PressableScale';
+import { SelectionBar } from '../components/SelectionBar';
 import { miniSwipeAction } from '../player/gestures';
 import { useLibrary } from '../store/library';
 import { usePlayer } from '../store/player';
+import { useSelection } from '../store/selection';
 import { useUi } from '../store/ui';
 import { tap } from '../ui/haptics';
 import { Icon, type IconName } from '../ui/Icon';
@@ -172,9 +174,11 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
   const stack = tab?.state;
   const screen = stack && typeof stack.index === 'number' ? stack.routes[stack.index]?.name : undefined;
   const showMini = miniPlayerVisible(tab?.name, screen, librarySection);
+  // Sélection en cours : sa barre d'actions remplace le mini-lecteur (la lecture continue).
+  const selecting = useSelection((s) => s.kind !== null);
   return (
     <View style={styles.container} pointerEvents="box-none">
-      {showMini ? <MiniPlayer /> : null}
+      {selecting ? <SelectionBar /> : showMini ? <MiniPlayer /> : null}
       <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
         <Chrome />
         <View style={[styles.hairline, { backgroundColor: colors.separator }]} />

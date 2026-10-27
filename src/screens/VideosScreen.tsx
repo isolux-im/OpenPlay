@@ -3,6 +3,7 @@ import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from '
 import { ActivityIndicator, Linking, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { Chips, EmptyState } from '../components/Blocks';
+import { SelectButton } from '../components/SelectButton';
 import { HeaderButton, ListScreen } from '../components/Screen';
 import { normalizeText, pluralize } from '../library/text';
 import { useAppNavigation } from '../navigation/ref';
@@ -42,12 +43,13 @@ const SORTS: { key: VideoSort; label: string }[] = [
   { key: 'size', label: 'Taille' },
 ];
 
-function LayoutButton() {
+function LayoutButton({ selectable = false }: { selectable?: boolean }) {
   const navigation = useAppNavigation();
   const layout = useSettings((s) => s.videoLayout);
   const update = useSettings((s) => s.update);
   return (
     <View style={styles.headerButtons}>
+      {selectable ? <SelectButton kind="video" /> : null}
       <HeaderButton icon="stats-chart-outline" label="Bilan de visionnage" onPress={() => navigation.push('VideoStats')} />
       <HeaderButton
       icon={layout === 'grid' ? 'list-outline' : 'grid-outline'}
@@ -263,7 +265,7 @@ export function VideosScreen({ title = 'Vidéos', switcher }: { title?: string; 
   return (
     <VideoList
       title={title}
-      titleRight={<LayoutButton />}
+      titleRight={<LayoutButton selectable />}
       header={header}
       videos={list}
       emptyTitle={empty[section][0]}
@@ -277,7 +279,7 @@ export function VideoFolderScreen() {
   const videos = useVideos((s) => s.videos);
   const sort = useSettings((s) => s.videoSort);
   const list = useMemo(() => sortVideos(videos.filter((v) => v.folder === params.folder), sort), [videos, params.folder, sort]);
-  return <VideoList title={params.folder.split('/').pop() || params.folder} back videos={list} titleRight={<LayoutButton />} />;
+  return <VideoList title={params.folder.split('/').pop() || params.folder} back videos={list} titleRight={<LayoutButton selectable />} />;
 }
 
 const styles = StyleSheet.create({

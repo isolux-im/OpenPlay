@@ -16,6 +16,7 @@ import { Icon } from '../ui/Icon';
 import { Text } from '../ui/Text';
 import { GUTTER, radius, useTheme } from '../ui/theme';
 import { ArtworkGlow, CollectionHeader, collectionMeta, usePlayList } from './common';
+import { useSelectable } from '../store/selection';
 
 export function PlaylistScreen() {
   const { params } = useRoute<RouteProp<SharedStackParams, 'Playlist'>>();
@@ -29,6 +30,7 @@ export function PlaylistScreen() {
   const [editing, setEditing] = useState(false);
   const entries = playlist ? playlist.trackIds.map((id, i) => ({ track: byId[id], i })).filter((e) => e.track) : [];
   const tracks = entries.map((e) => e.track);
+  useSelectable('audio', tracks.map((t) => t.id));
   const { playAt, play, shuffle } = usePlayList(tracks, playlist?.name ?? null);
 
   if (!playlist) return <ScrollScreen title="Playlist" back largeTitle={false}><EmptyState icon="list" title="Playlist supprimée" /></ScrollScreen>;

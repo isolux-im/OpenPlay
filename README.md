@@ -47,6 +47,11 @@ Après un renommage ou un déplacement, favoris, playlists, historique et positi
 « Nouveau dossier… » en tête de Musique › Dossiers et de Vidéos › Dossiers : nom du dossier, puis choix des
 morceaux ou vidéos à y déplacer ou copier (Android ne conserve pas de dossier vide).
 
+**Sélection** (unique ou multiple) : bouton « Sélectionner » en haut des listes de morceaux et de vidéos, ou
+« Sélectionner » dans le menu d'un élément. Toucher coche ou décoche (aucune lecture), « Tout sélectionner » ;
+la barre du bas propose Playlist, Copier, Déplacer, Renommer (un seul élément) et Supprimer. Retour ou « ✕ »
+termine la sélection, qui prend aussi fin en quittant l'écran.
+
 **Métadonnées** : module natif local `modules/openplay-media` (Kotlin) qui lit MediaStore : titre, artiste,
 artiste de l'album, album, genre, numéro de piste/disque, année, dossier ; pochettes extraites vers le cache
 (vignette système, puis image intégrée au fichier) et couleurs dominantes calculées avec AndroidX Palette.

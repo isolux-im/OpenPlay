@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, View, type GestureResponderEvent } from 'react-n
 
 import { formatDuration } from '../library/text';
 import { usePlayer } from '../store/player';
+import { useSelection } from '../store/selection';
 import { useUi, type TrackMenuContext } from '../store/ui';
 import { useUser } from '../store/user';
 import type { Track } from '../types';
@@ -34,23 +35,31 @@ function TrackRowBase({ track, onPress, number, artwork = number === undefined, 
   const isPlaying = usePlayer((s) => s.isPlaying);
   const favorite = useUser((s) => s.favorites.includes(track.id));
   const openMenu = useUi((s) => s.openTrackMenu);
+  const selecting = useSelection((s) => s.kind === 'audio');
+  const checked = useSelection((s) => s.kind === 'audio' && s.ids.includes(track.id));
   const sub = subtitle ?? track.artist;
 
   const open = (e: GestureResponderEvent) => openMenu(track.id, menuContext, { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY });
+  const toggle = () => {
+    tap('selection');
+    useSelection.getState().toggle(track.id);
+  };
 
   return (
     <Pressable
-      onPress={onPress}
+      onPress={selecting ? toggle : onPress}
       onLongPress={(e) => {
+        if (selecting) return toggle();
         tap();
         open(e);
       }}
       delayLongPress={320}
       android_ripple={{ color: colors.fill }}
-      style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.fill }]}
-      accessibilityRole="button"
-      accessibilityLabel={`Lire ${track.title}, ${track.artist}`}
-      accessibilityHint="Appui long pour plus d'options">
+      style={({ pressed }) => [styles.row, (pressed || checked) && { backgroundColor: colors.fill }]}
+      accessibilityRole={selecting ? 'checkbox' : 'button'}
+      accessibilityState={selecting ? { checked } : undefined}
+      accessibilityLabel={selecting ? track.title : `Lire ${track.title}, ${track.artist}`}
+      accessibilityHint={selecting ? undefined : "Appui long pour plus d'options"}>
       {number !== undefined ? (
         <View style={styles.number}>
           {isCurrent && !artwork ? (
@@ -91,7 +100,11 @@ function TrackRowBase({ track, onPress, number, artwork = number === undefined, 
             {formatDuration(track.durationSec)}
           </Text>
         ) : null}
-        {accessory ?? (
+        {selecting ? (
+          <View style={styles.more}>
+            <Icon name={checked ? 'checkmark-circle' : 'ellipse-outline'} size={24} color={checked ? colors.accent : colors.tertiaryText} />
+          </View>
+        ) : accessory ?? (
           <Pressable onPress={open} hitSlop={10} style={styles.more} accessibilityRole="button" accessibilityLabel={`Options pour ${track.title}`}>
             <Icon name="ellipsis-vertical" size={18} color={colors.secondaryText} />
           </Pressable>
