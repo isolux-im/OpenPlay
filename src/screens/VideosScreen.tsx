@@ -19,6 +19,7 @@ import type { VideoSort } from '../video/types';
 import { VideoList } from '../video/VideoList';
 import { useSeriesIndex } from '../video/useSeries';
 import { VideoThumb } from '../video/VideoThumb';
+import { NewFolderRow } from './NewFolderScreen';
 import { NewVideoPlaylistRow, VideoPlaylistRow } from './VideoPlaylistScreen';
 import { SeriesRow } from './VideoSeriesScreen';
 
@@ -222,7 +223,12 @@ export function VideosScreen({ title = 'Vidéos', switcher }: { title?: string; 
       <ListScreen
         title={title}
         titleRight={<LayoutButton />}
-        header={header}
+        header={
+          <View>
+            {header}
+            <NewFolderRow kind="video" />
+          </View>
+        }
         data={folders}
         keyExtractor={(f) => f.folder}
         renderItem={({ item }) => (

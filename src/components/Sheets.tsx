@@ -3,7 +3,7 @@ import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleShee
 import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { DEFAULT_ROOT, MEDIA_ROOTS, cleanFolderName, isValidDestination } from '../library/fileOps';
+import { DEFAULT_ROOT, MEDIA_ROOTS, isValidDestination, newFolderPath } from '../library/fileOps';
 import { compareText, pluralize } from '../library/text';
 import { useLibrary } from '../store/library';
 import { describePlaylist, resolvePlaylist, useVideoPlaylists } from '../store/videoPlaylists';
@@ -189,14 +189,6 @@ function VideoPlaylistPickerSheet() {
       </ScrollView>
     </BottomSheet>
   );
-}
-
-/** Chemin saisi pour un nouveau dossier : sous le dossier racine par défaut, sauf s'il commence par une racine valide. */
-export function newFolderPath(kind: 'audio' | 'video', input: string): string | null {
-  const parts = input.split('/').map(cleanFolderName).filter(Boolean);
-  if (!parts.length) return null;
-  const path = parts.join('/');
-  return isValidDestination(kind, path) ? path : `${DEFAULT_ROOT[kind]}/${path}`;
 }
 
 /** Dossier de destination pour copier ou déplacer : dossiers existants (racines autorisées par Android) ou nouveau. */

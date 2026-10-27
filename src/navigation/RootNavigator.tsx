@@ -23,6 +23,7 @@ import {
   SmartPlaylistScreen,
   SongsScreen,
 } from '../screens/LibraryScreens';
+import { NewFolderScreen } from '../screens/NewFolderScreen';
 import { PlaylistScreen } from '../screens/PlaylistScreen';
 import { PlaylistsScreen } from '../screens/PlaylistsScreen';
 import { SearchScreen } from '../screens/SearchScreen';
@@ -62,6 +63,7 @@ const SHARED: { name: keyof AnyStackParams; component: ComponentType }[] = [
   { name: 'VideoSeries', component: VideoSeriesScreen },
   { name: 'VideoStats', component: VideoStatsScreen },
   { name: 'VideoPlaylist', component: VideoPlaylistScreen },
+  { name: 'NewFolder', component: NewFolderScreen },
 ];
 
 /** Une pile par onglet, avec le même jeu d'écrans de détail : la barre d'onglets reste visible. */

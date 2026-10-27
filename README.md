@@ -44,6 +44,8 @@ déplacer vers un dossier existant ou nouveau (racines autorisées par Android :
 Movies, DCIM, Pictures pour la vidéo), et supprimer une vidéo ou une série. Ce sont les vrais fichiers de
 l'appareil : Android demande l'autorisation (Android 11+ pour renommer et déplacer, Android 10+ pour copier).
 Après un renommage ou un déplacement, favoris, playlists, historique et positions de reprise sont conservés.
+« Nouveau dossier… » en tête de Musique › Dossiers et de Vidéos › Dossiers : nom du dossier, puis choix des
+morceaux ou vidéos à y déplacer ou copier (Android ne conserve pas de dossier vide).
 
 **Métadonnées** : module natif local `modules/openplay-media` (Kotlin) qui lit MediaStore : titre, artiste,
 artiste de l'album, album, genre, numéro de piste/disque, année, dossier ; pochettes extraites vers le cache

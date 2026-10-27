@@ -25,6 +25,7 @@ import { TrackCollectionScreen } from './TrackCollectionScreen';
 import { useNow } from '../ui/useNow';
 import { useDiscover } from './DiscoverScreen';
 import { LibraryGate } from './LibraryGate';
+import { NewFolderRow } from './NewFolderScreen';
 
 export function LibraryScreen({ switcher }: { switcher?: ReactNode } = {}) {
   const navigation = useAppNavigation();
@@ -290,7 +291,7 @@ export function FoldersScreen() {
       </View>
     </Pressable>
   );
-  return <ListScreen title="Dossiers" back backLabel="Bibliothèque" data={folders} keyExtractor={(f) => f.id} renderItem={renderItem} ListEmptyComponent={<EmptyState icon="folder-outline" title="Aucun dossier" />} />;
+  return <ListScreen title="Dossiers" back backLabel="Bibliothèque" header={<NewFolderRow kind="audio" />} data={folders} keyExtractor={(f) => f.id} renderItem={renderItem} ListEmptyComponent={<EmptyState icon="folder-outline" title="Aucun dossier" />} />;
 }
 
 export function FolderScreen() {

@@ -53,6 +53,14 @@ export function cleanFolderName(input: string): string {
   return cleanFileName(input).replace(/\.+$/, '');
 }
 
+/** Chemin saisi pour un nouveau dossier : sous le dossier racine par défaut, sauf s'il commence par une racine valide. */
+export function newFolderPath(kind: MediaKind, input: string): string | null {
+  const parts = input.split('/').map(cleanFolderName).filter(Boolean);
+  if (!parts.length) return null;
+  const path = parts.join('/');
+  return isValidDestination(kind, path) ? path : `${DEFAULT_ROOT[kind]}/${path}`;
+}
+
 export function splitName(filename: string): { base: string; ext: string } {
   const dot = filename.lastIndexOf('.');
   return dot > 0 ? { base: filename.slice(0, dot), ext: filename.slice(dot) } : { base: filename, ext: '' };

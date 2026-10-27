@@ -26,6 +26,8 @@ export type SharedStackParams = {
   VideoSeries: { key: string };
   VideoStats: undefined;
   VideoPlaylist: { id: string };
+  /** Nouveau dossier : choix des fichiers à y déplacer ou copier. */
+  NewFolder: { kind: 'audio' | 'video'; folder: string };
 };
 
 export type HomeStackParams = SharedStackParams & { Home: undefined };

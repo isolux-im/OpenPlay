@@ -1,7 +1,6 @@
 import { Alert } from 'react-native';
 
-import { newFolderPath } from '../components/Sheets';
-import { copyTracks, copyVideos, deleteVideosFromDevice, isValidDestination, moveTracks, moveVideos, renameTrack, renameVideo, renamedFile, cleanFileName, trackFileName } from '../library/fileOps';
+import { newFolderPath, copyTracks, copyVideos, deleteVideosFromDevice, isValidDestination, moveTracks, moveVideos, renameTrack, renameVideo, renamedFile, cleanFileName, trackFileName } from '../library/fileOps';
 import { useLibrary } from '../store/library';
 import { useUi } from '../store/ui';
 import { useVideoHistory } from '../store/videoHistory';

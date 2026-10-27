@@ -311,6 +311,42 @@ describe('application', () => {
     useSettings.setState({ videoLayout: 'grid' });
   });
 
+  it('crée un nouveau dossier de musique en y déplaçant un morceau', async () => {
+    await renderApp();
+    const track = useLibrary.getState().index.tracks[0];
+    await fireEvent.press(screen.getByRole('tab', { name: 'Bibliothèque' }));
+    await fireEvent.press(await screen.findByRole('button', { name: /^Dossiers/ }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Nouveau dossier' }));
+    await fireEvent.changeText(await screen.findByLabelText('Nom du dossier'), 'Favoris du soir');
+    await fireEvent.press(screen.getByRole('button', { name: 'Choisir les fichiers' }));
+    expect(await screen.findByText('Nouveau dossier · Music/Favoris du soir')).toBeTruthy();
+    await fireEvent.press(screen.getAllByRole('checkbox', { name: track.title })[0]);
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Déplacer 1 fichier' }));
+    });
+    expect(useLibrary.getState().index.byId[track.id].folder).toBe('Music/Favoris du soir');
+    expect(useLibrary.getState().index.foldersById['Music/Favoris du soir'].trackIds).toEqual([track.id]);
+    expect(await screen.findAllByText(track.title)).not.toHaveLength(0); // le nouveau dossier s'ouvre
+  });
+
+  it('crée un nouveau dossier vidéo en y copiant une série', async () => {
+    await renderApp();
+    await openVideos();
+    await fireEvent.press(await screen.findByRole('radio', { name: 'Dossiers' }));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Nouveau dossier' }));
+    await fireEvent.changeText(await screen.findByLabelText('Nom du dossier'), 'Animés');
+    await fireEvent.press(screen.getByRole('button', { name: 'Choisir les fichiers' }));
+    await fireEvent.press(await screen.findByRole('radio', { name: 'Copier ici' }));
+    await fireEvent.changeText(screen.getByLabelText('Rechercher'), 'lagune blues');
+    for (const n of ['01', '02', '03']) await fireEvent.press(screen.getByRole('checkbox', { name: `Lagune Blues S01E${n}` }));
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: 'Copier 3 fichiers' }));
+    });
+    const inFolder = useVideos.getState().videos.filter((v) => v.folder === 'Movies/Animés');
+    expect(inFolder.map((v) => v.filename).sort()).toEqual(['Lagune Blues S01E01.mp4', 'Lagune Blues S01E02.mp4', 'Lagune Blues S01E03.mp4']);
+    expect(useVideos.getState().byId['demo-video-9'].folder).toBe('Movies/Séries/Lagune Blues'); // originaux en place
+  });
+
   it('enchaînement désactivé : la fin d’un épisode ne lance rien', async () => {
     useSettings.setState({ videoAutoNext: false });
     await renderApp();
