@@ -101,7 +101,11 @@ jest.mock('expo-video', () => {
   };
   return {
     __esModule: true,
-    VideoView: React.forwardRef((props: object, _ref: unknown) => React.createElement(View, { ...props, testID: 'video-view' })),
+    // Fenêtre PiP simulée : l'entrée appelle onPictureInPictureStart, comme Android.
+    VideoView: React.forwardRef((props: { onPictureInPictureStart?: () => void }, ref: unknown) => {
+      React.useImperativeHandle(ref, () => ({ startPictureInPicture: jest.fn(() => (props.onPictureInPictureStart?.(), Promise.resolve())) }));
+      return React.createElement(View, { ...props, testID: 'video-view' });
+    }),
     useVideoPlayer: (_source: unknown, setup?: (p: unknown) => void) => {
       const ref = React.useRef(null);
       if (!ref.current) {

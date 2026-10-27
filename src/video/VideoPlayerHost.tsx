@@ -4,6 +4,7 @@ import { VideoView, isPictureInPictureSupported, useVideoPlayer as useNativeVide
 import { useEffect, useRef, useState } from 'react';
 import { BackHandler, PixelRatio, Platform, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { OpenPlayMedia } from '../../modules/openplay-media';
@@ -145,7 +146,42 @@ function formatRate(rate: number) {
 function openEpisode(series: Series | undefined, fromId: string, next: Video) {
   const gap = series ? missingBetween(series, fromId, next.id) : null;
   if (gap) useUi.getState().showToast(`Absent de la vidéothèque : ${gap}`);
-  useVideoPlayer.getState().open(next.id, series ? series.episodes.map((e) => e.id) : [next.id]);
+  // L'enchaînement garde le mode d'affichage : un épisode fini en mini-lecteur continue en mini-lecteur.
+  useVideoPlayer.getState().open(next.id, series ? series.episodes.map((e) => e.id) : [next.id], { keepDisplay: true });
+}
+
+/** Taille du mini-lecteur : proportions de la vidéo, environ 55 % de la largeur (moins pour une vidéo verticale). */
+export function miniFrame(screen: { width: number; height: number }, video: { width: number; height: number } | null) {
+  const ratio = video && video.width > 0 && video.height > 0 ? video.width / video.height : 16 / 9;
+  const maxWidth = Math.min(screen.width * 0.56, 320);
+  const maxHeight = Math.min(screen.height * 0.32, 300);
+  let w = maxWidth;
+  let h = w / ratio;
+  if (h > maxHeight) {
+    h = maxHeight;
+    w = h * ratio;
+  }
+  return { width: Math.round(w), height: Math.round(h) };
+}
+
+/** Commandes du mini-lecteur interne : toucher la vidéo l'agrandit ; lecture / pause, plein écran, fermer. */
+function MiniControls({ title, playing, ended, onToggle, onExpand, onClose }: { title: string; playing: boolean; ended: boolean; onToggle: () => void; onExpand: () => void; onClose: () => void }) {
+  // Toucher la vidéo l'agrandit ; un glissement (déplacement de la fenêtre) n'est jamais pris pour un toucher.
+  const expandTap = Gesture.Tap().runOnJS(true).maxDistance(10).onEnd((_e, success) => {
+    if (success) onExpand();
+  });
+  return (
+    <View style={StyleSheet.absoluteFill}>
+      <GestureDetector gesture={expandTap}>
+        <View style={StyleSheet.absoluteFill} accessible accessibilityRole="button" accessibilityLabel={`Plein écran : ${title}`} onAccessibilityTap={onExpand} />
+      </GestureDetector>
+      <View style={styles.miniBar} pointerEvents="box-none">
+        <IconButton icon={ended ? 'refresh' : playing ? 'pause' : 'play'} label={ended ? 'Revoir' : playing ? 'Pause' : 'Lecture'} onPress={onToggle} size={22} />
+        <IconButton icon="expand-outline" label="Plein écran" onPress={onExpand} size={20} />
+        <IconButton icon="close" label="Fermer le mini-lecteur" onPress={onClose} size={22} />
+      </View>
+    </View>
+  );
 }
 
 function PlayerSurface({ video, list, restart }: { video: Video; list: string[]; restart: boolean }) {
@@ -162,6 +198,8 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   const series = useSeriesIndex().byVideo[video.id];
   const intro = useIntros((s) => s.byVideo[video.id]);
   const pipEnabled = useSettings((s) => s.videoPip);
+  // Plein écran ou mini-lecteur interne : même lecteur, même VideoView, seul le cadre change.
+  const mini = useVideoPlayer((s) => s.display === 'mini');
   const doubleTapEnabled = useSettings((s) => s.videoDoubleTap);
   const { close, step } = useVideoPlayer.getState();
   const showToast = useUi((s) => s.showToast);
@@ -265,8 +303,17 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   }, []);
 
   useEffect(() => {
-    if (orientation) void OpenPlayMedia?.setScreenOrientationAsync?.(orientation).catch(() => {});
-  }, [orientation]);
+    if (orientation && !mini) void OpenPlayMedia?.setScreenOrientationAsync?.(orientation).catch(() => {});
+  }, [orientation, mini]);
+
+  // Mini-lecteur : barres système et orientation de l'application rétablies ; plein écran : immersif à nouveau.
+  const wasMini = useRef(false);
+  useEffect(() => {
+    if (!mini && !wasMini.current) return;
+    wasMini.current = mini;
+    void OpenPlayMedia?.setImmersiveAsync?.(!mini).catch(() => {});
+    if (mini) void OpenPlayMedia?.setScreenOrientationAsync?.('default').catch(() => {});
+  }, [mini]);
 
   // Mises à jour de position plus serrées seulement quand des sous-titres importés doivent suivre l'image.
   const fineTiming = subtitleChoice.kind === 'external' && external.status === 'ready';
@@ -410,10 +457,38 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
     close();
   };
 
+  /** Mini-lecteur interne : la vidéo continue dans une petite fenêtre, la bibliothèque redevient visible. */
+  const minimize = () => {
+    save(currentPosition());
+    setSubtitlesOpen(false);
+    useVideoPlayer.getState().minimize();
+  };
+
+  /**
+   * Retour système depuis le plein écran : OpenPlay quitte le premier plan et la vidéo continue dans le PiP
+   * Android. Sans PiP (réglage désactivé, appareil ou version non compatible), repli sur le mini-lecteur interne.
+   */
+  const leaveToPip = () => {
+    save(currentPosition());
+    if (error) return exit();
+    const fallback = (why: string) => {
+      minimize();
+      showToast(why);
+    };
+    // Disponibilité vérifiée au moment du Retour (réglage, version d'Android, appareil).
+    const enabled = useSettings.getState().videoPip;
+    if (!enabled || !pipAvailable()) return fallback(enabled ? 'Fenêtre flottante Android indisponible : mini-lecteur OpenPlay' : 'Fenêtre flottante Android désactivée : mini-lecteur OpenPlay');
+    const entering = view.current?.startPictureInPicture();
+    if (!entering) return fallback('Fenêtre flottante Android indisponible : mini-lecteur OpenPlay');
+    entering.catch(() => fallback('Fenêtre flottante Android refusée : mini-lecteur OpenPlay'));
+  };
+
+  // Retour système : panneau des sous-titres fermé d'abord ; puis PiP Android. En mini-lecteur, navigation normale.
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (mini || inPip) return false;
       if (subtitlesOpen) setSubtitlesOpen(false);
-      else exit();
+      else leaveToPip();
       return true;
     });
     return () => sub.remove();
@@ -663,9 +738,29 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
       }),
   );
 
-  const startPip = () => {
-    view.current?.startPictureInPicture().catch(() => showToast('Fenêtre flottante indisponible sur cet appareil'));
-  };
+  const miniBox = miniFrame({ width, height }, video.width && video.height ? video : trackSize);
+  const miniBounds = { minX: 8, maxX: width - miniBox.width - 8, minY: insets.top + 8, maxY: height - miniBox.height - insets.bottom - 72 };
+  // Mini-lecteur déplaçable au doigt, gardé dans l'écran (au-dessus de la barre d'onglets).
+  const miniX = useSharedValue(Number.NaN);
+  const miniY = useSharedValue(Number.NaN);
+  const dragStart = useSharedValue({ x: 0, y: 0 });
+  const miniStyle = useAnimatedStyle(() => {
+    const x = Number.isNaN(miniX.get()) ? miniBounds.maxX : miniX.get();
+    const y = Number.isNaN(miniY.get()) ? miniBounds.maxY - 84 : miniY.get();
+    return { transform: [{ translateX: Math.min(Math.max(x, miniBounds.minX), miniBounds.maxX) }, { translateY: Math.min(Math.max(y, miniBounds.minY), miniBounds.maxY) }] };
+  });
+  const miniDrag = Gesture.Pan()
+    .enabled(mini && !inPip)
+    .minDistance(6)
+    .onStart(() => {
+      const x = Number.isNaN(miniX.get()) ? miniBounds.maxX : miniX.get();
+      const y = Number.isNaN(miniY.get()) ? miniBounds.maxY - 84 : miniY.get();
+      dragStart.set({ x: Math.min(Math.max(x, miniBounds.minX), miniBounds.maxX), y: Math.min(Math.max(y, miniBounds.minY), miniBounds.maxY) });
+    })
+    .onUpdate((e) => {
+      miniX.set(Math.min(Math.max(dragStart.get().x + e.translationX, miniBounds.minX), miniBounds.maxX));
+      miniY.set(Math.min(Math.max(dragStart.get().y + e.translationY, miniBounds.minY), miniBounds.maxY));
+    });
 
   const frame = videoFrame(fitMode, { width, height }, video.width && video.height ? video : trackSize, PixelRatio.get());
   const pipSupported = pipEnabled && pipAvailable();
@@ -674,28 +769,41 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
   const cueText = subtitleChoice.kind === 'external' && subtitleLink && external.status === 'ready' && !inPip && !error ? cueTextAt(external.cues, position, subtitleLink.offsetSec) : null;
 
   return (
-    <View style={styles.root} accessibilityViewIsModal>
-      <StatusBar hidden={!inPip} style="light" />
+    <GestureDetector gesture={miniDrag}>
+    <Animated.View
+      style={mini && !inPip ? [styles.mini, { width: miniBox.width, height: miniBox.height }, miniStyle] : styles.root}
+      accessibilityViewIsModal={!mini}
+      accessibilityLabel={mini ? `Mini-lecteur : ${video.title}` : undefined}>
+      <StatusBar hidden={!inPip && !mini} style="light" />
       <View style={styles.stage} pointerEvents="none">
         {/* Même surface en portrait comme en paysage : la vidéo n'est jamais reconstruite ni réduite en changeant d'orientation. */}
         <VideoView
           ref={view}
           player={player}
-          style={inPip ? StyleSheet.absoluteFill : { width: frame.width, height: frame.height }}
-          contentFit={inPip ? 'contain' : frame.fit}
+          style={inPip || mini ? StyleSheet.absoluteFill : { width: frame.width, height: frame.height }}
+          contentFit={inPip || mini ? 'contain' : frame.fit}
           surfaceType="surfaceView"
           nativeControls={false}
           allowsPictureInPicture={pipSupported}
           // Pas de fenêtre flottante pour une vidéo terminée, en erreur ou en pause.
           startsPictureInPictureAutomatically={pipSupported && playing && !ended && !error}
-          onPictureInPictureStart={() => setInPip(true)}
+          onPictureInPictureStart={() => {
+            setInPip(true);
+            useVideoPlayer.getState().setPip(true);
+          }}
           onPictureInPictureStop={() => {
+            // Retour dans OpenPlay : le lecteur est restauré tel quel (même vidéo, même position, même écran derrière).
             setInPip(false);
+            useVideoPlayer.getState().setPip(false);
             if (ended && !upNext) proposeNext();
           }}
         />
       </View>
 
+      {mini && !inPip ? (
+        <MiniControls title={video.title} playing={playing} ended={ended} onToggle={toggle} onExpand={() => useVideoPlayer.getState().expand()} onClose={exit} />
+      ) : (
+      <>
       {dim > 0 && !inPip ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: `rgba(0,0,0,${dim})` }]} /> : null}
 
       {!inPip ? (
@@ -828,7 +936,7 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
             <Text variant="headline" color="#FFFFFF" numberOfLines={2} style={{ flex: 1 }}>
               {video.title}
             </Text>
-            {pipSupported ? <IconButton icon="albums-outline" label="Fenêtre flottante" onPress={startPip} size={22} /> : null}
+            <IconButton icon="contract-outline" label="Mini-lecteur" onPress={minimize} size={22} />
           </View>
 
           <View style={styles.middle} pointerEvents="box-none">
@@ -898,7 +1006,10 @@ function PlayerSurface({ video, list, restart }: { video: Video; list: string[];
           bottom={insets.bottom + 12}
         />
       ) : null}
-    </View>
+      </>
+      )}
+    </Animated.View>
+    </GestureDetector>
   );
 }
 
@@ -909,6 +1020,19 @@ const styles = StyleSheet.create({
     zIndex: 300,
     elevation: 50,
   },
+  // Mini-lecteur interne : petite fenêtre au-dessus des écrans d'OpenPlay, le reste de l'écran reste utilisable.
+  mini: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: '#000000',
+    zIndex: 300,
+    elevation: 50,
+    boxShadow: '0px 8px 24px rgba(0,0,0,0.35)',
+  },
+  miniBar: { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', paddingVertical: 2, backgroundColor: 'rgba(0,0,0,0.45)' },
   skipIntro: {
     position: 'absolute',
     right: 16,

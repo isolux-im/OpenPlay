@@ -34,6 +34,12 @@ une vidéo isolée. À la fin naturelle d'un épisode, le suivant disponible dé
 compte à rebours de 10 s (copies du même épisode sautées, numéros absents signalés, arrêt après le dernier) ;
 réglages « Séries : enchaîner les épisodes » et « Continuer à la saison suivante ».
 
+**Mini-lecteur vidéo** : le bouton « Mini-lecteur » du lecteur réduit la vidéo dans une petite fenêtre déplaçable,
+à l'intérieur d'OpenPlay (lecture / pause, plein écran, fermer) : la bibliothèque reste utilisable. La touche Retour
+du téléphone en plein écran quitte OpenPlay et passe en fenêtre flottante Android (PiP) ; au retour, le lecteur est
+restauré tel quel. Sans PiP (réglage désactivé, appareil non compatible), le Retour ouvre le mini-lecteur. Un seul
+lecteur natif pour les trois affichages ; l'enchaînement des épisodes continue en mini-lecteur.
+
 **Playlists vidéo** : Bibliothèque › Vidéos › Playlists. Chaque playlist range des séries entières (elles suivent
 leurs nouveaux épisodes) et des vidéos isolées ; ajout par le menu « ⋮ » / appui long d'une série ou d'une vidéo,
 réorganisation (Monter, Descendre, Retirer), lecture de toute la liste dans l'ordre.

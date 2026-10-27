@@ -10,10 +10,28 @@ type Session = {
   seq: number;
 };
 
+/**
+ * Affichage de la session vidéo : plein écran (FULLSCREEN) ou mini-lecteur flottant dans OpenPlay (IN_APP_MINI).
+ * Le PiP Android (SYSTEM_PIP) s'y superpose : `pip` vrai tant que la fenêtre système est affichée.
+ * Une seule session, un seul lecteur natif, quel que soit l'affichage.
+ */
+export type VideoDisplay = 'fullscreen' | 'mini';
+
 type State = {
   session: Session | null;
-  open: (id: string, list?: string[], options?: { restart?: boolean }) => void;
+  display: VideoDisplay;
+  pip: boolean;
+  /**
+   * Ouvre une vidéo. `keepDisplay` : l'enchaînement (épisode suivant, précédent / suivant) garde le mode en cours ;
+   * une vidéo choisie dans la bibliothèque s'ouvre en plein écran.
+   */
+  open: (id: string, list?: string[], options?: { restart?: boolean; keepDisplay?: boolean }) => void;
   step: (delta: 1 | -1) => void;
+  /** Mini-lecteur interne : la bibliothèque redevient visible, la lecture continue. */
+  minimize: () => void;
+  /** Retour au plein écran, sans recréer le lecteur. */
+  expand: () => void;
+  setPip: (pip: boolean) => void;
   close: () => void;
 };
 
@@ -21,7 +39,13 @@ let seq = 0;
 
 export const useVideoPlayer = create<State>()((set, get) => ({
   session: null,
-  open: (id, list = [id], options = {}) => set({ session: { id, list: list.includes(id) ? list : [id], restart: !!options.restart, seq: ++seq } }),
+  display: 'fullscreen',
+  pip: false,
+  open: (id, list = [id], options = {}) =>
+    set((s) => ({
+      session: { id, list: list.includes(id) ? list : [id], restart: !!options.restart, seq: ++seq },
+      display: options.keepDisplay && s.session ? s.display : 'fullscreen',
+    })),
   step: (delta) => {
     const s = get().session;
     if (!s) return;
@@ -29,5 +53,8 @@ export const useVideoPlayer = create<State>()((set, get) => ({
     if (i < 0 || i >= s.list.length) return;
     set({ session: { ...s, id: s.list[i], restart: false, seq: ++seq } });
   },
-  close: () => set({ session: null }),
+  minimize: () => set((s) => (s.session ? { display: 'mini' } : {})),
+  expand: () => set({ display: 'fullscreen' }),
+  setPip: (pip) => set({ pip }),
+  close: () => set({ session: null, display: 'fullscreen', pip: false }),
 }));

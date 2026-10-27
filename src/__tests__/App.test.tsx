@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Alert, StyleSheet } from 'react-native';
+import { Alert, BackHandler, Platform, StyleSheet } from 'react-native';
 import * as ExpoVideo from 'expo-video';
 
 import App from '../App';
@@ -484,6 +484,125 @@ describe('application', () => {
     // Tous les choix restent accessibles en faisant défiler, jusqu'au dernier.
     expect(screen.getByRole('menuitem', { name: 'Supprimer' })).toBeTruthy();
     await act(async () => useUi.getState().closeAll());
+  });
+
+  describe('mini-lecteur vidéo', () => {
+    type FakePlayer = { emit: (event: string, payload: unknown) => void; play: jest.Mock; pause: jest.Mock };
+    let players: FakePlayer[] = [];
+    let spy: jest.SpyInstance;
+    type BackHandlerFn = Parameters<typeof BackHandler.addEventListener>[1];
+    let backHandlers: BackHandlerFn[] = [];
+    let backSpy: jest.SpyInstance;
+    beforeEach(() => {
+      players = [];
+      backHandlers = [];
+      const original = ExpoVideo.useVideoPlayer;
+      spy = jest.spyOn(ExpoVideo, 'useVideoPlayer').mockImplementation(((...args: Parameters<typeof original>) => {
+        const p = original(...args) as unknown as FakePlayer;
+        if (!players.includes(p)) players.push(p);
+        return p;
+      }) as unknown as typeof original);
+      // BackHandler n'agit pas sous Jest : on garde les gestionnaires pour simuler la touche Retour du téléphone.
+      backSpy = jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_e, handler) => {
+        backHandlers.push(handler);
+        return { remove: () => (backHandlers = backHandlers.filter((h) => h !== handler)) };
+      });
+      useSettings.setState({ videoLayout: 'list', videoPip: true });
+    });
+    afterEach(async () => {
+      spy.mockRestore();
+      backSpy.mockRestore();
+      useSettings.setState({ videoLayout: 'grid' });
+      await act(async () => useVideoPlayer.getState().close());
+    });
+    /** Touche Retour système : le dernier gestionnaire inscrit d'abord, comme Android. */
+    const backEvent = {} as Parameters<BackHandlerFn>[0];
+    const pressBack = () => act(async () => void [...backHandlers].reverse().find((h) => h(backEvent)));
+
+    it('Mode A : le mini-lecteur garde OpenPlay ouvert, la bibliothèque utilisable, puis revient en plein écran', async () => {
+      await renderApp();
+      await openVideos();
+      await fireEvent.press((await screen.findAllByRole('button', { name: /^Lire Concert au Bénin/ }))[0]);
+      expect(await screen.findByRole('button', { name: 'Fermer la vidéo' })).toBeTruthy();
+      const player = players.at(-1)!;
+      const seqBefore = useVideoPlayer.getState().session!.seq;
+
+      await fireEvent.press(screen.getByRole('button', { name: 'Mini-lecteur' }));
+      expect(useVideoPlayer.getState()).toMatchObject({ display: 'mini', pip: false });
+      expect(screen.queryByRole('button', { name: 'Fermer la vidéo' })).toBeNull(); // plein écran retiré
+      expect(screen.getByLabelText('Mini-lecteur : Concert au Bénin')).toBeTruthy();
+      // La bibliothèque des vidéos est à nouveau visible et utilisable pendant la lecture.
+      await fireEvent.press(screen.getByRole('radio', { name: 'Favoris' }));
+      expect(await screen.findByText('Aucun favori')).toBeTruthy();
+      await fireEvent.press(screen.getByRole('radio', { name: 'Toutes' }));
+      expect(screen.getByRole('tab', { name: 'Bibliothèque' }).props.accessibilityState).toMatchObject({ selected: true });
+      // Commandes du mini-lecteur sur la même session et le même lecteur natif.
+      await act(async () => player.emit('playingChange', { isPlaying: true }));
+      await fireEvent.press(screen.getByRole('button', { name: 'Pause' }));
+      expect(player.pause).toHaveBeenCalled();
+      // Retour système en mini-lecteur : navigation normale, pas de PiP ni de fermeture.
+      expect(backHandlers.at(-1)?.(backEvent)).toBe(false);
+
+      await fireEvent.press(screen.getByRole('button', { name: 'Plein écran' }));
+      expect(useVideoPlayer.getState().display).toBe('fullscreen');
+      expect(await screen.findByRole('button', { name: 'Fermer la vidéo' })).toBeTruthy();
+      expect(players.at(-1)).toBe(player); // aucun nouveau lecteur : progression et piste conservées
+      expect(useVideoPlayer.getState().session!.seq).toBe(seqBefore);
+
+      // Fermer depuis le mini-lecteur arrête la session.
+      await fireEvent.press(screen.getByRole('button', { name: 'Mini-lecteur' }));
+      await fireEvent.press(screen.getByRole('button', { name: 'Fermer le mini-lecteur' }));
+      expect(useVideoPlayer.getState().session).toBeNull();
+    });
+
+    it('Mode B : la touche Retour du téléphone passe en PiP Android, puis le lecteur est restauré au retour', async () => {
+      await renderApp();
+      await openVideos();
+      await fireEvent.press((await screen.findAllByRole('button', { name: /^Lire Concert au Bénin/ }))[0]);
+      expect(await screen.findByRole('button', { name: 'Fermer la vidéo' })).toBeTruthy();
+      const player = players.at(-1)!;
+      const os = jest.replaceProperty(Platform, 'OS', 'android');
+      try {
+        await pressBack();
+        expect(useVideoPlayer.getState()).toMatchObject({ pip: true, display: 'fullscreen' }); // PiP natif, pas le mini interne
+        expect(useVideoPlayer.getState().session?.id).toBe('demo-video-1'); // la vidéo continue
+        // Retour dans OpenPlay depuis la fenêtre PiP.
+        await act(async () => screen.getByTestId('video-view').props.onPictureInPictureStop());
+        expect(useVideoPlayer.getState()).toMatchObject({ pip: false, display: 'fullscreen' });
+        expect(screen.getByRole('button', { name: 'Fermer la vidéo' })).toBeTruthy();
+        expect(players.at(-1)).toBe(player);
+        // Derrière le lecteur restauré (fenêtre modale), l'onglet et l'écran d'origine n'ont pas changé.
+        expect(screen.getByRole('tab', { name: 'Bibliothèque', includeHiddenElements: true }).props.accessibilityState).toMatchObject({ selected: true });
+        expect(screen.getAllByText('Concert au Bénin', { includeHiddenElements: true }).length).toBeGreaterThan(0);
+
+        // PiP désactivé dans les réglages : repli sur le mini-lecteur interne, avec un message.
+        useSettings.setState({ videoPip: false });
+        await pressBack();
+        expect(useVideoPlayer.getState()).toMatchObject({ pip: false, display: 'mini' });
+        expect(useUi.getState().toast).toBe('Fenêtre flottante Android désactivée : mini-lecteur OpenPlay');
+      } finally {
+        os.restore();
+      }
+    });
+
+    it('enchaîne l’épisode suivant dans le mini-lecteur, sans revenir au plein écran', async () => {
+      useSettings.setState({ videoAutoNext: true });
+      await renderApp();
+      await act(async () => useVideoPlayer.getState().open('demo-video-9', ['demo-video-9', 'demo-video-10', 'demo-video-11']));
+      expect(await screen.findByRole('button', { name: 'Fermer la vidéo' })).toBeTruthy();
+      await fireEvent.press(screen.getByRole('button', { name: 'Mini-lecteur' }));
+      let offset = 0;
+      const realNow = Date.now.bind(Date);
+      const clock = jest.spyOn(Date, 'now').mockImplementation(() => realNow() + offset);
+      try {
+        await act(async () => players.at(-1)!.emit('playToEnd', {}));
+        offset += 10_500;
+        await act(() => new Promise<void>((r) => setTimeout(r, 400)));
+        expect(useVideoPlayer.getState()).toMatchObject({ display: 'mini', session: { id: 'demo-video-10' } });
+      } finally {
+        clock.mockRestore();
+      }
+    });
   });
 
   it('enchaînement désactivé : la fin d’un épisode ne lance rien', async () => {

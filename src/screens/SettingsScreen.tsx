@@ -218,7 +218,7 @@ export function SettingsScreen() {
 
       <Group
         title="Vidéos"
-        footer={`Orientation : « Auto » suit la position du téléphone pendant la lecture, comme VLC (vertical = portrait, horizontal = paysage), même si la rotation automatique d’Android est désactivée ; « Portrait » et « Paysage » bloquent l’écran ; « Selon vidéo » choisit d’après la vidéo. Le bouton du lecteur passe de l’automatique au paysage puis au portrait verrouillés.\n\nFenêtre flottante : en quittant OpenPlay pendant une vidéo, elle continue dans une petite fenêtre au-dessus des autres applications (Android 8 et plus ; entrée automatique sur Android 12 et plus).\n\nGénérique : OpenPlay compare le son du début de deux épisodes d’une même série, sur l’appareil ; rien n’est envoyé.`}>
+        footer={`Orientation : « Auto » suit la position du téléphone pendant la lecture, comme VLC (vertical = portrait, horizontal = paysage), même si la rotation automatique d’Android est désactivée ; « Portrait » et « Paysage » bloquent l’écran ; « Selon vidéo » choisit d’après la vidéo. Le bouton du lecteur passe de l’automatique au paysage puis au portrait verrouillés.\n\nMini-lecteur : le bouton du lecteur réduit la vidéo dans une petite fenêtre déplaçable, à l’intérieur d’OpenPlay, pour continuer à parcourir la bibliothèque. Fenêtre flottante Android (PiP) : la touche Retour du téléphone pendant une vidéo en plein écran quitte OpenPlay et la vidéo continue au-dessus des autres applications (Android 8 et plus ; aussi avec la touche Accueil sur Android 12 et plus). Désactivée, le Retour ouvre le mini-lecteur.\n\nGénérique : OpenPlay compare le son du début de deux épisodes d’une même série, sur l’appareil ; rien n’est envoyé.`}>
         <View style={styles.block}>
           <Text variant="subhead" tone="secondary" style={{ marginBottom: 8 }}>
             Orientation pendant la lecture
@@ -234,7 +234,7 @@ export function SettingsScreen() {
             onChange={(videoOrientation) => s.update({ videoOrientation })}
           />
         </View>
-        <Row icon="albums" iconColor="#8E8E93" label="Mini-lecteur flottant (PiP)" right={<Switch value={s.videoPip} onValueChange={(v) => s.update({ videoPip: v })} {...switchColors} />} />
+        <Row icon="albums" iconColor="#8E8E93" label="Retour du téléphone : fenêtre flottante Android (PiP)" right={<Switch value={s.videoPip} onValueChange={(v) => s.update({ videoPip: v })} {...switchColors} />} />
         <Row icon="hand-left" iconColor="#8E8E93" label="Double appui : ±10 secondes" right={<Switch value={s.videoDoubleTap} onValueChange={(v) => s.update({ videoDoubleTap: v })} {...switchColors} />} />
         <Row icon="swap-vertical" iconColor="#8E8E93" label="Glisser : luminosité (gauche), volume (droite)" right={<Switch value={s.videoSwipe} onValueChange={(v) => s.update({ videoSwipe: v })} {...switchColors} />} />
         <Row icon="swap-horizontal" iconColor="#8E8E93" label="Glisser horizontalement : avancer / reculer" right={<Switch value={s.videoSeekSwipe} onValueChange={(v) => s.update({ videoSeekSwipe: v })} {...switchColors} />} />
