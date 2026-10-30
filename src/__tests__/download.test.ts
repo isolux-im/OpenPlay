@@ -1,5 +1,5 @@
 import { analyzeLink, fileNameFor, freeFileName } from '../download/analyze';
-import { downloadBackend, demoTiming, errorMessage, LinkError, resetDemoDownloads, type DownloadBackend } from '../download/backend';
+import { demoPartExists, downloadBackend, demoTiming, errorMessage, LinkError, resetDemoDownloads, type DownloadBackend } from '../download/backend';
 import { formatBytes, remaining } from '../download/format';
 import { checkLink, extractUrl, isPrivateHost, redactUrl, safeBaseName } from '../download/link';
 import { resolveOptions, type Probe } from '../download/options';
@@ -203,6 +203,111 @@ describe('gestionnaire de téléchargements', () => {
     expect(status()).toEqual(['done', 'done', 'running']);
   });
 
+  /** Horloge avancée à la main (le transfert simulé suit Date.now). */
+  const clock = () => {
+    let offset = 0;
+    const realNow = Date.now.bind(Date);
+    const spy = jest.spyOn(Date, 'now').mockImplementation(() => realNow() + offset);
+    return { advance: (ms: number) => (offset += ms), restore: () => spy.mockRestore() };
+  };
+  const item = (id: string) => useDownloads.getState().items.find((x) => x.id === id)!;
+
+  it('pause puis reprise là où le transfert s’était arrêté (requête partielle), puis fin vérifiée', async () => {
+    const c = clock();
+    try {
+      const rec = useDownloads.getState().enqueue({ ...mp4(), resumable: true })!;
+      await flush();
+      c.advance(30_000); // 50 % de 60 s
+      await pollDownloadsNow();
+      expect(item(rec.id)).toMatchObject({ status: 'running', resumable: true, etag: '"demo-v1"' });
+      await useDownloads.getState().pause(rec.id);
+      const paused = item(rec.id);
+      expect(paused.status).toBe('paused');
+      expect(paused.bytesDone).toBeGreaterThanOrEqual(26_200_000);
+      expect(paused.bytesDone).toBeLessThan(26_400_000);
+      expect(paused.partUri && demoPartExists(paused.partUri)).toBe(true);
+      c.advance(120_000); // rien ne bouge pendant la pause
+      await pollDownloadsNow();
+      expect(item(rec.id).bytesDone).toBe(paused.bytesDone);
+
+      useDownloads.getState().resume(rec.id);
+      await flush();
+      expect(item(rec.id).status).toBe('running');
+      await pollDownloadsNow();
+      expect(item(rec.id).bytesDone).toBeGreaterThanOrEqual(paused.bytesDone); // reprise, pas de retour à zéro
+      c.advance(60_000);
+      await pollDownloadsNow();
+      expect(item(rec.id)).toMatchObject({ status: 'done', partUri: null, bytesDone: 52_400_000 });
+    } finally {
+      c.restore();
+    }
+  });
+
+  it('serveur sans requêtes partielles : pas de pause possible (aucun faux bouton)', async () => {
+    const rec = useDownloads.getState().enqueue({ ...mp4('https://exemple.org/sans-reprise/a.mp4', 'a.mp4'), resumable: false })!;
+    await flush();
+    await pollDownloadsNow();
+    await useDownloads.getState().pause(rec.id);
+    expect(item(rec.id)).toMatchObject({ status: 'running', resumable: false });
+  });
+
+  it('coupure réseau : fichier partiel conservé, « Réessayer » reprend à mi-parcours', async () => {
+    const c = clock();
+    try {
+      const rec = useDownloads.getState().enqueue({ ...mp4('https://exemple.org/coupure/b.mp4', 'b.mp4'), resumable: true })!;
+      await flush();
+      c.advance(40_000);
+      await pollDownloadsNow();
+      expect(item(rec.id)).toMatchObject({ status: 'failed', errorCode: 'ERR_LINK_NETWORK', bytesDone: 26_200_000 });
+      expect(item(rec.id).partUri).toBeTruthy();
+      useDownloads.getState().retry(rec.id);
+      await flush();
+      await pollDownloadsNow();
+      expect(item(rec.id)).toMatchObject({ status: 'running' });
+      expect(item(rec.id).bytesDone).toBeGreaterThanOrEqual(26_200_000);
+      c.advance(60_000);
+      await pollDownloadsNow();
+      expect(item(rec.id).status).toBe('done');
+    } finally {
+      c.restore();
+    }
+  });
+
+  it('application arrêtée pendant un transfert : reprise automatique au lancement suivant', async () => {
+    const c = clock();
+    try {
+      const rec = useDownloads.getState().enqueue({ ...mp4(), resumable: true })!;
+      await flush();
+      c.advance(15_000);
+      await pollDownloadsNow();
+      const before = item(rec.id);
+      expect(before.bytesDone).toBeGreaterThanOrEqual(13_100_000);
+      expect(before.bytesDone).toBeLessThan(13_400_000);
+      resetDemoDownloads(true); // processus arrêté : transferts perdus, fichier partiel conservé
+      await useDownloads.getState().reconcile();
+      await flush();
+      expect(item(rec.id)).toMatchObject({ status: 'running', partUri: before.partUri });
+      expect(item(rec.id).taskId).not.toBe(before.taskId);
+      c.advance(60_000);
+      await pollDownloadsNow();
+      expect(item(rec.id).status).toBe('done');
+    } finally {
+      c.restore();
+    }
+  });
+
+  it('annuler un téléchargement en pause supprime le fichier partiel', async () => {
+    const rec = useDownloads.getState().enqueue({ ...mp4(), resumable: true })!;
+    await flush();
+    await pollDownloadsNow();
+    await useDownloads.getState().pause(rec.id);
+    const part = item(rec.id).partUri!;
+    expect(demoPartExists(part)).toBe(true);
+    await useDownloads.getState().cancel(rec.id);
+    expect(item(rec.id)).toMatchObject({ status: 'cancelled', partUri: null });
+    expect(demoPartExists(part)).toBe(false);
+  });
+
   it('annuler, coupure réseau puis réessayer, espace insuffisant', async () => {
     const a = useDownloads.getState().enqueue(mp4())!;
     await flush();
@@ -223,10 +328,10 @@ describe('gestionnaire de téléchargements', () => {
     expect(useDownloads.getState().items.find((x) => x.id === full.id)).toMatchObject({ status: 'failed', errorCode: 'ERR_LINK_SPACE', errorMessage: expect.stringContaining('Espace') });
   });
 
-  it('après fermeture de l’application : transfert inconnu marqué interrompu ; retirer une entrée garde le fichier', async () => {
-    const rec = useDownloads.getState().enqueue(mp4())!;
+  it('serveur sans reprise et application arrêtée : échec explicite (« Réessayer » repart de zéro)', async () => {
+    const rec = useDownloads.getState().enqueue({ ...mp4('https://exemple.org/sans-reprise/a.mp4', 'a.mp4'), resumable: false })!;
     await flush();
-    resetDemoDownloads(); // le module natif ne connaît plus ce transfert
+    resetDemoDownloads(true); // le module natif ne connaît plus ce transfert
     await useDownloads.getState().reconcile();
     expect(useDownloads.getState().items[0]).toMatchObject({ id: rec.id, status: 'failed', errorCode: 'ERR_LINK_INTERRUPTED' });
     useDownloads.getState().removeEntry(rec.id);

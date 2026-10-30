@@ -94,6 +94,17 @@ describe('Recherche › Télécharger par lien', () => {
     expect(useUi.getState().toast).toBe('Téléchargement lancé');
     expect(useDownloads.getState().items[0]).toMatchObject({ fileName: 'Concert live.mp4', status: 'running', method: 'DIRECT' });
     expect(await screen.findByRole('progressbar')).toBeTruthy();
+    // Serveur acceptant la reprise : Pause, puis Reprendre.
+    await act(async () => {
+      await pollDownloadsNow();
+    });
+    await act(async () => {
+      await fireEvent.press(await screen.findByRole('button', { name: 'Pause : Concert live.mp4' }));
+    });
+    expect(useDownloads.getState().items[0].status).toBe('paused');
+    expect(screen.getByText(/En pause · .*reprise là où il s’est arrêté/)).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Reprendre : Concert live.mp4' }));
+    expect(useDownloads.getState().items[0].status).toBe('running');
 
     demoTiming.durationMs = 1;
     await act(async () => {

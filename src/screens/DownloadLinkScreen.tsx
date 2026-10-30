@@ -125,6 +125,7 @@ export function DownloadLinkScreen() {
       mimeType: dest.mimeType,
       expect: probe.sniff,
       bytesTotal: chosen.estimatedBytes ?? -1,
+      resumable: !!probe.resumable,
     });
     if (!record) {
       useUi.getState().showToast('Ce lien est déjà en cours de téléchargement');
@@ -178,7 +179,7 @@ export function DownloadLinkScreen() {
           <Pill icon="search-outline" label="Analyser le lien" primary disabled={busy || !input.trim()} onPress={() => void analyze()} />
         </View>
         <Text variant="footnote" tone="secondary" style={styles.hint}>
-          Fichiers directs uniquement (lien vers un .mp3 ou un .mp4). Téléchargez seulement des contenus dont vous avez les droits. Vous pouvez aussi partager un lien vers OpenPlay depuis une autre application.
+          Fichiers directs uniquement (lien vers un .mp3 ou un .mp4). Téléchargez seulement des contenus dont vous avez les droits. Vous pouvez aussi partager un lien vers OpenPlay depuis une autre application. Le téléchargement continue en arrière-plan, avec une notification.
         </Text>
 
         {busy ? (

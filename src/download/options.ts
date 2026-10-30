@@ -23,6 +23,8 @@ export type Probe = {
   fileName: string | null;
   sniff: Sniffed;
   redirects: number;
+  /** Le serveur accepte les requêtes partielles : pause et reprise possibles. */
+  resumable?: boolean;
   /** Lues dans le fichier distant quand c'est possible (sinon null). */
   durationMs: number | null;
   width: number | null;

@@ -21,6 +21,7 @@ import { GUTTER, radius, useTheme } from '../ui/theme';
 const STATUS_LABEL: Record<DownloadRecord['status'], string> = {
   pending: 'En attente',
   running: 'En cours',
+  paused: 'En pause',
   converting: 'Conversion en cours',
   done: 'Terminé',
   cancelled: 'Annulé',
@@ -29,13 +30,15 @@ const STATUS_LABEL: Record<DownloadRecord['status'], string> = {
 
 function progressLine(d: DownloadRecord): string {
   if (d.status === 'pending') return 'En attente d’un emplacement (2 téléchargements à la fois)';
-  if (d.status === 'running') {
+  if (d.status === 'running' || d.status === 'paused') {
     const pct = d.bytesTotal > 0 ? `${Math.floor((d.bytesDone / d.bytesTotal) * 100)} %` : null;
     const amount = d.bytesTotal > 0 ? `${formatBytes(d.bytesDone)} sur ${formatBytes(d.bytesTotal)}` : `${formatBytes(d.bytesDone)} reçus · taille inconnue`;
-    return [pct, amount, d.bytesPerSec > 0 ? formatRate(d.bytesPerSec) : null, remaining(d.bytesDone, d.bytesTotal, d.bytesPerSec)].filter(Boolean).join(' · ');
+    const restarted = d.restarted ? 'Fichier modifié sur le serveur : repris depuis le début' : null;
+    if (d.status === 'paused') return [restarted, 'En pause', pct, amount, d.partUri ? 'reprise là où il s’est arrêté' : 'reprise depuis le début'].filter(Boolean).join(' · ');
+    return [restarted, pct, amount, d.bytesPerSec > 0 ? formatRate(d.bytesPerSec) : null, remaining(d.bytesDone, d.bytesTotal, d.bytesPerSec)].filter(Boolean).join(' · ');
   }
   if (d.status === 'done') return `${formatBytes(d.bytesTotal)} · ${d.targetFormat === 'mp4' ? 'Vidéos' : 'Audios'} › ${d.relativePath}`;
-  if (d.status === 'failed') return d.errorMessage ?? 'Téléchargement impossible.';
+  if (d.status === 'failed') return `${d.errorMessage ?? 'Téléchargement impossible.'}${d.partUri ? ` « Réessayer » reprend à ${formatBytes(d.bytesDone)}.` : ''}`;
   return 'Annulé par vous ; le fichier partiel a été supprimé.';
 }
 
@@ -87,7 +90,7 @@ export function DownloadsScreen() {
   const { colors } = useTheme();
   const navigation = useAppNavigation();
   const items = useDownloads((s) => s.items);
-  const current = items.filter((d) => d.status === 'pending' || d.status === 'running' || d.status === 'converting');
+  const current = items.filter((d) => d.status === 'pending' || d.status === 'running' || d.status === 'converting' || d.status === 'paused');
   const finished = items.filter((d) => d.status === 'done');
   const other = items.filter((d) => d.status === 'failed' || d.status === 'cancelled');
 
@@ -131,7 +134,7 @@ export function DownloadsScreen() {
       ) : null}
       {items.length ? (
         <Text variant="footnote" tone="secondary" style={[styles.note, { borderTopColor: colors.separator }]}>
-          Un fichier n’apparaît dans Audios ou Vidéos qu’une fois complet et vérifié (taille et type réel). Pause et reprise ne sont pas proposées : un transfert interrompu se relance depuis le début avec « Réessayer ».
+          Un fichier n’apparaît dans Audios ou Vidéos qu’une fois complet et vérifié (taille et type réel). Les téléchargements continuent en arrière-plan (notification) et reprennent d’eux-mêmes au prochain lancement si le téléphone les a interrompus. Pause et reprise sont proposées quand le serveur les accepte ; sinon, « Réessayer » recommence depuis le début.
         </Text>
       ) : null}
     </ScrollScreen>
@@ -142,11 +145,14 @@ function DownloadRow({ item }: { item: DownloadRecord }) {
   const { colors } = useTheme();
   const store = useDownloads.getState();
   const running = item.status === 'running';
-  const progress = running && item.bytesTotal > 0 ? Math.min(1, item.bytesDone / item.bytesTotal) : null;
+  const progress = (running || item.status === 'paused') && item.bytesTotal > 0 ? Math.min(1, item.bytesDone / item.bytesTotal) : null;
   const icon: IconName = item.targetFormat === 'mp4' ? 'film' : 'musical-notes';
   const tone = item.status === 'failed' ? colors.danger : colors.secondaryText;
   const actions: { icon: IconName; label: string; onPress: () => void; danger?: boolean }[] = [];
-  if (item.status === 'pending' || running) actions.push({ icon: 'close-circle-outline', label: 'Annuler', onPress: () => void store.cancel(item.id) });
+  // Pause seulement si le serveur accepte la reprise (requêtes partielles) ; sinon, pas de faux bouton.
+  if ((running && item.resumable) || item.status === 'pending') actions.push({ icon: 'pause-circle-outline', label: 'Pause', onPress: () => void store.pause(item.id) });
+  if (item.status === 'paused') actions.push({ icon: 'play-circle-outline', label: 'Reprendre', onPress: () => store.resume(item.id) });
+  if (item.status === 'pending' || running || item.status === 'paused') actions.push({ icon: 'close-circle-outline', label: 'Annuler', onPress: () => void store.cancel(item.id) });
   if (item.status === 'done') {
     actions.push({ icon: 'play-circle-outline', label: 'Ouvrir', onPress: () => openMedia(item) });
     actions.push({ icon: 'share-outline', label: 'Partager', onPress: () => shareMedia(item) });

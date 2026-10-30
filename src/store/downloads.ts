@@ -9,7 +9,7 @@ import { useSettings } from './settings';
 import { newId } from './user';
 import { useVideos } from './videos';
 
-export type DownloadStatus = 'pending' | 'running' | 'converting' | 'done' | 'cancelled' | 'failed';
+export type DownloadStatus = 'pending' | 'running' | 'paused' | 'converting' | 'done' | 'cancelled' | 'failed';
 
 /** Enregistrement d'un téléchargement (cahier des charges § 10). */
 export type DownloadRecord = {
@@ -39,11 +39,19 @@ export type DownloadRecord = {
   createdAt: number;
   updatedAt: number;
   finishedAt: number | null;
-  /** Tentative native en cours (un nouvel identifiant à chaque « Réessayer »). */
+  /** Tentative native en cours (un nouvel identifiant à chaque démarrage ou reprise). */
   taskId: string;
+  /** Fichier partiel conservé (pause, coupure, application fermée) et version du fichier côté serveur. */
+  partUri: string | null;
+  etag: string | null;
+  lastModified: string | null;
+  /** Le serveur accepte les requêtes partielles : pause et reprise possibles. */
+  resumable: boolean;
+  /** La dernière reprise a été refusée (fichier modifié sur le serveur) : reparti de zéro. */
+  restarted: boolean;
 };
 
-export type NewDownload = Pick<DownloadRecord, 'sourceUrl' | 'displayTitle' | 'targetFormat' | 'qualityValue' | 'qualityLabel' | 'method' | 'fileName' | 'relativePath' | 'mimeType' | 'expect' | 'bytesTotal'>;
+export type NewDownload = Pick<DownloadRecord, 'sourceUrl' | 'displayTitle' | 'targetFormat' | 'qualityValue' | 'qualityLabel' | 'method' | 'fileName' | 'relativePath' | 'mimeType' | 'expect' | 'bytesTotal'> & { resumable?: boolean };
 
 /** Téléchargements simultanés au plus ; les suivants attendent leur tour. */
 export const MAX_PARALLEL = 2;
@@ -52,12 +60,16 @@ const POLL_MS = 700;
 type State = {
   items: DownloadRecord[];
   enqueue: (d: NewDownload) => DownloadRecord | null;
+  pause: (id: string) => Promise<void>;
+  /** Reprend un téléchargement en pause (depuis le fichier partiel si le serveur l'accepte). */
+  resume: (id: string) => void;
   cancel: (id: string) => Promise<void>;
+  /** Échec ou annulation : relance, en reprenant le fichier partiel quand il a été conservé. */
   retry: (id: string) => void;
   /** Retire l'entrée de l'historique (le fichier téléchargé reste sur le téléphone). */
   removeEntry: (id: string) => void;
   clearFinished: () => void;
-  /** Après relance de l'application : reprend la file, constate les transferts interrompus. */
+  /** Au lancement : reprend la file et les transferts interrompus par l'arrêt de l'application. */
   reconcile: () => Promise<void>;
 };
 
@@ -66,6 +78,8 @@ const active = (s: DownloadStatus) => s === 'pending' || s === 'running' || s ==
 function patch(id: string, p: Partial<DownloadRecord>) {
   useDownloads.setState((s) => ({ items: s.items.map((x) => (x.id === id ? { ...x, ...p, updatedAt: Date.now() } : x)) }));
 }
+
+const find = (id: string) => useDownloads.getState().items.find((x) => x.id === id);
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let polling = false;
@@ -84,8 +98,7 @@ function stopPollingIfIdle() {
 
 /** Fin vérifiée côté Android : le fichier est publié, on rafraîchit la bibliothèque concernée (sans redémarrage). */
 async function refreshLibrary(item: DownloadRecord) {
-  const backend = downloadBackend();
-  if (backend.isDemo) return; // la démonstration ajoute elle-même le fichier
+  if (downloadBackend().isDemo) return; // la démonstration ajoute elle-même le fichier
   if (item.targetFormat === 'mp4') await useVideos.getState().scan();
   else await useLibrary.getState().scan(useSettings.getState().minDurationSec);
 }
@@ -100,15 +113,27 @@ async function poll() {
     for (const item of running) {
       const st = states[item.taskId];
       if (!st) continue;
+      const common: Partial<DownloadRecord> = {
+        bytesDone: st.bytesDone,
+        bytesTotal: st.bytesTotal > 0 ? st.bytesTotal : item.bytesTotal,
+        bytesPerSec: st.status === 'running' ? st.bytesPerSec : 0,
+        partUri: st.partUri ?? null,
+        etag: st.etag ?? item.etag,
+        lastModified: st.lastModified ?? item.lastModified,
+        resumable: st.resumable ?? item.resumable,
+        restarted: st.restarted ?? false,
+      };
       if (st.status === 'running') {
-        patch(item.id, { bytesDone: st.bytesDone, bytesTotal: st.bytesTotal > 0 ? st.bytesTotal : item.bytesTotal, bytesPerSec: st.bytesPerSec });
+        patch(item.id, common);
+      } else if (st.status === 'paused') {
+        patch(item.id, { ...common, status: 'paused' });
       } else if (st.status === 'done') {
-        patch(item.id, { status: 'done', bytesDone: st.bytesDone, bytesTotal: st.bytesDone, bytesPerSec: 0, mediaId: st.mediaId ?? null, outputUri: st.mediaUri ?? null, finishedAt: Date.now(), errorCode: null, errorMessage: null });
+        patch(item.id, { ...common, status: 'done', bytesTotal: st.bytesDone, partUri: null, mediaId: st.mediaId ?? null, outputUri: st.mediaUri ?? null, finishedAt: Date.now(), errorCode: null, errorMessage: null });
         void refreshLibrary(item);
       } else if (st.status === 'failed') {
-        patch(item.id, { status: 'failed', bytesPerSec: 0, errorCode: st.error ?? 'ERR_LINK_NETWORK', errorMessage: errorMessage(st.error, st.httpStatus), finishedAt: Date.now() });
+        patch(item.id, { ...common, status: 'failed', errorCode: st.error ?? 'ERR_LINK_NETWORK', errorMessage: errorMessage(st.error, st.httpStatus), finishedAt: Date.now() });
       } else if (st.status === 'cancelled') {
-        patch(item.id, { status: 'cancelled', bytesPerSec: 0, finishedAt: Date.now() });
+        patch(item.id, { ...common, status: 'cancelled', partUri: null, finishedAt: Date.now() });
       }
     }
   } finally {
@@ -129,7 +154,19 @@ function pump() {
     patch(item.id, { status: 'running' });
     const kind = item.targetFormat === 'mp4' ? 'video' : 'audio';
     downloadBackend()
-      .start({ taskId: item.taskId, url: item.sourceUrl, kind, relativePath: item.relativePath, displayName: item.fileName, mimeType: item.mimeType, expect: item.expect, expectedSize: item.bytesTotal })
+      .start({
+        taskId: item.taskId,
+        url: item.sourceUrl,
+        kind,
+        relativePath: item.relativePath,
+        displayName: item.fileName,
+        mimeType: item.mimeType,
+        expect: item.expect,
+        expectedSize: item.bytesTotal,
+        partUri: item.partUri,
+        etag: item.etag,
+        lastModified: item.lastModified,
+      })
       .then(ensurePolling)
       .catch((e: unknown) => {
         const code = e instanceof LinkError ? e.code : 'ERR_LINK_STORAGE';
@@ -139,14 +176,20 @@ function pump() {
   }
 }
 
+/** Remet un téléchargement dans la file (nouvelle tentative native, fichier partiel conservé s'il existe). */
+function requeue(id: string) {
+  patch(id, { status: 'pending', taskId: newId('task'), bytesPerSec: 0, errorCode: null, errorMessage: null, finishedAt: null });
+  pump();
+}
+
 export const useDownloads = create<State>()(
   persist(
     (set, get) => ({
       items: [],
 
       enqueue: (d) => {
-        // Pas de doublon : même lien et même format déjà en cours.
-        if (get().items.some((x) => active(x.status) && x.sourceUrl === d.sourceUrl && x.targetFormat === d.targetFormat)) return null;
+        // Pas de doublon : même lien et même format déjà en cours ou en pause.
+        if (get().items.some((x) => (active(x.status) || x.status === 'paused') && x.sourceUrl === d.sourceUrl && x.targetFormat === d.targetFormat)) return null;
         const now = Date.now();
         const record: DownloadRecord = {
           ...d,
@@ -163,34 +206,60 @@ export const useDownloads = create<State>()(
           createdAt: now,
           updatedAt: now,
           finishedAt: null,
+          partUri: null,
+          etag: null,
+          lastModified: null,
+          resumable: d.resumable ?? false,
+          restarted: false,
         };
         set((s) => ({ items: [record, ...s.items] }));
         pump();
         return record;
       },
 
+      pause: async (id) => {
+        const item = find(id);
+        if (!item) return;
+        if (item.status === 'pending') {
+          patch(id, { status: 'paused' });
+          return;
+        }
+        if (item.status !== 'running' || !item.resumable) return;
+        await downloadBackend().pause(item.taskId);
+        await poll();
+      },
+
+      resume: (id) => {
+        if (find(id)?.status === 'paused') requeue(id);
+      },
+
       cancel: async (id) => {
-        const item = get().items.find((x) => x.id === id);
-        if (!item || !active(item.status)) return;
-        if (item.status === 'running') await downloadBackend().cancel(item.taskId);
-        patch(id, { status: 'cancelled', bytesPerSec: 0, finishedAt: Date.now() });
+        const item = find(id);
+        if (!item || !(active(item.status) || item.status === 'paused' || (item.status === 'failed' && item.partUri))) return;
+        await downloadBackend().cancel(item.taskId, item.partUri);
+        patch(id, { status: 'cancelled', bytesPerSec: 0, partUri: null, finishedAt: Date.now() });
         pump();
       },
 
       retry: (id) => {
-        const item = get().items.find((x) => x.id === id);
-        if (!item || active(item.status) || item.status === 'done') return;
-        patch(id, { status: 'pending', taskId: newId('task'), bytesDone: 0, bytesPerSec: 0, errorCode: null, errorMessage: null, finishedAt: null });
-        pump();
+        const item = find(id);
+        if (!item || (item.status !== 'failed' && item.status !== 'cancelled')) return;
+        if (!item.partUri) patch(id, { bytesDone: 0 });
+        requeue(id);
       },
 
       removeEntry: (id) => {
-        const item = get().items.find((x) => x.id === id);
+        const item = find(id);
         if (!item || active(item.status)) return;
+        // Fichier partiel d'une entrée retirée (pause, coupure) : supprimé, il ne servira plus.
+        if (item.partUri) void downloadBackend().discard(item.partUri);
         set((s) => ({ items: s.items.filter((x) => x.id !== id) }));
       },
 
-      clearFinished: () => set((s) => ({ items: s.items.filter((x) => active(x.status)) })),
+      clearFinished: () => {
+        for (const item of get().items) if (!active(item.status) && item.status !== 'paused' && item.partUri) void downloadBackend().discard(item.partUri);
+        set((s) => ({ items: s.items.filter((x) => active(x.status) || x.status === 'paused') }));
+      },
 
       reconcile: async () => {
         const running = get().items.filter((x) => x.status === 'running' || x.status === 'converting');
@@ -201,10 +270,16 @@ export const useDownloads = create<State>()(
           } catch {
             states = {};
           }
-          // Transfert inconnu du module Android : l'application a été fermée entre-temps ; le fichier partiel,
-          // jamais publié, a été supprimé par Android (entrée « en attente »).
           for (const item of running) {
-            if (!states[item.taskId]) patch(item.id, { status: 'failed', bytesPerSec: 0, errorCode: 'ERR_LINK_INTERRUPTED', errorMessage: errorMessage('ERR_LINK_INTERRUPTED'), finishedAt: Date.now() });
+            if (states[item.taskId]) continue;
+            // Transfert inconnu du module Android : le processus a été arrêté entre-temps (redémarrage, arrêt forcé).
+            // Reprise automatique depuis le fichier partiel si le serveur l'accepte ; sinon, échec explicite.
+            if (item.resumable && item.partUri) {
+              requeue(item.id);
+            } else {
+              if (item.partUri) void downloadBackend().discard(item.partUri);
+              patch(item.id, { status: 'failed', bytesPerSec: 0, partUri: null, errorCode: 'ERR_LINK_INTERRUPTED', errorMessage: errorMessage('ERR_LINK_INTERRUPTED'), finishedAt: Date.now() });
+            }
           }
           if (Object.keys(states).length) ensurePolling();
         }

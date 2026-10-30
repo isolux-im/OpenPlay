@@ -120,7 +120,17 @@ Sécurité : https seulement (port 443, sans identifiants), adresses locales, pr
 et après résolution DNS et à chaque redirection (5 au plus), type réel vérifié par signature (pas d'après
 l'extension ni l'en-tête), fichier « en attente » dans MediaStore jusqu'à la vérification de sa taille et de son type
 (sinon supprimé), 2 transferts simultanés, 8 Go au plus, espace libre contrôlé, secrets masqués dans les liens
-affichés. Android 10 ou plus. Pause et reprise ne sont pas proposées (« Réessayer » relance depuis le début).
+affichés.
+
+Arrière-plan, pause, reprise : les transferts tournent au niveau du processus Android, maintenus par un service de
+premier plan (« synchronisation de données ») avec notification de progression, même interface fermée. Pause et
+reprise par requête partielle HTTP (Range) seulement si le serveur l'accepte, avec contrôle de version (ETag ou
+date de modification, If-Range) : un fichier modifié sur le serveur repart de zéro, signalé. Coupure réseau :
+fichier partiel conservé, « Réessayer » reprend au bon octet. Processus arrêté (redémarrage, arrêt forcé) : reprise
+automatique au lancement suivant ; serveur sans reprise : échec explicite, « Réessayer » repart de zéro.
+Android 7 à 9 : fichier partiel dans le dossier privé d'OpenPlay, puis déplacé dans Music/ ou Movies/ (autorisation
+« Stockage » demandée une fois, WRITE_EXTERNAL_STORAGE limitée à Android 9 et avant) ; Android 10 et plus : aucune
+autorisation supplémentaire.
 
 ## Obtenir l'APK (GitHub Actions)
 

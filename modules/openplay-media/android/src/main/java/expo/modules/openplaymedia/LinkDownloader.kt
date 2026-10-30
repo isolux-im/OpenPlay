@@ -3,6 +3,7 @@ package expo.modules.openplaymedia
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
 import android.media.MediaMetadataRetriever
 import android.media.MediaScannerConnection
 import android.net.Uri
@@ -15,10 +16,14 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStream
+import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.Inet4Address
 import java.net.Inet6Address
@@ -27,6 +32,8 @@ import java.net.SocketTimeoutException
 import java.net.URL
 import java.net.UnknownHostException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import javax.net.ssl.SSLException
 
@@ -34,29 +41,65 @@ import javax.net.ssl.SSLException
 internal class LinkException(code: String, message: String) : CodedException(code, message, null)
 
 /**
- * Télécharger par lien : analyse et transfert de fichiers directs (https), sans contournement d'aucune
- * restriction. Chaque requête et chaque redirection est vérifiée (protection SSRF) ; le fichier reste « en
- * attente » dans MediaStore (invisible) jusqu'à la vérification de sa taille et de son type réel, puis il est
- * publié dans Music/ ou Movies/ et apparaît dans OpenPlay. Un fichier incomplet ou d'un autre type est supprimé.
+ * Télécharger par lien : analyse et transfert de fichiers directs (https), sans contournement d'aucune restriction.
+ *
+ * - Chaque requête et chaque redirection est vérifiée (protection SSRF).
+ * - Le fichier partiel reste invisible (MediaStore « en attente » sur Android 10+, dossier privé de l'application
+ *   avant) jusqu'à la vérification de sa taille et de son type réel ; il est alors publié dans Music/ ou Movies/.
+ * - Pause et reprise par requête partielle HTTP (Range), seulement si le serveur l'accepte, avec contrôle de la
+ *   version du fichier (ETag ou date de modification, If-Range) : un fichier modifié repart de zéro.
+ * - Les transferts vivent au niveau du processus (pas de l'écran) et un service de premier plan avec notification
+ *   les maintient quand OpenPlay passe en arrière-plan ou que son interface est fermée.
  */
-internal class LinkDownloader(private val context: Context, private val scope: CoroutineScope) {
-  private companion object {
-    const val MAX_REDIRECTS = 5
-    const val MAX_BYTES = 8L * 1024 * 1024 * 1024
-    /** Marge laissée libre sur le téléphone au-delà de la taille du fichier. */
-    const val SPACE_MARGIN = 64L * 1024 * 1024
-    const val HEAD_BYTES = 64
-    const val META_TIMEOUT_MS = 8_000L
+internal object LinkDownloads {
+  private const val MAX_REDIRECTS = 5
+  private const val MAX_BYTES = 8L * 1024 * 1024 * 1024
+  /** Marge laissée libre sur le téléphone au-delà de la taille du fichier. */
+  private const val SPACE_MARGIN = 64L * 1024 * 1024
+  private const val HEAD_BYTES = 64
+  private const val META_TIMEOUT_MS = 8_000L
+
+  private lateinit var context: Context
+  private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+  fun init(appContext: Context) {
+    if (!::context.isInitialized) context = appContext.applicationContext
   }
 
-  class State(@Volatile var bytesTotal: Long) {
+  /** Demande de transfert ; `resumePart` : reprise d'un fichier partiel existant. */
+  class Request(
+    val url: String,
+    val kind: String,
+    val relativePath: String,
+    val displayName: String,
+    val mimeType: String,
+    val expect: String,
+    val expectedSize: Long,
+    val resumePart: String?,
+    val etag: String?,
+    val lastModified: String?,
+  )
+
+  class Task(val id: String, val request: Request) {
     @Volatile var status: String = "running"
     @Volatile var bytesDone: Long = 0
+    @Volatile var bytesTotal: Long = request.expectedSize
     @Volatile var bytesPerSec: Long = 0
     @Volatile var mediaId: String? = null
     @Volatile var mediaUri: String? = null
     @Volatile var error: String? = null
     @Volatile var httpStatus: Int? = null
+    /** Fichier partiel (URI content:// ou chemin) conservé pour la reprise. */
+    @Volatile var partUri: String? = request.resumePart
+    @Volatile var etag: String? = request.etag
+    @Volatile var lastModified: String? = request.lastModified
+    /** Le serveur accepte les requêtes partielles : pause et reprise possibles. */
+    @Volatile var resumable: Boolean = request.resumePart != null
+    /** La reprise a été refusée (fichier modifié sur le serveur) : transfert reparti de zéro. */
+    @Volatile var restarted: Boolean = false
+    @Volatile var pauseRequested: Boolean = false
+    @Volatile var job: Job? = null
+    @Volatile var connection: HttpURLConnection? = null
 
     fun toMap(): Map<String, Any?> = mapOf(
       "status" to status,
@@ -67,14 +110,26 @@ internal class LinkDownloader(private val context: Context, private val scope: C
       "mediaUri" to mediaUri,
       "error" to error,
       "httpStatus" to httpStatus,
+      "partUri" to partUri,
+      "etag" to etag,
+      "lastModified" to lastModified,
+      "resumable" to resumable,
+      "restarted" to restarted,
     )
   }
 
   private class Opened(val connection: HttpURLConnection, val status: Int, val url: URL, val redirects: Int)
 
-  private val tasks = ConcurrentHashMap<String, State>()
-  private val jobs = ConcurrentHashMap<String, Job>()
-  private val connections = ConcurrentHashMap<String, HttpURLConnection>()
+  private val tasks = ConcurrentHashMap<String, Task>()
+
+  fun hasRunning(): Boolean = tasks.values.any { it.status == "running" }
+
+  /** Résumé pour la notification : nombre de transferts, octets reçus et attendus (-1 si inconnus). */
+  fun progress(): Triple<Int, Long, Long> {
+    val running = tasks.values.filter { it.status == "running" }
+    val total = if (running.all { it.bytesTotal > 0 }) running.sumOf { it.bytesTotal } else -1L
+    return Triple(running.size, running.sumOf { it.bytesDone }, total)
+  }
 
   // --- Sécurité réseau ---
 
@@ -113,7 +168,7 @@ internal class LinkDownloader(private val context: Context, private val scope: C
   }
 
   /** Ouvre la connexion en suivant soi-même les redirections, chacune vérifiée. */
-  private fun open(start: String, range: String?, taskId: String? = null): Opened {
+  private fun open(start: String, headers: Map<String, String>, task: Task? = null): Opened {
     var current = try {
       URL(start)
     } catch (e: Exception) {
@@ -129,9 +184,9 @@ internal class LinkDownloader(private val context: Context, private val scope: C
         useCaches = false
         setRequestProperty("User-Agent", "OpenPlay/2 (Android)")
         setRequestProperty("Accept-Encoding", "identity")
-        if (range != null) setRequestProperty("Range", range)
+        for ((k, v) in headers) setRequestProperty(k, v)
       }
-      if (taskId != null) connections[taskId] = c
+      task?.connection = c
       val status = try {
         c.responseCode
       } catch (e: Exception) {
@@ -178,7 +233,7 @@ internal class LinkDownloader(private val context: Context, private val scope: C
     if (ascii(0, 4) == "fLaC") return "flac"
     if (ascii(0, 4) == "RIFF" && ascii(8, 4) == "WAVE") return "wav"
     val text = String(b, 0, n, Charsets.ISO_8859_1).trimStart().lowercase()
-    if (text.startsWith("<!doctype") || text.startsWith("<html") || text.startsWith("<?xml") || text.startsWith("<head") || text.startsWith("{") || text.startsWith("<")) return "html"
+    if (text.startsWith("<") || text.startsWith("{")) return "html"
     return "unknown"
   }
 
@@ -232,7 +287,7 @@ internal class LinkDownloader(private val context: Context, private val scope: C
   }
 
   fun probe(url: String): Map<String, Any?> {
-    val opened = open(url, "bytes=0-${HEAD_BYTES - 1}")
+    val opened = open(url, mapOf("Range" to "bytes=0-${HEAD_BYTES - 1}"))
     val c = opened.connection
     try {
       val status = opened.status
@@ -265,6 +320,7 @@ internal class LinkDownloader(private val context: Context, private val scope: C
         "fileName" to name,
         "sniff" to sniffed,
         "redirects" to opened.redirects,
+        "resumable" to (status == 206 || c.getHeaderField("Accept-Ranges")?.contains("bytes", ignoreCase = true) == true),
         "durationMs" to meta?.get("durationMs")?.toDoubleOrNull(),
         "width" to meta?.get("width")?.toDoubleOrNull(),
         "height" to meta?.get("height")?.toDoubleOrNull(),
@@ -278,76 +334,185 @@ internal class LinkDownloader(private val context: Context, private val scope: C
 
   // --- Stockage ---
 
+  private val modern: Boolean
+    get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+
   private fun collection(kind: String): Uri =
     if (kind == "video") MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
     else MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
 
+  /** Android 9 et avant : dossier public (« Movies/OpenPlay ») ; chemins remontants refusés. */
+  @Suppress("DEPRECATION")
+  private fun legacyFolder(relativePath: String): File {
+    val parts = relativePath.split('/').filter { it.isNotBlank() }
+    if (parts.isEmpty() || parts.any { it == "." || it == ".." }) throw LinkException("ERR_LINK_STORAGE", "Dossier invalide")
+    return File(Environment.getExternalStorageDirectory(), parts.joinToString("/"))
+  }
+
   fun exists(kind: String, relativePath: String, displayName: String): Boolean {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
+    if (!modern) return File(legacyFolder(relativePath), displayName).exists()
     val selection = "${MediaStore.MediaColumns.RELATIVE_PATH} = ? AND ${MediaStore.MediaColumns.DISPLAY_NAME} = ? COLLATE NOCASE"
     context.contentResolver.query(collection(kind), arrayOf(MediaStore.MediaColumns._ID), selection, arrayOf(relativePath.trim('/') + "/", displayName), null)?.use { return it.count > 0 }
     return false
   }
 
-  // --- Transfert ---
+  /** Taille actuelle du fichier partiel (-1 s'il n'existe plus). */
+  private fun partSize(part: String): Long =
+    try {
+      if (part.startsWith("content://")) {
+        context.contentResolver.openFileDescriptor(Uri.parse(part), "r")?.use { it.statSize } ?: -1L
+      } else {
+        File(part).let { if (it.exists()) it.length() else -1L }
+      }
+    } catch (e: Exception) {
+      -1L
+    }
 
-  fun start(taskId: String, url: String, kind: String, relativePath: String, displayName: String, mimeType: String, expect: String, expectedSize: Long) {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) throw LinkException("ERR_UNSUPPORTED", "Android 10 requis")
+  private fun readPartHead(part: String, into: ByteArray): Int =
+    try {
+      val input = if (part.startsWith("content://")) context.contentResolver.openInputStream(Uri.parse(part)) else File(part).inputStream()
+      input?.use { readUpTo(it, into) } ?: 0
+    } catch (e: Exception) {
+      0
+    }
+
+  private fun openPart(part: String, append: Boolean): OutputStream =
+    if (part.startsWith("content://")) {
+      context.contentResolver.openOutputStream(Uri.parse(part), if (append) "wa" else "wt") ?: throw LinkException("ERR_LINK_STORAGE", "Écriture impossible")
+    } else {
+      FileOutputStream(File(part), append)
+    }
+
+  /** Nouveau fichier partiel, invisible des autres applications et de la bibliothèque. */
+  private fun createPart(task: Task): String {
+    val r = task.request
+    if (modern) {
+      val values = ContentValues().apply {
+        put(MediaStore.MediaColumns.DISPLAY_NAME, r.displayName)
+        put(MediaStore.MediaColumns.MIME_TYPE, r.mimeType)
+        put(MediaStore.MediaColumns.RELATIVE_PATH, r.relativePath.trim('/') + "/")
+        put(MediaStore.MediaColumns.IS_PENDING, 1)
+      }
+      return context.contentResolver.insert(collection(r.kind), values)?.toString() ?: throw LinkException("ERR_LINK_STORAGE", "Insertion MediaStore refusée")
+    }
+    val dir = File(context.getExternalFilesDir(null) ?: context.filesDir, "downloads")
+    if (!dir.isDirectory && !dir.mkdirs()) throw LinkException("ERR_LINK_STORAGE", "Dossier temporaire impossible")
+    return File(dir, "${task.id}.part").also { it.writeBytes(ByteArray(0)) }.absolutePath
+  }
+
+  fun discardPart(part: String?) {
+    if (part.isNullOrBlank()) return
+    try {
+      if (part.startsWith("content://")) context.contentResolver.delete(Uri.parse(part), null, null) else File(part).delete()
+    } catch (e: Exception) {
+      // Entrée « en attente » : Android la supprime de lui-même après quelques jours.
+    }
+  }
+
+  // --- Commandes ---
+
+  fun start(taskId: String, request: Request) {
     if (tasks[taskId]?.status == "running") return
-    val state = State(expectedSize)
-    tasks[taskId] = state
-    jobs[taskId] = scope.launch(Dispatchers.IO) { transfer(taskId, state, url, kind, relativePath, displayName, mimeType, expect, expectedSize) }
+    val task = Task(taskId, request)
+    tasks[taskId] = task
+    task.job = scope.launch { transfer(task) }
+    LinkDownloadService.ensureRunning(context)
   }
 
   fun states(ids: List<String>): Map<String, Any?> = ids.mapNotNull { id -> tasks[id]?.let { id to it.toMap() } }.toMap()
 
-  fun cancel(taskId: String) {
-    val state = tasks[taskId] ?: return
-    if (state.status != "running") return
-    state.status = "cancelled"
-    jobs[taskId]?.cancel()
-    // Débloque une lecture réseau en cours.
-    connections[taskId]?.disconnect()
+  /** Pause : transfert arrêté, fichier partiel conservé pour la reprise (si le serveur l'accepte). */
+  fun pause(taskId: String) {
+    val task = tasks[taskId] ?: return
+    if (task.status != "running") return
+    task.pauseRequested = true
+    task.job?.cancel()
+    task.connection?.disconnect()
   }
 
-  private suspend fun transfer(taskId: String, state: State, url: String, kind: String, relativePath: String, displayName: String, mimeType: String, expect: String, expectedSize: Long) {
-    val resolver = context.contentResolver
-    var target: Uri? = null
-    var connection: HttpURLConnection? = null
+  /** Système (limite de durée du service) : tous les transferts en pause, reprenables au retour dans OpenPlay. */
+  fun pauseAll() {
+    tasks.keys.forEach { pause(it) }
+  }
+
+  fun cancel(taskId: String, partUri: String?) {
+    val task = tasks[taskId]
+    if (task != null && task.status == "running") {
+      task.status = "cancelled"
+      task.job?.cancel()
+      task.connection?.disconnect()
+      return
+    }
+    if (task != null) task.status = "cancelled"
+    discardPart(task?.partUri ?: partUri)
+  }
+
+  // --- Transfert ---
+
+  private suspend fun transfer(task: Task) {
+    val r = task.request
+    var keepPart = false
     try {
-      val opened = open(url, null, taskId)
-      connection = opened.connection
-      val announced = opened.connection.contentLengthLong
-      if (opened.status !in 200..299) {
-        state.httpStatus = opened.status
-        throw LinkException("ERR_LINK_HTTP", "HTTP ${opened.status}")
+      // Fichier partiel : reprise s'il existe encore, sinon nouveau.
+      val existing = task.partUri?.takeIf { partSize(it) >= 0 }
+      val part = existing ?: createPart(task)
+      task.partUri = part
+      var offset = if (existing != null) partSize(existing) else 0L
+      val headers = mutableMapOf<String, String>()
+      if (offset > 0) {
+        headers["Range"] = "bytes=$offset-"
+        (task.etag ?: task.lastModified)?.let { headers["If-Range"] = it }
       }
-      val total = if (announced > 0) announced else expectedSize
+      val opened = open(r.url, headers, task)
+      val http = opened.connection
+      val status = opened.status
+      var append = false
+      val total: Long
+      when {
+        offset > 0 && status == 206 -> {
+          // Reprise acceptée : le serveur doit reprendre exactement là où le fichier partiel s'arrête.
+          val range = http.getHeaderField("Content-Range") ?: ""
+          val start = Regex("bytes\\s+(\\d+)-").find(range)?.groupValues?.get(1)?.toLongOrNull()
+          if (start != offset) throw LinkException("ERR_LINK_RESUME", "Reprise incohérente")
+          total = range.substringAfter('/', "").trim().toLongOrNull() ?: -1L
+          append = true
+        }
+        offset > 0 && status == 416 && task.bytesTotal > 0 && offset == task.bytesTotal -> {
+          // Déjà complet : vérification et publication sans nouveau transfert.
+          http.disconnect()
+          finish(task, part, offset)
+          return
+        }
+        status in 200..299 -> {
+          // Premier transfert, ou reprise refusée (fichier modifié sur le serveur) : depuis le début.
+          if (offset > 0) task.restarted = true
+          offset = 0
+          total = http.contentLengthLong.takeIf { it > 0 } ?: r.expectedSize
+        }
+        else -> {
+          task.httpStatus = status
+          throw LinkException("ERR_LINK_HTTP", "HTTP $status")
+        }
+      }
+      task.resumable = status == 206 || http.getHeaderField("Accept-Ranges")?.contains("bytes", ignoreCase = true) == true
+      http.getHeaderField("ETag")?.takeIf { !it.startsWith("W/") }?.let { task.etag = it }
+      http.getHeaderField("Last-Modified")?.let { task.lastModified = it }
       if (total > MAX_BYTES) throw LinkException("ERR_LINK_TOO_LARGE", "Fichier trop volumineux")
-      state.bytesTotal = total
+      task.bytesTotal = total
       @Suppress("DEPRECATION")
       val free = StatFs(Environment.getExternalStorageDirectory().path).availableBytes
-      if (total > 0 && total + SPACE_MARGIN > free) throw LinkException("ERR_LINK_SPACE", "Espace insuffisant")
-
-      val values = ContentValues().apply {
-        put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
-        put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
-        put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath.trim('/') + "/")
-        put(MediaStore.MediaColumns.IS_PENDING, 1)
-      }
-      val dest = resolver.insert(collection(kind), values) ?: throw LinkException("ERR_LINK_STORAGE", "Insertion MediaStore refusée")
-      target = dest
-      val http = opened.connection
+      if (total > 0 && total - offset + SPACE_MARGIN > free) throw LinkException("ERR_LINK_SPACE", "Espace insuffisant")
 
       val head = ByteArray(HEAD_BYTES)
-      var headLen = 0
-      var checked = false
-      var done = 0L
+      var headLen = if (append) readPartHead(part, head) else 0
+      var checked = append && headLen >= 16 && sniff(head, headLen) == r.expect
+      var done = offset
+      task.bytesDone = done
       var tickAt = System.nanoTime()
-      var tickBytes = 0L
+      var tickBytes = done
       try {
         http.inputStream.use { input ->
-          (resolver.openOutputStream(dest) ?: throw LinkException("ERR_LINK_STORAGE", "Écriture impossible")).use { output ->
+          openPart(part, append).use { output ->
             val buffer = ByteArray(128 * 1024)
             while (true) {
               currentCoroutineContext().ensureActive()
@@ -360,16 +525,16 @@ internal class LinkDownloader(private val context: Context, private val scope: C
               }
               // Type réel vérifié dès les premiers octets : une page web ou un autre format n'est pas enregistré.
               if (!checked && headLen >= 16) {
-                if (sniff(head, headLen) != expect) throw LinkException("ERR_LINK_TYPE", "Type réel différent")
+                if (sniff(head, headLen) != r.expect) throw LinkException("ERR_LINK_TYPE", "Type réel différent")
                 checked = true
               }
               output.write(buffer, 0, n)
               done += n
-              if (done > MAX_BYTES) throw LinkException("ERR_LINK_TOO_LARGE", "Fichier trop volumineux")
-              state.bytesDone = done
+              if (done > MAX_BYTES || (total > 0 && done > total)) throw LinkException("ERR_LINK_TOO_LARGE", "Fichier plus grand qu'annoncé")
+              task.bytesDone = done
               val now = System.nanoTime()
               if (now - tickAt >= 1_000_000_000L) {
-                state.bytesPerSec = ((done - tickBytes) * 1_000_000_000L) / (now - tickAt)
+                task.bytesPerSec = ((done - tickBytes) * 1_000_000_000L) / (now - tickAt)
                 tickAt = now
                 tickBytes = done
               }
@@ -381,47 +546,90 @@ internal class LinkDownloader(private val context: Context, private val scope: C
       } catch (e: CancellationException) {
         throw e
       } catch (e: Exception) {
-        if (state.status == "cancelled") throw CancellationException("annulé")
+        if (task.status == "cancelled" || task.pauseRequested) throw CancellationException("arrêté")
         throw networkError(e)
       }
+      // Connexion fermée trop tôt : reprenable plus tard si le serveur accepte les requêtes partielles.
       if (done == 0L || (total > 0 && done != total)) throw LinkException("ERR_LINK_INCOMPLETE", "Fichier incomplet")
-      if (!checked && sniff(head, headLen) != expect) throw LinkException("ERR_LINK_TYPE", "Type réel différent")
-
-      // Vérifié : publication, puis analyse des métadonnées par Android (durée, dimensions).
-      resolver.update(dest, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
-      requestScan(dest)
-      state.mediaId = ContentUris.parseId(dest).toString()
-      state.mediaUri = dest.toString()
-      state.bytesTotal = done
-      state.bytesPerSec = 0
-      state.status = "done"
+      if (!checked && sniff(head, headLen) != r.expect) throw LinkException("ERR_LINK_TYPE", "Type réel différent")
+      task.connection = null
+      http.disconnect()
+      finish(task, part, done)
     } catch (e: CancellationException) {
-      state.status = "cancelled"
-    } catch (e: LinkException) {
-      fail(state, e)
+      if (task.pauseRequested && task.status != "cancelled") {
+        task.status = "paused"
+        keepPart = true
+      } else {
+        task.status = "cancelled"
+      }
     } catch (e: Exception) {
-      fail(state, e)
+      val error = networkError(e)
+      if (task.status == "cancelled") {
+        // Annulé pendant une requête : rien à signaler.
+      } else if (task.pauseRequested) {
+        task.status = "paused"
+        keepPart = true
+      } else {
+        task.error = error.code
+        task.status = "failed"
+        // Coupure réseau ou serveur indisponible : le fichier partiel est gardé pour « Réessayer » (reprise).
+        keepPart = task.resumable && task.bytesDone > 0 && error.code in setOf("ERR_LINK_NETWORK", "ERR_LINK_TIMEOUT", "ERR_LINK_DNS", "ERR_LINK_INCOMPLETE", "ERR_LINK_HTTP")
+      }
     } finally {
-      state.bytesPerSec = 0
-      connection?.disconnect()
-      connections.remove(taskId)
-      jobs.remove(taskId)
-      // Fichier jamais publié (échec, annulation) : supprimé, rien n'apparaît dans la bibliothèque.
-      if (state.status != "done" && target != null) {
-        try {
-          resolver.delete(target, null, null)
-        } catch (e: Exception) {
-          // Entrée « en attente » : Android la supprime de lui-même après quelques jours.
-        }
+      task.bytesPerSec = 0
+      task.connection?.disconnect()
+      task.connection = null
+      task.job = null
+      if (task.status != "done" && !keepPart) {
+        discardPart(task.partUri)
+        task.partUri = null
       }
     }
   }
 
-  private fun fail(state: State, e: Throwable) {
-    // Annulé pendant une requête : rien à signaler.
-    if (state.status == "cancelled") return
-    state.error = networkError(e).code
-    state.status = "failed"
+  /** Fichier complet et vérifié : publication dans Music/ ou Movies/, puis indexation par Android. */
+  private fun finish(task: Task, part: String, size: Long) {
+    val r = task.request
+    val head = ByteArray(HEAD_BYTES)
+    val n = readPartHead(part, head)
+    if (sniff(head, n) != r.expect) throw LinkException("ERR_LINK_TYPE", "Type réel différent")
+    if (part.startsWith("content://")) {
+      val uri = Uri.parse(part)
+      context.contentResolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+      requestScan(uri)
+      task.mediaId = ContentUris.parseId(uri).toString()
+      task.mediaUri = uri.toString()
+    } else {
+      // Android 9 et avant : déplacement dans le dossier public, nom libre (« (2) »), puis indexation.
+      val dir = legacyFolder(r.relativePath)
+      if (!dir.isDirectory && !dir.mkdirs()) throw LinkException("ERR_LINK_STORAGE", "Dossier impossible")
+      val base = r.displayName.substringBeforeLast('.')
+      val ext = r.displayName.substringAfterLast('.', "")
+      var target = File(dir, r.displayName)
+      var i = 2
+      while (target.exists()) {
+        target = File(dir, "$base ($i).$ext")
+        i += 1
+      }
+      val source = File(part)
+      if (!source.renameTo(target)) {
+        source.inputStream().use { input -> FileOutputStream(target).use { input.copyTo(it, 256 * 1024) } }
+        source.delete()
+      }
+      task.partUri = null
+      val latch = CountDownLatch(1)
+      MediaScannerConnection.scanFile(context, arrayOf(target.absolutePath), arrayOf(r.mimeType)) { _, uri ->
+        if (uri != null) {
+          task.mediaId = ContentUris.parseId(uri).toString()
+          task.mediaUri = uri.toString()
+        }
+        latch.countDown()
+      }
+      latch.await(15, TimeUnit.SECONDS)
+    }
+    task.bytesDone = size
+    task.bytesTotal = size
+    task.status = "done"
   }
 
   private fun requestScan(uri: Uri) {
@@ -436,4 +644,7 @@ internal class LinkDownloader(private val context: Context, private val scope: C
       // L'indexation d'Android suivra de toute façon la publication du fichier.
     }
   }
+
+  /** Ouvre OpenPlay depuis la notification. */
+  fun launchIntent(): Intent? = context.packageManager.getLaunchIntentForPackage(context.packageName)
 }

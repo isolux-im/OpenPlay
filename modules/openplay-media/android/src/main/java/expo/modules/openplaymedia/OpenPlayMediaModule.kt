@@ -87,8 +87,9 @@ class OpenPlayMediaModule : Module() {
   /** Renommage ou déplacement en attente de l'autorisation Android : la promesse et l'opération à mener. */
   private var pendingWrite: Pair<Promise, () -> Any?>? = null
 
-  /** Télécharger par lien : analyse et transferts vérifiés (créé à la première utilisation). */
-  private val linkDownloader by lazy { LinkDownloader(context.applicationContext, appContext.backgroundCoroutineScope) }
+  /** Télécharger par lien : analyse et transferts vérifiés, au niveau du processus (voir LinkDownloads). */
+  private val linkDownloader: LinkDownloads
+    get() = LinkDownloads.also { it.init(context) }
 
   /** Orientation de l'activité avant l'ouverture du lecteur vidéo (rétablie à la fermeture). */
   private var savedOrientation: Int? = null
@@ -357,7 +358,6 @@ class OpenPlayMediaModule : Module() {
 
     // Télécharger par lien (Recherche) : analyse, transfert vérifié, suivi, annulation.
     AsyncFunction("probeLinkAsync") Coroutine { url: String ->
-      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) throw CodedException("ERR_UNSUPPORTED", "Android 10 requis", null)
       withContext(Dispatchers.IO) { linkDownloader.probe(url) }
     }
 
@@ -365,16 +365,40 @@ class OpenPlayMediaModule : Module() {
       withContext(Dispatchers.IO) { linkDownloader.exists(kind, relativePath, displayName) }
     }
 
-    AsyncFunction("startLinkDownloadAsync") { taskId: String, url: String, kind: String, relativePath: String, displayName: String, mimeType: String, expect: String, expectedSize: Double ->
-      linkDownloader.start(taskId, url, kind, relativePath, displayName, mimeType, expect, expectedSize.toLong())
+    AsyncFunction("startLinkDownloadAsync") { taskId: String, options: Map<String, Any?> ->
+      fun text(key: String) = options[key] as? String
+      fun required(key: String) = text(key) ?: throw CodedException("ERR_LINK_ARGS", "Paramètre manquant : $key", null)
+      linkDownloader.start(
+        taskId,
+        LinkDownloads.Request(
+          url = required("url"),
+          kind = required("kind"),
+          relativePath = required("relativePath"),
+          displayName = required("displayName"),
+          mimeType = required("mimeType"),
+          expect = required("expect"),
+          expectedSize = (options["expectedSize"] as? Number)?.toLong() ?: -1L,
+          resumePart = text("partUri"),
+          etag = text("etag"),
+          lastModified = text("lastModified"),
+        ),
+      )
+    }
+
+    AsyncFunction("pauseLinkDownloadAsync") { taskId: String ->
+      linkDownloader.pause(taskId)
+    }
+
+    AsyncFunction("discardLinkPartAsync") { partUri: String ->
+      linkDownloader.discardPart(partUri)
     }
 
     AsyncFunction("getLinkDownloadsAsync") { taskIds: List<String> ->
       linkDownloader.states(taskIds)
     }
 
-    AsyncFunction("cancelLinkDownloadAsync") { taskId: String ->
-      linkDownloader.cancel(taskId)
+    AsyncFunction("cancelLinkDownloadAsync") { taskId: String, partUri: String? ->
+      linkDownloader.cancel(taskId, partUri)
     }
 
     // Presse-papiers lu seulement quand l'utilisateur touche « Coller ».
