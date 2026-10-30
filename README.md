@@ -19,7 +19,7 @@ lecteur plein écran qui s'ouvre depuis le mini-lecteur et se ferme d'un glissem
 | Vidéos | Même organisation que Musique : recherche, tuiles Récentes, Favoris, Playlists, Toutes, Continuer, Bilan ; « Continuer à regarder » ; Parcourir (Toutes les vidéos, Séries, Playlists vidéo, Dossiers) ; lecteur vidéo et mini-lecteur. Vidéos classées automatiquement par nom (ordre alphabétique, 2 avant 10), sans « Trier par » |
 | Audios | Mix pour vous (titres phares, genre favori, à redécouvrir, aléatoire), Récents, Favoris, Playlists, Titres (tri titre/artiste/album/date), Artistes, Albums, Genres, Dossiers, À découvrir, Bilan d'écoute ; fiches album et artiste |
 | Musique › Playlists | Création, renommage, suppression, ajout de morceaux, réordonnancement par glisser-déposer ; playlists automatiques (favoris, plus écoutés, ajoutés récemment, à redécouvrir) |
-| Recherche | Recherche instantanée sans accents ni casse (morceaux, artistes, albums, playlists), meilleur résultat, recherches récentes, genres |
+| Recherche | Recherche instantanée sans accents ni casse (morceaux, artistes, albums, playlists), meilleur résultat, recherches récentes, genres ; Télécharger par lien et Mes téléchargements |
 | Paramètres | Thème clair/sombre/système, couleur d'accent, lecteur coloré, analyse et durée minimale, reprise au lancement, haptique, minuterie, historique |
 | Lecteur | Pochette, fond aux couleurs de la pochette, barre de progression interactive, aléatoire, répétition (tout / un), favoris, paroles .lrc synchronisées, file d'attente modifiable, minuterie de sommeil |
 
@@ -93,6 +93,34 @@ synchronisées, marquées « transcription automatique — à vérifier ».
 - **Volume** : pas de curseur de volume dans le lecteur (boutons physiques du téléphone).
 - Le bouton « précédent » de la notification recule toujours d'une piste (comportement d'expo-audio) ;
   dans l'application, il revient au début du morceau après 3 s.
+
+## Télécharger par lien (Recherche)
+
+Recherche › **Télécharger par lien** : coller (ou partager vers OpenPlay) un lien, l'analyser, choisir MP3 ou MP4 et
+une qualité réellement disponible, suivre le transfert dans **Mes téléchargements**. Le fichier vérifié arrive dans
+`Music/OpenPlay` (onglet Audios) ou `Movies/OpenPlay` (onglet Vidéos), sans redémarrage.
+
+| Source | Comportement |
+| --- | --- |
+| Fichier direct https (.mp3, .mp4) | Analyse de quelques octets (type réel, taille, durée, définition), puis téléchargement vérifié |
+| YouTube | Lien reconnu, aucune requête : explication des règles YouTube, « Ouvrir YouTube », export officiel de ses propres vidéos ; aucune conversion YouTube → MP3 |
+| TikTok | Lien reconnu : enregistrement par la fonction officielle de TikTok (si le créateur l'autorise), puis le fichier apparaît dans Vidéos |
+| Instagram, Facebook | Liens reconnus, aucune extraction promise : export de ses propres données ou import d'un fichier autorisé |
+| Page web, autre format | « Téléchargement direct indisponible pour cette source », avec la raison |
+
+| Format | Option | Méthode | État |
+| --- | --- | --- | --- |
+| MP3 | Originale (fichier MP3 source) | Direct | Disponible |
+| MP3 | 64, 96, 128, 192, 256, 320 kb/s | Conversion locale | Indisponible : aucun encodeur MP3 intégré (affiché, grisé, avec la raison) |
+| MP4 | Originale, et la définition de la source (ex. 1080p) | Direct | Disponible |
+| MP4 | Définitions supérieures à la source | — | Jamais proposées (aucun gain de détail) |
+| MP4 | Définitions inférieures (réduction) | Conversion locale | Indisponible : conversion vidéo locale non intégrée |
+
+Sécurité : https seulement (port 443, sans identifiants), adresses locales, privées et de métadonnées refusées avant
+et après résolution DNS et à chaque redirection (5 au plus), type réel vérifié par signature (pas d'après
+l'extension ni l'en-tête), fichier « en attente » dans MediaStore jusqu'à la vérification de sa taille et de son type
+(sinon supprimé), 2 transferts simultanés, 8 Go au plus, espace libre contrôlé, secrets masqués dans les liens
+affichés. Android 10 ou plus. Pause et reprise ne sont pas proposées (« Réessayer » relance depuis le début).
 
 ## Obtenir l'APK (GitHub Actions)
 

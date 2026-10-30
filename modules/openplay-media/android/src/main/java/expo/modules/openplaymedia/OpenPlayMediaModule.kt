@@ -87,11 +87,16 @@ class OpenPlayMediaModule : Module() {
   /** Renommage ou déplacement en attente de l'autorisation Android : la promesse et l'opération à mener. */
   private var pendingWrite: Pair<Promise, () -> Any?>? = null
 
+  /** Télécharger par lien : analyse et transferts vérifiés (créé à la première utilisation). */
+  private val linkDownloader by lazy { LinkDownloader(context.applicationContext, appContext.backgroundCoroutineScope) }
+
   /** Orientation de l'activité avant l'ouverture du lecteur vidéo (rétablie à la fermeture). */
   private var savedOrientation: Int? = null
 
   override fun definition() = ModuleDefinition {
     Name("OpenPlayMedia")
+
+    Events("onSharedText")
 
     OnCreate {
       appContext.reactContext?.let { CrashRecorder.install(it.applicationContext) }
@@ -350,6 +355,49 @@ class OpenPlayMediaModule : Module() {
       }
     }
 
+    // Télécharger par lien (Recherche) : analyse, transfert vérifié, suivi, annulation.
+    AsyncFunction("probeLinkAsync") Coroutine { url: String ->
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) throw CodedException("ERR_UNSUPPORTED", "Android 10 requis", null)
+      withContext(Dispatchers.IO) { linkDownloader.probe(url) }
+    }
+
+    AsyncFunction("mediaFileExistsAsync") Coroutine { kind: String, relativePath: String, displayName: String ->
+      withContext(Dispatchers.IO) { linkDownloader.exists(kind, relativePath, displayName) }
+    }
+
+    AsyncFunction("startLinkDownloadAsync") { taskId: String, url: String, kind: String, relativePath: String, displayName: String, mimeType: String, expect: String, expectedSize: Double ->
+      linkDownloader.start(taskId, url, kind, relativePath, displayName, mimeType, expect, expectedSize.toLong())
+    }
+
+    AsyncFunction("getLinkDownloadsAsync") { taskIds: List<String> ->
+      linkDownloader.states(taskIds)
+    }
+
+    AsyncFunction("cancelLinkDownloadAsync") { taskId: String ->
+      linkDownloader.cancel(taskId)
+    }
+
+    // Presse-papiers lu seulement quand l'utilisateur touche « Coller ».
+    AsyncFunction("getClipboardTextAsync") { ->
+      val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+      val clip = clipboard.primaryClip
+      if (clip == null || clip.itemCount == 0) null else clip.getItemAt(0).coerceToText(context)?.toString()
+    }.runOnQueue(Queues.MAIN)
+
+    // « Partager » depuis une autre application (texte contenant un lien) : au lancement, puis à chaque partage.
+    AsyncFunction("getSharedTextAsync") { ->
+      val intent = appContext.currentActivity?.intent
+      val text = sharedText(intent)
+      if (text != null) intent?.removeExtra(Intent.EXTRA_TEXT)
+      text
+    }.runOnQueue(Queues.MAIN)
+
+    OnNewIntent { intent ->
+      val text = sharedText(intent) ?: return@OnNewIntent
+      intent.removeExtra(Intent.EXTRA_TEXT)
+      sendEvent("onSharedText", mapOf("text" to text))
+    }
+
     OnActivityResult { _, payload ->
       if (payload.requestCode == WRITE_REQUEST) {
         val (promise, action) = pendingWrite ?: return@OnActivityResult
@@ -381,6 +429,11 @@ class OpenPlayMediaModule : Module() {
         promise.reject("ERR_SUBTITLE_PICK", e.message, e)
       }
     }
+  }
+
+  private fun sharedText(intent: Intent?): String? {
+    if (intent?.action != Intent.ACTION_SEND || intent.type?.startsWith("text/") != true) return null
+    return intent.getStringExtra(Intent.EXTRA_TEXT)?.takeIf { it.isNotBlank() }?.take(4096)
   }
 
   /** Dossier du stockage partagé (« Movies/Séries ») ; chemins remontants ou vides refusés. */

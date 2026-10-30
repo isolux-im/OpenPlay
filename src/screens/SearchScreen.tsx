@@ -9,6 +9,7 @@ import { TrackRow } from '../components/TrackRow';
 import { searchLibrary } from '../library/search';
 import { pluralize } from '../library/text';
 import { useAppNavigation } from '../navigation/ref';
+import { useDownloads } from '../store/downloads';
 import { useLibrary } from '../store/library';
 import { usePlayer } from '../store/player';
 import { useUi } from '../store/ui';
@@ -55,6 +56,8 @@ export function SearchScreen() {
           </Pressable>
         ) : null}
       </View>
+
+      {!searching ? <DownloadEntry /> : null}
 
       <LibraryGate>
         {!searching ? (
@@ -174,7 +177,52 @@ export function SearchScreen() {
   );
 }
 
+/** « Télécharger par lien » (fichiers MP3 / MP4 directs) et « Mes téléchargements », sans toucher à la recherche locale. */
+function DownloadEntry() {
+  const navigation = useAppNavigation();
+  const { colors } = useTheme();
+  const total = useDownloads((s) => s.items.length);
+  const active = useDownloads((s) => s.items.filter((d) => d.status === 'pending' || d.status === 'running').length);
+  return (
+    <View style={[styles.downloads, { backgroundColor: colors.card }]}>
+      <Pressable onPress={() => navigation.push('DownloadLink', {})} style={({ pressed }) => [styles.downloadRow, pressed && { backgroundColor: colors.fill }]} accessibilityRole="button" accessibilityLabel="Télécharger par lien">
+        <View style={[styles.downloadIcon, { backgroundColor: colors.fill }]}>
+          <Icon name="link-outline" size={20} color={colors.accent} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text variant="body" weight="semibold">
+            Télécharger par lien
+          </Text>
+          <Text variant="footnote" tone="secondary">
+            MP3 ou MP4 depuis un lien de fichier direct
+          </Text>
+        </View>
+        <Icon name="chevron-forward" size={18} color={colors.tertiaryText} />
+      </Pressable>
+      {total ? (
+        <Pressable onPress={() => navigation.push('Downloads')} style={({ pressed }) => [styles.downloadRow, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.separator }, pressed && { backgroundColor: colors.fill }]} accessibilityRole="button" accessibilityLabel={active ? `Mes téléchargements, ${active} en cours` : 'Mes téléchargements'}>
+          <View style={[styles.downloadIcon, { backgroundColor: colors.fill }]}>
+            <Icon name="download-outline" size={20} color={colors.accent} />
+          </View>
+          <Text variant="body" style={{ flex: 1 }}>
+            Mes téléchargements
+          </Text>
+          {active ? (
+            <Text variant="subhead" tone="accent">
+              {active} en cours
+            </Text>
+          ) : null}
+          <Icon name="chevron-forward" size={18} color={colors.tertiaryText} />
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  downloads: { marginHorizontal: GUTTER, marginBottom: 6, borderRadius: radius.lg, overflow: 'hidden' },
+  downloadRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, paddingVertical: 10 },
+  downloadIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   field: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: GUTTER, paddingHorizontal: 14, height: 46, borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth, marginBottom: 4 },
   input: { flex: 1, fontSize: 17, paddingVertical: 0 },
   recentHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: GUTTER, marginTop: 24, marginBottom: 6 },

@@ -9,6 +9,7 @@ import { OpenPlayMedia } from '../modules/openplay-media';
 import { ContextMenuHost } from './components/ContextMenu';
 import { GlassTarget } from './components/Glass';
 import { installJsErrorRecorder } from './diagnostics/crashReports';
+import { useDownloadIntake } from './download/intake';
 import { ErrorBoundary } from './diagnostics/ErrorBoundary';
 import { SheetHost } from './components/Sheets';
 import { RootNavigator } from './navigation/RootNavigator';
@@ -39,6 +40,8 @@ function useBootstrap(engineFactory: () => PlaybackEngine) {
     connectPlayer(engineFactory(), (id) => useLibrary.getState().index.byId[id]);
     return () => disconnectPlayer();
   }, [engineFactory]);
+
+  useDownloadIntake();
 
   // Vidéothèque indexée dès le lancement si l'accès vidéo est déjà accordé (aucune demande ici).
   useEffect(() => {

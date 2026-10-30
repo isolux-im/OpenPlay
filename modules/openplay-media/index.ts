@@ -55,6 +55,36 @@ export type NetworkDiagnosis = {
   probe: { ok: boolean; status: number | null; error: 'dns' | 'tls' | 'timeout' | 'unreachable' | 'io' | 'other' | null; message: string | null; ms: number };
 };
 
+/** Analyse d'un lien (quelques octets lus, redirections vérifiées) : voir `src/download/options.ts` (`Probe`). */
+export type NativeProbe = {
+  finalUrl: string;
+  status: number;
+  contentType: string | null;
+  size: number;
+  fileName: string | null;
+  sniff: 'mp3' | 'mp4' | 'm4a' | 'mov' | 'webm' | 'ogg' | 'flac' | 'wav' | 'aac' | 'html' | 'unknown';
+  redirects: number;
+  durationMs: number | null;
+  width: number | null;
+  height: number | null;
+  title: string | null;
+  artist: string | null;
+};
+
+/** État d'un téléchargement par lien côté Android. */
+export type NativeLinkDownload = {
+  status: 'running' | 'done' | 'failed' | 'cancelled';
+  bytesDone: number;
+  /** -1 si inconnue. */
+  bytesTotal: number;
+  bytesPerSec: number;
+  mediaId?: string;
+  mediaUri?: string;
+  /** Code ERR_LINK_… en cas d'échec ; `httpStatus` pour ERR_LINK_HTTP. */
+  error?: string;
+  httpStatus?: number;
+};
+
 type OpenPlayMediaModule = {
   queryTracksAsync(minDurationMs: number): Promise<NativeTrack[]>;
   getArtworkAsync(trackId: string, albumId: string, size: number): Promise<NativeArtwork | null>;
@@ -101,6 +131,26 @@ type OpenPlayMediaModule = {
   createFolderAsync?(relativePath: string): Promise<boolean>;
   /** Android 11+ : supprime le dossier s'il est vide ; false s'il contient encore des fichiers. */
   deleteEmptyFolderAsync?(relativePath: string): Promise<boolean>;
+  /**
+   * Télécharger par lien (Android 10+). Analyse : https seulement, hôtes internes refusés après résolution DNS et à
+   * chaque redirection (5 au plus). Erreurs : ERR_LINK_UNSAFE, ERR_LINK_SCHEME, ERR_LINK_REDIRECTS, ERR_LINK_DNS,
+   * ERR_LINK_TLS, ERR_LINK_TIMEOUT, ERR_LINK_NETWORK. Le statut HTTP est renvoyé tel quel (pas d'erreur).
+   */
+  probeLinkAsync?(url: string): Promise<NativeProbe>;
+  /** Un fichier de ce nom existe déjà dans ce dossier (« Movies/OpenPlay »). */
+  mediaFileExistsAsync?(kind: 'audio' | 'video', relativePath: string, displayName: string): Promise<boolean>;
+  /**
+   * Démarre le transfert en arrière-plan vers une entrée MediaStore « en attente » (invisible des autres applications
+   * et de la bibliothèque). À la fin : taille et type réel vérifiés, puis publication ; sinon l'entrée est supprimée.
+   */
+  startLinkDownloadAsync?(taskId: string, url: string, kind: 'audio' | 'video', relativePath: string, displayName: string, mimeType: string, expect: string, expectedSize: number): Promise<void>;
+  getLinkDownloadsAsync?(taskIds: string[]): Promise<Record<string, NativeLinkDownload>>;
+  cancelLinkDownloadAsync?(taskId: string): Promise<void>;
+  /** Texte du presse-papiers, lu seulement quand l'utilisateur touche « Coller ». */
+  getClipboardTextAsync?(): Promise<string | null>;
+  /** Texte reçu par « Partager vers OpenPlay » au lancement (consommé : renvoyé une seule fois). */
+  getSharedTextAsync?(): Promise<string | null>;
+  addListener?(event: 'onSharedText', listener: (e: { text: string }) => void): { remove(): void };
   /** Journal de diagnostic local et fins anormales enregistrées par Android 11+. Absents des anciennes versions. */
   getCrashReportsAsync?(): Promise<{ log: string | null; exits: ExitReason[] }>;
   clearCrashReportsAsync?(): Promise<void>;

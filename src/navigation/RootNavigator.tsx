@@ -7,6 +7,8 @@ import { AddSongsScreen } from '../screens/AddSongsScreen';
 import { AlbumScreen } from '../screens/AlbumScreen';
 import { ArtistScreen } from '../screens/ArtistScreen';
 import { DiscoverScreen } from '../screens/DiscoverScreen';
+import { DownloadLinkScreen } from '../screens/DownloadLinkScreen';
+import { DownloadsScreen } from '../screens/DownloadsScreen';
 import { EditTrackScreen } from '../screens/EditTrackScreen';
 import { ExcludedFoldersScreen } from '../screens/ExcludedFoldersScreen';
 import {
@@ -63,6 +65,8 @@ const SHARED: { name: keyof AnyStackParams; component: ComponentType }[] = [
   { name: 'VideoStats', component: VideoStatsScreen },
   { name: 'VideoPlaylist', component: VideoPlaylistScreen },
   { name: 'VideoCollection', component: VideoCollectionScreen },
+  { name: 'DownloadLink', component: DownloadLinkScreen },
+  { name: 'Downloads', component: DownloadsScreen },
   { name: 'VideoSeriesList', component: VideoSeriesListScreen },
   { name: 'VideoPlaylists', component: VideoPlaylistsScreen },
   { name: 'VideoFolders', component: VideoFoldersScreen },

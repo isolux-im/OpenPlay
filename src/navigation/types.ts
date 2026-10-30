@@ -33,6 +33,9 @@ export type SharedStackParams = {
   VideoFolders: undefined;
   /** Nouveau dossier : choix des fichiers à y déplacer ou copier. */
   NewFolder: { kind: 'audio' | 'video'; folder: string };
+  /** Recherche › Télécharger par lien (lien prérempli quand il est reçu par « Partager »). */
+  DownloadLink: { url?: string } | undefined;
+  Downloads: undefined;
   /** Playlists musicales, ouvertes depuis l'onglet Musique. */
   MusicPlaylists: undefined;
 };
